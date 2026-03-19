@@ -57,6 +57,17 @@ export interface FormatTagOptions {
    * one per non-empty line.  When `false`, the tag content is only trimmed.
    */
   collapseMultiline: boolean;
+  /**
+   * When `true`, `<% … %>` script tags are converted to `<%_ … _%>`
+   * (whitespace-slurping) tags.
+   */
+  preferSlurping: boolean;
+  /**
+   * Indentation string for the open tag.  When the tag content is multiline
+   * and `collapseMultiline` is `false`, the close delimiter is placed on its
+   * own line preceded by this string so that it aligns with the open tag.
+   */
+  indent?: string;
 }
 
 /**
@@ -80,4 +91,10 @@ export interface EjsPluginOptions {
    * single-line tag.  When `false`, the tag content is only trimmed.
    */
   ejsCollapseMultiline: boolean;
+
+  /**
+   * When `true`, plain `<% … %>` script tags are converted to the
+   * whitespace-slurping form `<%_ … _%>`.
+   */
+  ejsPreferSlurping: boolean;
 }

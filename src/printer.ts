@@ -81,6 +81,11 @@ function startsWithCloseBrace(line: string): boolean {
  *      `options.collapseMultiline` is `true`.
  *   3. Exactly one space is placed before and after the content.
  *   4. `<%=` is converted to `<%-` when `options.preferRaw` is `true`.
+ *   5. `<% … %>` is converted to `<%_ … _%>` when `options.preferSlurping`
+ *      is `true`.
+ *   6. When `options.collapseMultiline` is `false` and the trimmed content
+ *      contains newlines, the close delimiter is placed on its own line
+ *      preceded by `options.indent` (so it aligns with the open tag).
  */
 export function formatTag(
   open: string,
@@ -93,13 +98,27 @@ export function formatTag(
     : rawContent.trim();
 
   // Convert <%=  to <%- when preferred.
-  const formattedOpen = options.preferRaw && open === '<%=' ? '<%-' : open;
+  let formattedOpen = options.preferRaw && open === '<%=' ? '<%-' : open;
+  let formattedClose = close;
 
-  if (content === '') {
-    return `${formattedOpen} ${close}`;
+  // Convert <% … %> to <%_ … _%> when preferred.
+  if (options.preferSlurping && formattedOpen === '<%' && close === '%>') {
+    formattedOpen = '<%_';
+    formattedClose = '_%>';
   }
 
-  return `${formattedOpen} ${content} ${close}`;
+  if (content === '') {
+    return `${formattedOpen} ${formattedClose}`;
+  }
+
+  // When not collapsing and the content spans multiple lines, place the
+  // close delimiter on its own line at the same indentation as the open tag.
+  if (!options.collapseMultiline && content.includes('\n')) {
+    const indent = options.indent ?? '';
+    return `${formattedOpen} ${content}\n${indent}${formattedClose}`;
+  }
+
+  return `${formattedOpen} ${content} ${formattedClose}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -120,11 +139,12 @@ export function print(path: AstPath, options: Options): Doc {
 
   const ejsOpts = options as Options & EjsPluginOptions;
   const preferRaw = shouldPreferRaw(ejsOpts.ejsPreferRaw, ejsOpts.filepath);
-  const collapseMultiline = ejsOpts.ejsCollapseMultiline ?? true;
-  const tagOptions: FormatTagOptions = { preferRaw, collapseMultiline };
+  const collapseMultiline = ejsOpts.ejsCollapseMultiline ?? false;
+  const preferSlurping = ejsOpts.ejsPreferSlurping ?? false;
+  const tagOptions: FormatTagOptions = { preferRaw, collapseMultiline, preferSlurping };
   // Pre-built options for single-line tag formatting (used inside the
   // multiline-split loop where content is already a single trimmed line).
-  const singleLineOptions: FormatTagOptions = { preferRaw, collapseMultiline: false };
+  const singleLineOptions: FormatTagOptions = { preferRaw, collapseMultiline: false, preferSlurping };
 
   const children: EjsChildNode[] = node.children;
   const parts: string[] = [];
@@ -188,7 +208,7 @@ export function print(path: AstPath, options: Options): Doc {
             parts.push(indent);
           }
 
-          parts.push(formatTag(tag.open, line, tag.close, singleLineOptions));
+          parts.push(formatTag(tag.open, line, tag.close, { ...singleLineOptions, indent }));
 
           if (endsWithOpenBrace(line)) {
             braceDepth++;
@@ -206,7 +226,11 @@ export function print(path: AstPath, options: Options): Doc {
           braceDepth = Math.max(0, braceDepth - 1);
         }
 
-        parts.push(formatTag(tag.open, tag.content, tag.close, tagOptions));
+        // For standalone tags the printer owns the indentation level; for
+        // inline tags there is no meaningful indent to add to the close
+        // delimiter.
+        const tagIndent = isStandalone ? INDENT_UNIT.repeat(braceDepth) : '';
+        parts.push(formatTag(tag.open, tag.content, tag.close, { ...tagOptions, indent: tagIndent }));
 
         if (endsWithOpenBrace(line)) {
           braceDepth++;
