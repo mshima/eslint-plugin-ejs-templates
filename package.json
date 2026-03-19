@@ -1,0 +1,25 @@
+{
+  "name": "prettier-plugin-templates",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mshima/prettier-plugin-templates.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/mshima/prettier-plugin-templates/issues"
+  },
+  "homepage": "https://github.com/mshima/prettier-plugin-templates#readme",
+  "dependencies": {
+    "prettier": "^3.8.1",
+    "web-tree-sitter": "^0.26.7"
+  }
+}
