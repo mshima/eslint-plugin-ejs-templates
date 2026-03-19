@@ -42,17 +42,17 @@ describe('prettier-plugin-templates (EJS)', () => {
   describe('multiline tags', () => {
     test('collapses multiline tag to a single line (problem-statement example)', async () => {
       const input = '<%_\nif (generateSpringAuditor) {\n_%>';
-      expect(await format(input)).toBe('<%_ if (generateSpringAuditor) { _%>\n');
+      expect(await format(input, { ejsCollapseMultiline: true })).toBe('<%_ if (generateSpringAuditor) { _%>\n');
     });
 
-    test('splits multiline tag into separate single-line tags', async () => {
+    test('splits multiline tag into separate single-line tags when ejsCollapseMultiline is true', async () => {
       const input = '<%_\n  const x = 1;\n  const y = 2;\n_%>';
-      expect(await format(input)).toBe('<%_ const x = 1; _%>\n<%_ const y = 2; _%>\n');
+      expect(await format(input, { ejsCollapseMultiline: true })).toBe('<%_ const x = 1; _%>\n<%_ const y = 2; _%>\n');
     });
 
     test('ignores empty/blank lines inside the tag', async () => {
       const input = '<%\n\n  doSomething();\n\n%>';
-      expect(await format(input)).toBe('<% doSomething(); %>\n');
+      expect(await format(input, { ejsCollapseMultiline: true })).toBe('<% doSomething(); %>\n');
     });
   });
 
@@ -60,13 +60,40 @@ describe('prettier-plugin-templates (EJS)', () => {
     test('preserves multiline content when ejsCollapseMultiline is false', async () => {
       const input = '<%_\n  if (foo) {\n_%>';
       const result = await format(input, { ejsCollapseMultiline: false });
-      // Content is trimmed but not collapsed; newlines in content are kept
+      // Single logical line after trim – same result as collapsed
       expect(result).toBe('<%_ if (foo) { _%>\n');
     });
 
-    test('collapses by default (ejsCollapseMultiline defaults to true)', async () => {
+    test('puts close delimiter on its own line for multiline content when ejsCollapseMultiline is false', async () => {
+      const input = '<%_ if (foo) {\n  doSomething();\n_%>';
+      const result = await format(input, { ejsCollapseMultiline: false });
+      expect(result).toBe('<%_ if (foo) {\n  doSomething();\n_%>\n');
+    });
+
+    test('close delimiter aligns with open tag indentation for multiline content', async () => {
+      // At brace-depth 1 (indented) the close delimiter must align with the
+      // <%_ open tag (  _%> aligns with   <%_).
+      const input =
+        '<%_ if (outer) { _%>\n' +
+        '<%_ for (const x of xs) {\n  doSomething(x);\n_%>\n' +
+        '<%_ } _%>\n';
+      const result = await format(input, { ejsCollapseMultiline: false });
+      expect(result).toBe(
+        '<%_ if (outer) { _%>\n' +
+        '  <%_ for (const x of xs) {\n  doSomething(x);\n  _%>\n' +
+        '<%_ } _%>\n',
+      );
+    });
+
+    test('does not collapse multiline by default (ejsCollapseMultiline defaults to false)', async () => {
       const input = '<%_\n  if (foo) {\n_%>';
+      // Single logical line – output is the same with or without collapsing
       expect(await format(input)).toBe('<%_ if (foo) { _%>\n');
+    });
+
+    test('collapses when ejsCollapseMultiline is explicitly true', async () => {
+      const input = '<%_\n  if (foo) {\n_%>';
+      expect(await format(input, { ejsCollapseMultiline: true })).toBe('<%_ if (foo) { _%>\n');
     });
   });
 
@@ -83,8 +110,8 @@ describe('prettier-plugin-templates (EJS)', () => {
       ).toBe('<%= value %>\n');
     });
 
-    test('converts <%=  to <%- when no filepath is given (ejsPreferRaw: auto default)', async () => {
-      expect(await format('<%= value %>')).toBe('<%- value %>\n');
+    test('does not convert <%=  by default (ejsPreferRaw defaults to never)', async () => {
+      expect(await format('<%= value %>')).toBe('<%= value %>\n');
     });
 
     test('ejsPreferRaw: always – converts even in .html.ejs files', async () => {
@@ -153,7 +180,7 @@ describe('prettier-plugin-templates (EJS)', () => {
     });
 
     test('strips leading whitespace from multiline <%_ tag opening line', async () => {
-      expect(await format('  <%_\n  if (foo) {\n  _%>')).toBe('<%_ if (foo) { _%>\n');
+      expect(await format('  <%_\n  if (foo) {\n  _%>', { ejsCollapseMultiline: true })).toBe('<%_ if (foo) { _%>\n');
     });
 
     test('adds indentation to nested consecutive <%_..._%> tags based on brace depth', async () => {
@@ -179,6 +206,32 @@ describe('prettier-plugin-templates (EJS)', () => {
     });
   });
 
+  describe('ejsPreferSlurping option', () => {
+    test('converts <% … %> to <%_ … _%> when ejsPreferSlurping is true', async () => {
+      expect(await format('<% code %>', { ejsPreferSlurping: true })).toBe('<%_ code _%>\n');
+    });
+
+    test('does not convert <% … %> by default (ejsPreferSlurping defaults to false)', async () => {
+      expect(await format('<% code %>')).toBe('<% code %>\n');
+    });
+
+    test('does not convert <%= … %> (output tag) when ejsPreferSlurping is true', async () => {
+      expect(await format('<%= value %>', { ejsPreferSlurping: true })).toBe('<%= value %>\n');
+    });
+
+    test('does not convert <%# … %> (comment tag) when ejsPreferSlurping is true', async () => {
+      expect(await format('<%# comment %>', { ejsPreferSlurping: true })).toBe('<%# comment %>\n');
+    });
+
+    test('does not double-convert <%_ … _%> when ejsPreferSlurping is true', async () => {
+      expect(await format('<%_ code _%>', { ejsPreferSlurping: true })).toBe('<%_ code _%>\n');
+    });
+
+    test('preserves non-%> close delimiters when ejsPreferSlurping is true', async () => {
+      expect(await format('<% code -%>', { ejsPreferSlurping: true })).toBe('<% code -%>\n');
+    });
+  });
+
   describe('tree-sitter syntax validation', () => {
     test('valid EJS parses without error', async () => {
       await expect(format('<% if (ok) { %>')).resolves.toBeDefined();
@@ -191,6 +244,34 @@ describe('prettier-plugin-templates (EJS)', () => {
       const first = await format(input);
       const second = await format(first);
       expect(second).toBe(first);
+    });
+
+    test('multiline content (ejsCollapseMultiline: false) is idempotent', async () => {
+      const input =
+        '<%_ for (const item of items) {\n' +
+        '      const { name } = item;\n' +
+        '_%>\n';
+      const first = await format(input, { ejsCollapseMultiline: false });
+      const second = await format(first, { ejsCollapseMultiline: false });
+      expect(second).toBe(first);
+    });
+  });
+
+  describe('problem-statement examples', () => {
+    test('multiline <%_ tag with ejsCollapseMultiline:false – close tag aligns with open tag', async () => {
+      // The issue states that when ejsCollapseMultiline is false and the
+      // content is multiline, the close tag must be on its own line at the
+      // same indentation as the open tag (not indented by brace-depth).
+      const input =
+        '<%_ for (const relationshipsByType of Object.values(differentRelationships).filter(r => r)) {\n' +
+        '      const { otherEntity } = relationshipsByType[0];\n' +
+        '_%>\n';
+      const result = await format(input, { ejsCollapseMultiline: false });
+      expect(result).toBe(
+        '<%_ for (const relationshipsByType of Object.values(differentRelationships).filter(r => r)) {\n' +
+        '      const { otherEntity } = relationshipsByType[0];\n' +
+        '_%>\n',
+      );
     });
   });
 });

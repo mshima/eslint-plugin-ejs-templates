@@ -19,7 +19,7 @@ const ejsOptions: Record<keyof EjsPluginOptions, SupportOption> = {
   ejsPreferRaw: {
     category: 'EJS',
     type: 'choice',
-    default: 'auto',
+    default: 'never',
     description:
       'Prefer <%- (raw / unescaped output) over <%= (HTML-escaped output). ' +
       '"always" converts unconditionally, "never" disables conversion, ' +
@@ -36,10 +36,17 @@ const ejsOptions: Record<keyof EjsPluginOptions, SupportOption> = {
   ejsCollapseMultiline: {
     category: 'EJS',
     type: 'boolean',
-    default: true,
+    default: false,
     description:
       'Split multiline EJS tags into separate single-line tags, one per non-empty line. ' +
       'When false, multiline tag content is only trimmed.',
+  },
+  ejsPreferSlurping: {
+    category: 'EJS',
+    type: 'boolean',
+    default: false,
+    description:
+      'Convert plain <% … %> script tags to the whitespace-slurping form <%_ … _%>.',
   },
 };
 
