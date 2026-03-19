@@ -54,7 +54,8 @@ export interface FormatTagOptions {
   preferRaw: boolean;
   /**
    * When `true`, multiline EJS tags are split into separate single-line tags,
-   * one per non-empty line.  When `false`, the tag content is only trimmed.
+   * one per non-empty line.  When `false`, the tag content is trimmed only
+   * when the trimmed result is a single line; multiline content is preserved.
    */
   collapseMultiline: boolean;
   /**
@@ -88,7 +89,8 @@ export interface EjsPluginOptions {
 
   /**
    * When `true`, each non-empty line of a multiline EJS tag becomes its own
-   * single-line tag.  When `false`, the tag content is only trimmed.
+   * single-line tag.  When `false`, the tag content is trimmed only when the
+   * trimmed result is a single line; multiline content is preserved.
    */
   ejsCollapseMultiline: boolean;
 
@@ -97,4 +99,14 @@ export interface EjsPluginOptions {
    * whitespace-slurping form `<%_ … _%>`.
    */
   ejsPreferSlurping: boolean;
+
+  /**
+   * When `true`, brace-depth indentation is applied to standalone
+   * whitespace-slurping (`<%_ … _%>`) tags.  Leading whitespace before such
+   * tags is stripped and replaced by printer-controlled indentation.
+   *
+   * When `false` (the default), no indentation is added or removed, so
+   * formatting a file that uses no other options leaves it unchanged.
+   */
+  ejsIndent: boolean;
 }

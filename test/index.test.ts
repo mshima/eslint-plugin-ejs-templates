@@ -70,21 +70,6 @@ describe('prettier-plugin-templates (EJS)', () => {
       expect(result).toBe('<%_ if (foo) {\n  doSomething();\n_%>\n');
     });
 
-    test('close delimiter aligns with open tag indentation for multiline content', async () => {
-      // At brace-depth 1 (indented) the close delimiter must align with the
-      // <%_ open tag (  _%> aligns with   <%_).
-      const input =
-        '<%_ if (outer) { _%>\n' +
-        '<%_ for (const x of xs) {\n  doSomething(x);\n_%>\n' +
-        '<%_ } _%>\n';
-      const result = await format(input, { ejsCollapseMultiline: false });
-      expect(result).toBe(
-        '<%_ if (outer) { _%>\n' +
-        '  <%_ for (const x of xs) {\n  doSomething(x);\n  _%>\n' +
-        '<%_ } _%>\n',
-      );
-    });
-
     test('does not collapse multiline by default (ejsCollapseMultiline defaults to false)', async () => {
       const input = '<%_\n  if (foo) {\n_%>';
       // Single logical line – output is the same with or without collapsing
@@ -176,11 +161,11 @@ describe('prettier-plugin-templates (EJS)', () => {
 
   describe('indentation (brace-depth tracking)', () => {
     test('strips leading whitespace before a standalone <%_ tag', async () => {
-      expect(await format('  <%_ if (foo) { _%>')).toBe('<%_ if (foo) { _%>\n');
+      expect(await format('  <%_ if (foo) { _%>', { ejsIndent: true })).toBe('<%_ if (foo) { _%>\n');
     });
 
     test('strips leading whitespace from multiline <%_ tag opening line', async () => {
-      expect(await format('  <%_\n  if (foo) {\n  _%>', { ejsCollapseMultiline: true })).toBe('<%_ if (foo) { _%>\n');
+      expect(await format('  <%_\n  if (foo) {\n  _%>', { ejsCollapseMultiline: true, ejsIndent: true })).toBe('<%_ if (foo) { _%>\n');
     });
 
     test('adds indentation to nested consecutive <%_..._%> tags based on brace depth', async () => {
@@ -191,7 +176,7 @@ describe('prettier-plugin-templates (EJS)', () => {
         '    <%_ const y = 2; _%>\n' +
         '  <%_ } _%>\n' +
         '<%_ } _%>\n';
-      expect(await format(input)).toBe(expected);
+      expect(await format(input, { ejsIndent: true })).toBe(expected);
     });
 
     test('} else { keeps the same indent level', async () => {
@@ -202,7 +187,35 @@ describe('prettier-plugin-templates (EJS)', () => {
         '<%_ } else { _%>\n' +
         '  <%_ const x = 2; _%>\n' +
         '<%_ } _%>\n';
-      expect(await format(input)).toBe(expected);
+      expect(await format(input, { ejsIndent: true })).toBe(expected);
+    });
+
+    test('close delimiter aligns with open tag indentation for multiline content', async () => {
+      // At brace-depth 1 (indented) the close delimiter must align with the
+      // <%_ open tag (  _%> aligns with   <%_).
+      const input =
+        '<%_ if (outer) { _%>\n' +
+        '<%_ for (const x of xs) {\n  doSomething(x);\n_%>\n' +
+        '<%_ } _%>\n';
+      const result = await format(input, { ejsCollapseMultiline: false, ejsIndent: true });
+      expect(result).toBe(
+        '<%_ if (outer) { _%>\n' +
+        '  <%_ for (const x of xs) {\n  doSomething(x);\n  _%>\n' +
+        '<%_ } _%>\n',
+      );
+    });
+
+    test('does not add indentation by default (ejsIndent defaults to false)', async () => {
+      const input =
+        '<%_ if (foo) { _%>\n' +
+        '<%_ const x = 1; _%>\n' +
+        '<%_ } _%>\n';
+      // With ejsIndent: false (default), output is identical to input.
+      expect(await format(input)).toBe(input);
+    });
+
+    test('preserves leading whitespace before standalone <%_ tags when ejsIndent is false', async () => {
+      expect(await format('  <%_ if (foo) { _%>\n')).toBe('  <%_ if (foo) { _%>\n');
     });
   });
 
@@ -253,6 +266,75 @@ describe('prettier-plugin-templates (EJS)', () => {
         '_%>\n';
       const first = await format(input, { ejsCollapseMultiline: false });
       const second = await format(first, { ejsCollapseMultiline: false });
+      expect(second).toBe(first);
+    });
+
+    test('multiline content with ejsIndent is idempotent', async () => {
+      const input =
+        '<%_ if (outer) { _%>\n' +
+        '<%_ for (const x of xs) {\n  doSomething(x);\n_%>\n' +
+        '<%_ } _%>\n';
+      const first = await format(input, { ejsCollapseMultiline: false, ejsIndent: true });
+      const second = await format(first, { ejsCollapseMultiline: false, ejsIndent: true });
+      expect(second).toBe(first);
+    });
+  });
+
+  describe('no-option baseline (formatted content must be identical)', () => {
+    test('single-line slurping tag with proper spacing is returned unchanged', async () => {
+      const input = '<%_ if (foo) { _%>\n';
+      expect(await format(input)).toBe(input);
+    });
+
+    test('multiline slurping tag content is preserved as-is', async () => {
+      const input =
+        '<%_ for (const x of xs) {\n' +
+        '  doSomething(x);\n' +
+        '_%>\n';
+      expect(await format(input)).toBe(input);
+    });
+
+    test('template with surrounding text is returned unchanged', async () => {
+      const input = '<%_ if (foo) { _%>\n  <div>content</div>\n<%_ } _%>\n';
+      expect(await format(input)).toBe(input);
+    });
+
+    test('leading whitespace before standalone slurping tags is preserved', async () => {
+      const input = '  <%_ if (foo) { _%>\n';
+      expect(await format(input)).toBe(input);
+    });
+
+    test('multi-tag template without explicit indentation is returned unchanged', async () => {
+      const input =
+        '<%_ if (foo) { _%>\n' +
+        '<%_ const x = 1; _%>\n' +
+        '<%_ } _%>\n';
+      expect(await format(input)).toBe(input);
+    });
+  });
+
+  describe('trim-only-if-single-line', () => {
+    test('single-line content is still normalized (spaces trimmed)', async () => {
+      expect(await format('<%_   foo   _%>')).toBe('<%_ foo _%>\n');
+    });
+
+    test('multiline content is not trimmed (raw content preserved)', async () => {
+      const input = '<%_ if (foo) {\n  doSomething();\n_%>\n';
+      expect(await format(input)).toBe(input);
+    });
+
+    test('content that trims to a single line is collapsed to one line', async () => {
+      // Leading/trailing newlines around single-line content get collapsed.
+      expect(await format('<%_\n  if (foo) {\n_%>')).toBe('<%_ if (foo) { _%>\n');
+    });
+
+    test('multiline content with trailing indent spaces is normalized (idempotency)', async () => {
+      // Simulate a tag that was previously formatted with ejsIndent:true
+      // (trailing spaces on the last line come from the indent prefix).
+      // Re-formatting with ejsIndent:false must not keep adding more spaces.
+      const input = '<%_ for (x) {\n  body();\n  _%>\n';
+      const first = await format(input);
+      const second = await format(first);
       expect(second).toBe(first);
     });
   });
