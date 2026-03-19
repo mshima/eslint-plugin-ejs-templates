@@ -1,16 +1,21 @@
 {
   "name": "prettier-plugin-templates",
   "version": "1.0.0",
-  "description": "",
+  "description": "Prettier plugin for EJS (Embedded JavaScript) templates",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node --experimental-vm-modules node_modules/.bin/jest"
   },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/mshima/prettier-plugin-templates.git"
   },
-  "keywords": [],
+  "keywords": [
+    "prettier",
+    "prettier-plugin",
+    "ejs",
+    "template"
+  ],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
@@ -18,8 +23,12 @@
     "url": "https://github.com/mshima/prettier-plugin-templates/issues"
   },
   "homepage": "https://github.com/mshima/prettier-plugin-templates#readme",
-  "dependencies": {
-    "prettier": "^3.8.1",
-    "web-tree-sitter": "^0.26.7"
+  "peerDependencies": {
+    "prettier": ">=3.0.0"
+  },
+  "devDependencies": {
+    "jest": "^30.3.0",
+    "prettier": "^3.8.1"
   }
 }
+
