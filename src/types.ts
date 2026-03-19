@@ -47,6 +47,19 @@ export interface EjsRootNode {
 }
 
 /**
+ * Options passed to {@link formatTag}.
+ */
+export interface FormatTagOptions {
+  /** When `true`, `<%=` is converted to `<%-`. */
+  preferRaw: boolean;
+  /**
+   * When `true`, multiline EJS tags are split into separate single-line tags,
+   * one per non-empty line.  When `false`, the tag content is only trimmed.
+   */
+  collapseMultiline: boolean;
+}
+
+/**
  * Plugin-specific Prettier options.
  *
  * @see {@link https://prettier.io/docs/en/plugins.html#options}
@@ -63,9 +76,8 @@ export interface EjsPluginOptions {
   ejsPreferRaw: 'always' | 'never' | 'auto';
 
   /**
-   * When `true`, multiline EJS tags are collapsed onto a single line.
-   * Empty lines inside the tag are ignored; non-empty lines are trimmed and
-   * joined with a single space.
+   * When `true`, each non-empty line of a multiline EJS tag becomes its own
+   * single-line tag.  When `false`, the tag content is only trimmed.
    */
   ejsCollapseMultiline: boolean;
 }

@@ -45,9 +45,9 @@ describe('prettier-plugin-templates (EJS)', () => {
       expect(await format(input)).toBe('<%_ if (generateSpringAuditor) { _%>\n');
     });
 
-    test('trims each line and joins with a single space', async () => {
+    test('splits multiline tag into separate single-line tags', async () => {
       const input = '<%_\n  const x = 1;\n  const y = 2;\n_%>';
-      expect(await format(input)).toBe('<%_ const x = 1; const y = 2; _%>\n');
+      expect(await format(input)).toBe('<%_ const x = 1; _%>\n<%_ const y = 2; _%>\n');
     });
 
     test('ignores empty/blank lines inside the tag', async () => {
@@ -122,8 +122,17 @@ describe('prettier-plugin-templates (EJS)', () => {
   });
 
   describe('comment tags', () => {
-    test('preserves <%# comment tags', async () => {
+    test('preserves <%# comment tags verbatim', async () => {
       expect(await format('<%# this is a comment %>')).toBe('<%# this is a comment %>\n');
+    });
+
+    test('does not trim extra whitespace inside comment tags', async () => {
+      expect(await format('<%#   extra spaces   %>')).toBe('<%#   extra spaces   %>\n');
+    });
+
+    test('does not collapse multiline comment tags', async () => {
+      const input = '<%#\n  line one\n  line two\n%>';
+      expect(await format(input)).toBe('<%#\n  line one\n  line two\n%>\n');
     });
   });
 
@@ -138,13 +147,35 @@ describe('prettier-plugin-templates (EJS)', () => {
     });
   });
 
-  describe('indentation preserved', () => {
-    test('indentation before the tag is preserved', async () => {
-      expect(await format('  <%_ if (foo) { _%>')).toBe('  <%_ if (foo) { _%>\n');
+  describe('indentation (brace-depth tracking)', () => {
+    test('strips leading whitespace before a standalone <%_ tag', async () => {
+      expect(await format('  <%_ if (foo) { _%>')).toBe('<%_ if (foo) { _%>\n');
     });
 
-    test('multiline tag retains leading whitespace of its opening line', async () => {
-      expect(await format('  <%_\n  if (foo) {\n  _%>')).toBe('  <%_ if (foo) { _%>\n');
+    test('strips leading whitespace from multiline <%_ tag opening line', async () => {
+      expect(await format('  <%_\n  if (foo) {\n  _%>')).toBe('<%_ if (foo) { _%>\n');
+    });
+
+    test('adds indentation to nested consecutive <%_..._%> tags based on brace depth', async () => {
+      const input = '<%_ { _%>\n<%_ { _%>\n<%_ const y = 2; _%>\n<%_ } _%>\n<%_ } _%>';
+      const expected =
+        '<%_ { _%>\n' +
+        '  <%_ { _%>\n' +
+        '    <%_ const y = 2; _%>\n' +
+        '  <%_ } _%>\n' +
+        '<%_ } _%>\n';
+      expect(await format(input)).toBe(expected);
+    });
+
+    test('} else { keeps the same indent level', async () => {
+      const input = '<%_ if (foo) { _%>\n<%_ const x = 1; _%>\n<%_ } else { _%>\n<%_ const x = 2; _%>\n<%_ } _%>';
+      const expected =
+        '<%_ if (foo) { _%>\n' +
+        '  <%_ const x = 1; _%>\n' +
+        '<%_ } else { _%>\n' +
+        '  <%_ const x = 2; _%>\n' +
+        '<%_ } _%>\n';
+      expect(await format(input)).toBe(expected);
     });
   });
 
