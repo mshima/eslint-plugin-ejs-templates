@@ -148,20 +148,25 @@ export function formatTag(
     return `${formattedOpen} ${trimmed} ${formattedClose}`;
   }
 
-  // Multiline result: preserve the raw content structure.
-  // Strip trailing spaces/tabs (but not newlines) to remove any indent placed
-  // before the close delimiter by a previous format pass (ensures idempotency).
-  let normalizedContent = rawContent.replace(/[^\S\n]+$/, '');
-  // Ensure the content ends with a newline so the close delimiter sits on its
-  // own line.
-  if (!normalizedContent.endsWith('\n')) {
-    normalizedContent += '\n';
+  // Multiline result: behaviour differs by close delimiter.
+  if (formattedClose === '_%>') {
+    // Slurping close: always place _%> on its own indented new line.
+    // Strip trailing spaces/tabs (but not newlines) so a previous format pass's
+    // indent prefix does not accumulate (ensures idempotency).
+    let normalizedContent = rawContent.replace(/[^\S\n]+$/, '');
+    if (!normalizedContent.endsWith('\n')) {
+      normalizedContent += '\n';
+    }
+    const indent = options.indent ?? '';
+    const sep = normalizedContent.startsWith(' ') || normalizedContent.startsWith('\n') ? '' : ' ';
+    return `${formattedOpen}${sep}${normalizedContent}${indent}${formattedClose}`;
+  } else {
+    // Non-slurping close (%>, -%>, …): preserve the raw content without any
+    // modification — do not strip trailing whitespace and do not reposition
+    // the close delimiter onto a new line.
+    const sep = rawContent.startsWith(' ') || rawContent.startsWith('\n') ? '' : ' ';
+    return `${formattedOpen}${sep}${rawContent}${formattedClose}`;
   }
-  const indent = options.indent ?? '';
-  // Add a separator space only when the raw content does not already start
-  // with whitespace (e.g. when the caller already passed a trimmed string).
-  const separator = normalizedContent.startsWith(' ') || normalizedContent.startsWith('\n') ? '' : ' ';
-  return `${formattedOpen}${separator}${normalizedContent}${indent}${formattedClose}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -255,7 +260,14 @@ export function print(path: AstPath, options: Options): Doc {
         for (let j = 0; j < lines.length; j++) {
           const line = lines[j];
 
-          if (ejsIndent && startsWithCloseBrace(line)) {
+          // When ejsIndent is on, a single output "line" may contain multiple
+          // code lines (collapseMultiline is false and the tag content is
+          // multiline).  Split for accurate per-line brace-depth tracking so
+          // every opening/closing brace — not just the first/last — is counted.
+          const codeLines = ejsIndent && line.includes('\n') ? splitLines(line) : null;
+          const firstBLine = codeLines !== null ? (codeLines[0] ?? '') : line;
+
+          if (ejsIndent && startsWithCloseBrace(firstBLine)) {
             braceDepth = Math.max(0, braceDepth - 1);
           }
 
@@ -285,19 +297,37 @@ export function print(path: AstPath, options: Options): Doc {
 
           parts.push(formatTag(tag.open, line, tag.close, { ...singleLineOptions, indent: ejsIndent ? indent : prevLineIndent }));
 
-          if (ejsIndent && endsWithOpenBrace(line)) {
-            braceDepth++;
+          if (ejsIndent) {
+            if (codeLines !== null) {
+              // Multi-line block: apply depth changes from each code line.
+              // The first line's leading close-brace was already applied above.
+              for (let k = 0; k < codeLines.length; k++) {
+                if (k > 0 && startsWithCloseBrace(codeLines[k])) {
+                  braceDepth = Math.max(0, braceDepth - 1);
+                }
+                if (endsWithOpenBrace(codeLines[k])) {
+                  braceDepth++;
+                }
+              }
+            } else {
+              if (endsWithOpenBrace(line)) {
+                braceDepth++;
+              }
+            }
           }
         }
       } else {
         // Inline tag (preceded by non-whitespace) or non-slurping tag.
         // Still track brace depth (when ejsIndent is on) so that a later
         // standalone block is indented correctly.
-        const line = collapseMultiline
-          ? splitLines(tag.content).join(' ')
-          : tag.content.trim();
+        //
+        // When ejsIndent is on, always use individual content lines for
+        // brace-depth tracking so that multi-line blocks are accounted for
+        // correctly (a tag can open or close multiple brace levels).
+        const codeLines = ejsIndent ? splitLines(tag.content) : null;
+        const firstBLine = codeLines !== null ? (codeLines[0] ?? '') : tag.content.trim();
 
-        if (ejsIndent && startsWithCloseBrace(line)) {
+        if (ejsIndent && startsWithCloseBrace(firstBLine)) {
           braceDepth = Math.max(0, braceDepth - 1);
         }
 
@@ -309,8 +339,17 @@ export function print(path: AstPath, options: Options): Doc {
           : prevLineIndent;
         parts.push(formatTag(tag.open, tag.content, tag.close, { ...tagOptions, indent: tagIndent }));
 
-        if (ejsIndent && endsWithOpenBrace(line)) {
-          braceDepth++;
+        if (ejsIndent) {
+          if (codeLines !== null) {
+            for (let k = 0; k < codeLines.length; k++) {
+              if (k > 0 && startsWithCloseBrace(codeLines[k])) {
+                braceDepth = Math.max(0, braceDepth - 1);
+              }
+              if (endsWithOpenBrace(codeLines[k])) {
+                braceDepth++;
+              }
+            }
+          }
         }
       }
     }

@@ -82,6 +82,41 @@ describe('prettier-plugin-templates (EJS)', () => {
     });
   });
 
+  describe('close delimiter behaviour by tag type', () => {
+    test('_%> is always placed on its own new line for multiline content', async () => {
+      // Even if the raw content does not end with a newline, _%> must be put
+      // on its own line so the slurping delimiter is unambiguous.
+      const input = '<%_ if (foo) {\n  doSomething(); _%>';
+      expect(await format(input)).toBe('<%_ if (foo) {\n  doSomething();\n_%>\n');
+    });
+
+    test('_%> with indent is placed on its own indented new line', async () => {
+      // When an indent is in play (from ejsIndent or prevLineIndent), it
+      // appears before _%> on its own line.
+      const input = '  <%_ if (foo) {\n  doSomething();\n  _%>';
+      expect(await format(input)).toBe('  <%_ if (foo) {\n  doSomething();\n  _%>\n');
+    });
+
+    test('%> does not trim trailing whitespace from multiline content', async () => {
+      // For a non-slurping close, the raw content is preserved as-is —
+      // trailing spaces on the last line are not stripped.
+      const input = '<% if (foo) {\n  doSomething();  %>';
+      expect(await format(input)).toBe('<% if (foo) {\n  doSomething();  %>\n');
+    });
+
+    test('%> does not force close delimiter onto a new line', async () => {
+      // For a non-slurping close, the %> stays wherever the raw content
+      // puts it — no newline is injected before %>.
+      const input = '<% if (foo) {\n  doSomething(); %>';
+      expect(await format(input)).toBe('<% if (foo) {\n  doSomething(); %>\n');
+    });
+
+    test('%> multiline content with trailing newline is preserved as-is', async () => {
+      const input = '<% if (foo) {\n  doSomething();\n%>';
+      expect(await format(input)).toBe('<% if (foo) {\n  doSomething();\n%>\n');
+    });
+  });
+
   describe('<%- vs <%=', () => {
     test('converts <%=  to <%- in non-.html.ejs files (ejsPreferRaw: auto)', async () => {
       expect(await format('<%= value %>', { filepath: 'template.ejs', ejsPreferRaw: 'auto' })).toBe(
@@ -193,6 +228,9 @@ describe('prettier-plugin-templates (EJS)', () => {
     test('close delimiter aligns with open tag indentation for multiline content', async () => {
       // At brace-depth 1 (indented) the close delimiter must align with the
       // <%_ open tag (  _%> aligns with   <%_).
+      // The for-loop tag opens a new block ({), increasing depth to 2.
+      // The closing } tag decrements depth back to 1 before emitting,
+      // so it gets one indent level (  <%_ } _%>).
       const input =
         '<%_ if (outer) { _%>\n' +
         '<%_ for (const x of xs) {\n  doSomething(x);\n_%>\n' +
@@ -201,6 +239,44 @@ describe('prettier-plugin-templates (EJS)', () => {
       expect(result).toBe(
         '<%_ if (outer) { _%>\n' +
         '  <%_ for (const x of xs) {\n  doSomething(x);\n  _%>\n' +
+        '  <%_ } _%>\n',
+      );
+    });
+
+    test('multiline tag with destructuring correctly increments brace depth', async () => {
+      // The for-loop opens a block on its first content line, but the tag ends
+      // with a destructuring statement (;).  Depth must still increment by 1
+      // so the next tag is correctly indented.
+      const input =
+        '<%_ for (const { a } of items) {\n' +
+        '    const { b } = a;\n' +
+        '_%>\n' +
+        '<%_ doSomething(b); _%>\n' +
+        '<%_ } _%>\n';
+      expect(await format(input, { ejsIndent: true })).toBe(
+        '<%_ for (const { a } of items) {\n' +
+        '    const { b } = a;\n' +
+        '_%>\n' +
+        '  <%_ doSomething(b); _%>\n' +
+        '<%_ } _%>\n',
+      );
+    });
+
+    test('multiline tag with multiple open braces increments depth by full count', async () => {
+      // Two open braces on two separate lines → depth increases by 2.
+      const input =
+        '<%_ if (a) {\n' +
+        '    if (b) {\n' +
+        '_%>\n' +
+        '<%_ doWork(); _%>\n' +
+        '<%_ } _%>\n' +
+        '<%_ } _%>\n';
+      expect(await format(input, { ejsIndent: true })).toBe(
+        '<%_ if (a) {\n' +
+        '    if (b) {\n' +
+        '_%>\n' +
+        '    <%_ doWork(); _%>\n' +
+        '  <%_ } _%>\n' +
         '<%_ } _%>\n',
       );
     });
