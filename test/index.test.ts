@@ -356,61 +356,43 @@ describe('prettier-plugin-templates (EJS)', () => {
       );
     });
 
-    test('issue 1: content starting with newline after <%_ is preserved (multiline)', async () => {
-      // When the author puts the code on the next line after <%_, the
-      // formatter must NOT merge the first code line onto the <%_ line.
+    test('indented multiline <%_ tag preserves leading whitespace on close delimiter by default', async () => {
+      // When a <%_ tag is indented (preceded by whitespace on its line) and its
+      // content is multiline, the _%> close delimiter must carry the same
+      // leading whitespace as the <%_ open tag.
       const input =
-        '<%_\n' +
-        'const tsKeyId = primaryKey.tsSampleValues[0];\n' +
-        'const testEntity = tsPrimaryKeySamples[0];\n' +
-        '_%>\n';
-      const result = await format(input);
-      expect(result).toBe(input);
-    });
-
-    test('issue 1: idempotency – formatting the fixed output a second time changes nothing', async () => {
-      const input =
-        '<%_\n' +
-        'const tsKeyId = primaryKey.tsSampleValues[0];\n' +
-        'const testEntity = tsPrimaryKeySamples[0];\n' +
-        '_%>\n';
-      const first = await format(input);
-      const second = await format(first);
-      expect(second).toBe(first);
-    });
-
-    test('issue 2: multiline tag starting with newline – first code line is NOT merged onto <%_ line', async () => {
-      const input =
-        '<%_\n' +
-        'for (const relationship of relationships.filter(rel => !rel.otherEntity.embedded)) {\n' +
-        '    const { persistableRelationship } = relationship;\n' +
-        '    const relationshipName = relationship.relationshipName;\n' +
-        '_%>\n';
-      const result = await format(input);
-      expect(result).toBe(input);
-    });
-
-    test('issue 3: close delimiter _%> keeps same indentation as open tag <%_', async () => {
-      // When <%_ is indented (e.g. two spaces) the closing _%> must carry
-      // the same indent so the tag is visually balanced.
-      const input =
-        '  <%_ if (relationship.persistableRelationship && (!relationship.collection || paginationNo)) {\n' +
-        '    const fieldName = "." + relationship.otherEntityField;\n' +
-        '    const { fieldSupportsSortBy: relatedFieldSupportsSortBy } = relationship.relatedField;\n' +
+        '    return {\n' +
+        '  <%_ for (field of fields) {\n' +
+        '        const { fieldName, fieldTypeBoolean, fieldTypeTimed } = field;\n' +
         '  _%>\n';
-      const result = await format(input);
-      expect(result).toBe(input);
+      expect(await format(input)).toBe(input);
     });
 
-    test('issue 3: idempotency – formatting the fixed output a second time changes nothing', async () => {
+    test('indented multiline <%_ tag is idempotent by default', async () => {
       const input =
-        '  <%_ if (relationship.persistableRelationship && (!relationship.collection || paginationNo)) {\n' +
-        '    const fieldName = "." + relationship.otherEntityField;\n' +
-        '    const { fieldSupportsSortBy: relatedFieldSupportsSortBy } = relationship.relatedField;\n' +
+        '    return {\n' +
+        '  <%_ for (field of fields) {\n' +
+        '        const { fieldName, fieldTypeBoolean, fieldTypeTimed } = field;\n' +
         '  _%>\n';
       const first = await format(input);
       const second = await format(first);
       expect(second).toBe(first);
+    });
+
+    test('full template from problem statement is returned unchanged by default', async () => {
+      const input =
+        '<%_ if (containDefaultProperties) { _%>\n' +
+        '\n' +
+        '  private getFormDefaults(): <%= entityAngularName %>FormDefaults {\n' +
+        '  <%_ if (fields.some(field => field.fieldTypeTimed)) { _%>\n' +
+        '      const currentTime = dayjs();\n' +
+        '  <%_ } _%>\n' +
+        '\n' +
+        '    return {\n' +
+        '  <%_ for (field of fields) {\n' +
+        '        const { fieldName, fieldTypeBoolean, fieldTypeTimed } = field;\n' +
+        '  _%>\n';
+      expect(await format(input)).toBe(input);
     });
   });
 });

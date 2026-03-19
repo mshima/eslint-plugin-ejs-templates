@@ -44,6 +44,21 @@ function isWhitespaceOnly(s: string): boolean {
 }
 
 /**
+ * Returns the whitespace-only portion of `s` that follows its last newline
+ * (or the whole string when it contains no newline).  Returns an empty string
+ * when that portion contains any non-whitespace characters.
+ *
+ * This is the indentation that sits on the same line as whatever follows `s`
+ * in the template.  Used to align the close delimiter of a multiline tag with
+ * its open delimiter when `ejsIndent` is off.
+ */
+function getLineIndent(s: string): string {
+  const lastNl = s.lastIndexOf('\n');
+  const linePrefix = lastNl === -1 ? s : s.slice(lastNl + 1);
+  return isWhitespaceOnly(linePrefix) ? linePrefix : '';
+}
+
+/**
  * Returns `true` when the tag uses both whitespace-slurping delimiters
  * (`<%_` … `_%>`).  These are the tags whose indentation is managed by the
  * printer's brace-depth tracking logic.
@@ -199,6 +214,14 @@ export function print(path: AstPath, options: Options): Doc {
       const isStandalone =
         !prev || (prev.type === 'content' && isWhitespaceOnly(prev.value));
 
+      // When ejsIndent is off, the close delimiter of a multiline tag should
+      // align with the open tag.  Compute the leading whitespace on the same
+      // line as the open tag once here for reuse in all tag branches below.
+      const prevLineIndent =
+        !ejsIndent && prev && prev.type === 'content'
+          ? getLineIndent(prev.value)
+          : '';
+
       if (tag.type === 'comment_directive') {
         // Comment tags are emitted verbatim – no trimming, collapsing, or
         // brace-depth adjustment.
@@ -260,7 +283,7 @@ export function print(path: AstPath, options: Options): Doc {
             parts.push(openIndent);
           }
 
-          parts.push(formatTag(tag.open, line, tag.close, { ...singleLineOptions, indent: closeIndent }));
+          parts.push(formatTag(tag.open, line, tag.close, { ...singleLineOptions, indent: ejsIndent ? indent : prevLineIndent }));
 
           if (ejsIndent && endsWithOpenBrace(line)) {
             braceDepth++;
@@ -279,9 +302,11 @@ export function print(path: AstPath, options: Options): Doc {
         }
 
         // For standalone tags the printer owns the indentation level; for
-        // inline tags there is no meaningful indent to add to the close
-        // delimiter.
-        const tagIndent = ejsIndent && isStandalone ? INDENT_UNIT.repeat(braceDepth) : '';
+        // inline tags (ejsIndent off) use the same-line prefix from the
+        // preceding content node so the close delimiter aligns with the open tag.
+        const tagIndent = ejsIndent && isStandalone
+          ? INDENT_UNIT.repeat(braceDepth)
+          : prevLineIndent;
         parts.push(formatTag(tag.open, tag.content, tag.close, { ...tagOptions, indent: tagIndent }));
 
         if (ejsIndent && endsWithOpenBrace(line)) {
