@@ -248,14 +248,7 @@ export function print(path: AstPath, options: Options): Doc {
         // branch.
         const lines = collapseMultiline
           ? splitLines(tag.content)
-          : [tag.content.startsWith('\n') ? tag.content : tag.content.trim()].filter((l) => l.trim().length > 0);
-
-        // Derive the close-delimiter indent for the non-ejsIndent case from
-        // the preceding content node's trailing whitespace.  This preserves
-        // the alignment between `<%_` and `_%>` without forcing a full
-        // brace-depth reformat.
-        const prevCloseIndent =
-          !ejsIndent && prev && prev.type === 'content' ? getLineIndent(prev.value) : '';
+          : [tag.content].filter((l) => l.length > 0);
 
         for (let j = 0; j < lines.length; j++) {
           const line = lines[j];
