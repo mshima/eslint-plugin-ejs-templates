@@ -1,10 +1,35 @@
 {
   "name": "prettier-plugin-templates",
   "version": "1.0.0",
-  "description": "Prettier plugin for EJS (Embedded JavaScript) templates",
-  "main": "index.js",
+  "description": "Prettier plugin for EJS (Embedded JavaScript) templates using tree-sitter",
+  "type": "module",
+  "main": "dist/index.cjs",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    }
+  },
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md"
+  ],
   "scripts": {
-    "test": "node --experimental-vm-modules node_modules/.bin/jest"
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "prepublishOnly": "npm run build"
   },
   "repository": {
     "type": "git",
@@ -14,24 +39,31 @@
     "prettier",
     "prettier-plugin",
     "ejs",
-    "template"
+    "template",
+    "tree-sitter"
   ],
   "author": "",
-  "license": "ISC",
-  "type": "commonjs",
+  "license": "Apache-2.0",
   "bugs": {
     "url": "https://github.com/mshima/prettier-plugin-templates/issues"
   },
   "homepage": "https://github.com/mshima/prettier-plugin-templates#readme",
+  "dependencies": {
+    "tree-sitter-embedded-template": "^0.25.0",
+    "web-tree-sitter": "^0.26.7"
+  },
   "peerDependencies": {
     "prettier": ">=3.0.0"
   },
   "devDependencies": {
-    "jest": "^30.3.0",
-    "prettier": "^3.8.1"
-  },
-  "dependencies": {
-    "tree-sitter-embedded-template": "^0.25.0",
-    "web-tree-sitter": "^0.26.7"
+    "@types/node": "^24.0.0",
+    "eslint": "^9.0.0",
+    "eslint-config-prettier": "^10.0.0",
+    "jiti": "^2.6.1",
+    "prettier": "^3.8.1",
+    "tsup": "^8.0.0",
+    "typescript": "^5.0.0",
+    "typescript-eslint": "^8.0.0",
+    "vitest": "^3.0.0"
   }
 }

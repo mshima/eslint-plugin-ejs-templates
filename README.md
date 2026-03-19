@@ -2,13 +2,16 @@
 
 A [Prettier](https://prettier.io/) plugin for [EJS](https://ejs.co/) (Embedded JavaScript) templates.
 
+Parsing is backed by [tree-sitter-embedded-template](https://github.com/tree-sitter/tree-sitter-embedded-template), which provides syntax validation in addition to formatting.
+
 ## Features
 
-- **Formats EJS tags** while leaving surrounding content (HTML, text, etc.) untouched
-- **Trims tag content** – removes leading/trailing whitespace from the code inside `<% ... %>`
+- **Syntax validation** – uses tree-sitter to validate EJS syntax; reports a `SyntaxError` for malformed templates
+- **Content normalisation** – tag content is trimmed and collapsed to a single line
 - **Single-space padding** – ensures exactly one space between the delimiter and the content
-- **Collapses multiline tags** – multi-line EJS tags are joined into a single line
-- **`<%-` preference** – converts `<%=` to `<%-` (raw output) for non-`.html.ejs` files
+- **`<%-` preference** – optionally converts `<%=` (HTML-escaped) to `<%-` (raw output), configurable per project and per file type
+- **All delimiter variants** – `<%_`, `<%-`, `<%=`, `<%#`, `_%>`, `-%>`, `%>` are preserved
+- **Indentation preserved** – surrounding whitespace before a tag is kept as-is
 
 ## Installation
 
@@ -60,14 +63,31 @@ becomes:
 ### `<%-` preferred over `<%=` for non-HTML files
 
 In files that do **not** end with `.html.ejs`, `<%=` (HTML-escaped output) is automatically
-converted to `<%-` (raw output):
+converted to `<%-` (raw output) by default:
 
 ```ejs
 <%= value %>   →   <%- value %>   (in template.ejs)
 <%= value %>   →   <%= value %>   (in template.html.ejs – unchanged)
 ```
 
-### All delimiters are preserved
+## Plugin Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `ejsPreferRaw` | `'always' \| 'never' \| 'auto'` | `'auto'` | Controls `<%=` → `<%-` conversion. `'auto'` converts unless the file ends with `.html.ejs`. |
+| `ejsCollapseMultiline` | `boolean` | `true` | Collapse multiline EJS tags onto a single line. |
+
+### Example `.prettierrc`
+
+```json
+{
+  "plugins": ["prettier-plugin-templates"],
+  "ejsPreferRaw": "always",
+  "ejsCollapseMultiline": true
+}
+```
+
+## All Supported Delimiters
 
 | Delimiter | Meaning                                |
 |-----------|----------------------------------------|
@@ -82,4 +102,4 @@ converted to `<%-` (raw output):
 
 ## License
 
-ISC
+[Apache 2.0](./LICENSE)
