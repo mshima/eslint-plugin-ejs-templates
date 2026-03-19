@@ -38,8 +38,8 @@ const ejsOptions: Record<keyof EjsPluginOptions, SupportOption> = {
     type: 'boolean',
     default: true,
     description:
-      'Collapse multiline EJS tags to a single line. ' +
-      'Empty lines inside the tag are discarded; non-empty lines are trimmed and joined with a single space.',
+      'Split multiline EJS tags into separate single-line tags, one per non-empty line. ' +
+      'When false, multiline tag content is only trimmed.',
   },
 };
 
