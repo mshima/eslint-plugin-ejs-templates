@@ -355,5 +355,62 @@ describe('prettier-plugin-templates (EJS)', () => {
         '_%>\n',
       );
     });
+
+    test('issue 1: content starting with newline after <%_ is preserved (multiline)', async () => {
+      // When the author puts the code on the next line after <%_, the
+      // formatter must NOT merge the first code line onto the <%_ line.
+      const input =
+        '<%_\n' +
+        'const tsKeyId = primaryKey.tsSampleValues[0];\n' +
+        'const testEntity = tsPrimaryKeySamples[0];\n' +
+        '_%>\n';
+      const result = await format(input);
+      expect(result).toBe(input);
+    });
+
+    test('issue 1: idempotency – formatting the fixed output a second time changes nothing', async () => {
+      const input =
+        '<%_\n' +
+        'const tsKeyId = primaryKey.tsSampleValues[0];\n' +
+        'const testEntity = tsPrimaryKeySamples[0];\n' +
+        '_%>\n';
+      const first = await format(input);
+      const second = await format(first);
+      expect(second).toBe(first);
+    });
+
+    test('issue 2: multiline tag starting with newline – first code line is NOT merged onto <%_ line', async () => {
+      const input =
+        '<%_\n' +
+        'for (const relationship of relationships.filter(rel => !rel.otherEntity.embedded)) {\n' +
+        '    const { persistableRelationship } = relationship;\n' +
+        '    const relationshipName = relationship.relationshipName;\n' +
+        '_%>\n';
+      const result = await format(input);
+      expect(result).toBe(input);
+    });
+
+    test('issue 3: close delimiter _%> keeps same indentation as open tag <%_', async () => {
+      // When <%_ is indented (e.g. two spaces) the closing _%> must carry
+      // the same indent so the tag is visually balanced.
+      const input =
+        '  <%_ if (relationship.persistableRelationship && (!relationship.collection || paginationNo)) {\n' +
+        '    const fieldName = "." + relationship.otherEntityField;\n' +
+        '    const { fieldSupportsSortBy: relatedFieldSupportsSortBy } = relationship.relatedField;\n' +
+        '  _%>\n';
+      const result = await format(input);
+      expect(result).toBe(input);
+    });
+
+    test('issue 3: idempotency – formatting the fixed output a second time changes nothing', async () => {
+      const input =
+        '  <%_ if (relationship.persistableRelationship && (!relationship.collection || paginationNo)) {\n' +
+        '    const fieldName = "." + relationship.otherEntityField;\n' +
+        '    const { fieldSupportsSortBy: relatedFieldSupportsSortBy } = relationship.relatedField;\n' +
+        '  _%>\n';
+      const first = await format(input);
+      const second = await format(first);
+      expect(second).toBe(first);
+    });
   });
 });

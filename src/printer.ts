@@ -73,6 +73,15 @@ function startsWithCloseBrace(line: string): boolean {
 }
 
 /**
+ * Returns the trailing non-newline whitespace on the last line of `s`.
+ * Used to determine the indentation that aligns the close delimiter `_%>`
+ * with the open tag `<%_` when `ejsIndent` is off.
+ */
+function getLineIndent(s: string): string {
+  return /([^\S\n]*)$/.exec(s)?.[1] ?? '';
+}
+
+/**
  * Format a single EJS tag into its final string representation.
  *
  * Rules:
@@ -199,9 +208,26 @@ export function print(path: AstPath, options: Options): Doc {
         // know whether to emit a `\n` before each tag).
         const prevHadNewline = !prev || prev.value.includes('\n');
 
+        // When not collapsing, if the raw content starts with a newline the
+        // author placed the code on the next line after `<%_`.  Preserve that
+        // structure by passing the raw content through; `formatTag` will emit
+        // an empty separator (no space between `<%_` and the newline).
+        // For content that does NOT start with `\n` keep the existing
+        // trim-and-collapse-to-single-line behaviour.
+        // The filter uses `.trim().length > 0` rather than `.length > 0` so
+        // that a purely-whitespace raw content (e.g. `"\n"`) is treated as
+        // empty and the tag is skipped, matching the behaviour of the trim()
+        // branch.
         const lines = collapseMultiline
           ? splitLines(tag.content)
-          : [tag.content.trim()].filter((l) => l.length > 0);
+          : [tag.content.startsWith('\n') ? tag.content : tag.content.trim()].filter((l) => l.trim().length > 0);
+
+        // Derive the close-delimiter indent for the non-ejsIndent case from
+        // the preceding content node's trailing whitespace.  This preserves
+        // the alignment between `<%_` and `_%>` without forcing a full
+        // brace-depth reformat.
+        const prevCloseIndent =
+          !ejsIndent && prev && prev.type === 'content' ? getLineIndent(prev.value) : '';
 
         for (let j = 0; j < lines.length; j++) {
           const line = lines[j];
@@ -210,7 +236,10 @@ export function print(path: AstPath, options: Options): Doc {
             braceDepth = Math.max(0, braceDepth - 1);
           }
 
-          const indent = ejsIndent ? INDENT_UNIT.repeat(braceDepth) : '';
+          // openIndent: pushed before the formatted tag (controls <%_ position).
+          // closeIndent: passed to formatTag as indent for the close delimiter.
+          const openIndent = ejsIndent ? INDENT_UNIT.repeat(braceDepth) : '';
+          const closeIndent = ejsIndent ? INDENT_UNIT.repeat(braceDepth) : prevCloseIndent;
 
           if (j === 0) {
             // For the first line of this tag: emit a leading newline only when
@@ -227,11 +256,11 @@ export function print(path: AstPath, options: Options): Doc {
             parts.push('\n');
           }
 
-          if (indent) {
-            parts.push(indent);
+          if (openIndent) {
+            parts.push(openIndent);
           }
 
-          parts.push(formatTag(tag.open, line, tag.close, { ...singleLineOptions, indent }));
+          parts.push(formatTag(tag.open, line, tag.close, { ...singleLineOptions, indent: closeIndent }));
 
           if (ejsIndent && endsWithOpenBrace(line)) {
             braceDepth++;
