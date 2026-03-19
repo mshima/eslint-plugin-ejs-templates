@@ -39,7 +39,8 @@ const ejsOptions: Record<keyof EjsPluginOptions, SupportOption> = {
     default: false,
     description:
       'Split multiline EJS tags into separate single-line tags, one per non-empty line. ' +
-      'When false, multiline tag content is only trimmed.',
+      'When false (the default), tag content is trimmed only when the trimmed result is a single line; ' +
+      'multiline content is preserved as-is.',
   },
   ejsPreferSlurping: {
     category: 'EJS',
@@ -47,6 +48,17 @@ const ejsOptions: Record<keyof EjsPluginOptions, SupportOption> = {
     default: false,
     description:
       'Convert plain <% … %> script tags to the whitespace-slurping form <%_ … _%>.',
+  },
+  ejsIndent: {
+    category: 'EJS',
+    type: 'boolean',
+    default: false,
+    description:
+      'Enable brace-depth indentation for standalone whitespace-slurping (<%_ … _%>) tags. ' +
+      'When true, the printer strips leading whitespace before such tags and re-indents them ' +
+      'based on the current JavaScript brace depth. ' +
+      'When false (the default), indentation is left untouched so that a file with no other ' +
+      'active options is returned unchanged.',
   },
 };
 

@@ -76,16 +76,19 @@ function startsWithCloseBrace(line: string): boolean {
  * Format a single EJS tag into its final string representation.
  *
  * Rules:
- *   1. Content is trimmed (leading/trailing whitespace removed).
+ *   1. Content is trimmed **only** when the trimmed result is a single line
+ *      (contains no `\n`).  Multiline content is preserved as-is, with
+ *      trailing spaces/tabs stripped for idempotency and a trailing newline
+ *      ensured so the close delimiter sits on its own line.
  *   2. Multiline content is collapsed to a single line when
  *      `options.collapseMultiline` is `true`.
- *   3. Exactly one space is placed before and after the content.
+ *   3. Exactly one space is placed before and after single-line content.
  *   4. `<%=` is converted to `<%-` when `options.preferRaw` is `true`.
  *   5. `<% … %>` is converted to `<%_ … _%>` when `options.preferSlurping`
  *      is `true`.
- *   6. When `options.collapseMultiline` is `false` and the trimmed content
- *      contains newlines, the close delimiter is placed on its own line
- *      preceded by `options.indent` (so it aligns with the open tag).
+ *   6. When content is multiline and `options.collapseMultiline` is `false`,
+ *      the close delimiter is placed on its own line preceded by
+ *      `options.indent` (so it aligns with the open tag).
  */
 export function formatTag(
   open: string,
@@ -93,10 +96,6 @@ export function formatTag(
   close: string,
   options: FormatTagOptions,
 ): string {
-  const content = options.collapseMultiline
-    ? splitLines(rawContent).join(' ')
-    : rawContent.trim();
-
   // Convert <%=  to <%- when preferred.
   let formattedOpen = options.preferRaw && open === '<%=' ? '<%-' : open;
   let formattedClose = close;
@@ -107,18 +106,38 @@ export function formatTag(
     formattedClose = '_%>';
   }
 
-  if (content === '') {
-    return `${formattedOpen} ${formattedClose}`;
+  if (options.collapseMultiline) {
+    const content = splitLines(rawContent).join(' ');
+    if (content === '') {
+      return `${formattedOpen} ${formattedClose}`;
+    }
+    return `${formattedOpen} ${content} ${formattedClose}`;
   }
 
-  // When not collapsing and the content spans multiple lines, place the
-  // close delimiter on its own line at the same indentation as the open tag.
-  if (!options.collapseMultiline && content.includes('\n')) {
-    const indent = options.indent ?? '';
-    return `${formattedOpen} ${content}\n${indent}${formattedClose}`;
+  // Trim only when the result is single-line.
+  const trimmed = rawContent.trim();
+  if (!trimmed.includes('\n')) {
+    // Single-line result: use the trimmed content with one space on each side.
+    if (trimmed === '') {
+      return `${formattedOpen} ${formattedClose}`;
+    }
+    return `${formattedOpen} ${trimmed} ${formattedClose}`;
   }
 
-  return `${formattedOpen} ${content} ${formattedClose}`;
+  // Multiline result: preserve the raw content structure.
+  // Strip trailing spaces/tabs (but not newlines) to remove any indent placed
+  // before the close delimiter by a previous format pass (ensures idempotency).
+  let normalizedContent = rawContent.replace(/[^\S\n]+$/, '');
+  // Ensure the content ends with a newline so the close delimiter sits on its
+  // own line.
+  if (!normalizedContent.endsWith('\n')) {
+    normalizedContent += '\n';
+  }
+  const indent = options.indent ?? '';
+  // Add a separator space only when the raw content does not already start
+  // with whitespace (e.g. when the caller already passed a trimmed string).
+  const separator = normalizedContent.startsWith(' ') || normalizedContent.startsWith('\n') ? '' : ' ';
+  return `${formattedOpen}${separator}${normalizedContent}${indent}${formattedClose}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -141,6 +160,7 @@ export function print(path: AstPath, options: Options): Doc {
   const preferRaw = shouldPreferRaw(ejsOpts.ejsPreferRaw, ejsOpts.filepath);
   const collapseMultiline = ejsOpts.ejsCollapseMultiline ?? false;
   const preferSlurping = ejsOpts.ejsPreferSlurping ?? false;
+  const ejsIndent = ejsOpts.ejsIndent ?? false;
   const tagOptions: FormatTagOptions = { preferRaw, collapseMultiline, preferSlurping };
   // Pre-built options for single-line tag formatting (used inside the
   // multiline-split loop where content is already a single trimmed line).
@@ -155,9 +175,10 @@ export function print(path: AstPath, options: Options): Doc {
 
     if (child.type === 'content') {
       const next = children[i + 1];
-      // Pure-whitespace content immediately before a slurping tag is replaced
-      // by the printer's own indentation logic – skip it here.
-      if (next && next.type !== 'content' && isSlurpingTag(next as EjsTagNode) && isWhitespaceOnly(child.value)) {
+      // When ejsIndent is active, pure-whitespace content immediately before
+      // a slurping tag is replaced by the printer's own indentation logic –
+      // skip it here.  When ejsIndent is off, preserve it as-is.
+      if (ejsIndent && next && next.type !== 'content' && isSlurpingTag(next as EjsTagNode) && isWhitespaceOnly(child.value)) {
         continue;
       }
       parts.push(child.value);
@@ -185,17 +206,19 @@ export function print(path: AstPath, options: Options): Doc {
         for (let j = 0; j < lines.length; j++) {
           const line = lines[j];
 
-          if (startsWithCloseBrace(line)) {
+          if (ejsIndent && startsWithCloseBrace(line)) {
             braceDepth = Math.max(0, braceDepth - 1);
           }
 
-          const indent = INDENT_UNIT.repeat(braceDepth);
+          const indent = ejsIndent ? INDENT_UNIT.repeat(braceDepth) : '';
 
           if (j === 0) {
             // For the first line of this tag: emit a leading newline only when
-            // the preceding (skipped) content had one.  Never emit a newline at
-            // the very start of the output.
-            if (prevHadNewline && parts.length > 0) {
+            // ejsIndent is active (meaning the preceding whitespace was skipped)
+            // AND the preceding content had a newline.  When ejsIndent is off,
+            // the original content node was not skipped, so it already carries
+            // the newline.  Never emit a newline at the very start of the output.
+            if (ejsIndent && prevHadNewline && parts.length > 0) {
               parts.push('\n');
             }
           } else {
@@ -210,29 +233,29 @@ export function print(path: AstPath, options: Options): Doc {
 
           parts.push(formatTag(tag.open, line, tag.close, { ...singleLineOptions, indent }));
 
-          if (endsWithOpenBrace(line)) {
+          if (ejsIndent && endsWithOpenBrace(line)) {
             braceDepth++;
           }
         }
       } else {
         // Inline tag (preceded by non-whitespace) or non-slurping tag.
-        // Still track brace depth so that a later standalone block is
-        // indented correctly.
+        // Still track brace depth (when ejsIndent is on) so that a later
+        // standalone block is indented correctly.
         const line = collapseMultiline
           ? splitLines(tag.content).join(' ')
           : tag.content.trim();
 
-        if (startsWithCloseBrace(line)) {
+        if (ejsIndent && startsWithCloseBrace(line)) {
           braceDepth = Math.max(0, braceDepth - 1);
         }
 
         // For standalone tags the printer owns the indentation level; for
         // inline tags there is no meaningful indent to add to the close
         // delimiter.
-        const tagIndent = isStandalone ? INDENT_UNIT.repeat(braceDepth) : '';
+        const tagIndent = ejsIndent && isStandalone ? INDENT_UNIT.repeat(braceDepth) : '';
         parts.push(formatTag(tag.open, tag.content, tag.close, { ...tagOptions, indent: tagIndent }));
 
-        if (endsWithOpenBrace(line)) {
+        if (ejsIndent && endsWithOpenBrace(line)) {
           braceDepth++;
         }
       }
