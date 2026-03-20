@@ -246,7 +246,7 @@ export function print(path: AstPath, options: Options): Doc {
           (preferSlurping && nextTag.open === '<%' && nextTag.close === '%>' && canConvertToSlurping(nextTag.content));
         if (nextWillSlurp) {
           // Skip indentation-only whitespace on the same line.
-          if (isWhitespaceOnly(child.value) && !child.value.includes('\n')) {
+          if (isWhitespaceOnly(child.value) && !child.value?.includes('\n')) {
             lastOriginalChild = child;
             continue;
           }
@@ -273,7 +273,7 @@ export function print(path: AstPath, options: Options): Doc {
       // A tag is "standalone" when nothing (or only whitespace) precedes it
       // on the same line, meaning the printer controls its indentation.
       const lastOriginalEndsWithNewline =
-        lastOriginalChild && lastOriginalChild.type === 'content' && lastOriginalChild.value.includes('\n');
+        lastOriginalChild && lastOriginalChild.type === 'content' && lastOriginalChild.value?.includes('\n');
       const isStandalone =
         !lastOriginalChild ||
         (lastOriginalChild.type === 'content' &&
@@ -304,12 +304,12 @@ export function print(path: AstPath, options: Options): Doc {
 
         const oldBraceDepth = braceDepth;
         braceDepth = Math.max(0, braceDepth + bracesDelta(tag.content));
-        const lowerBraceDepth = Math.min(oldBraceDepth - countLeadingCloseBraces(tag.content), braceDepth);
+        const lowerBraceDepth = Math.max(0, Math.min(oldBraceDepth - countLeadingCloseBraces(tag.content), braceDepth));
 
         if (isStandalone && effOpen === '<%_' && effClose === '_%>') {
           // Whether the skipped preceding content contained a newline (so we
           // know whether to emit a `\n` before each tag).
-          const prevHadNewline = !lastPushedChild || (lastPushedChild as EjsTextNode).value.includes('\n');
+          const prevHadNewline = !lastPushedChild || (lastPushedChild as EjsTextNode).value?.includes('\n');
 
           const lines = collapseMultiline ? splitLines(tag.content) : [tag.content].filter((l) => l.length > 0);
 
