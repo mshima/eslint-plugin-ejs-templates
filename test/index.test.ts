@@ -195,6 +195,45 @@ describe('prettier-plugin-templates (EJS)', () => {
       expect(await format('    <%_ if (foo) { _%>', { ejsIndent: true })).toBe('<%_ if (foo) { _%>\n');
     });
 
+    test('strips leading whitespace before a standalone <%_ tag with ejsPreferRaw: always', async () => {
+      expect(
+        await format(
+          `export type HealthStatus = 'UP' | 'DOWN' | 'UNKNOWN' | 'OUT_OF_SERVICE';
+
+export type HealthKey =
+  <%_ if (locals.messageBrokerAny) { _%>
+  | 'binders'
+  <%_ } _%>
+  <%_ if (locals.applicationTypeGateway || locals.serviceDiscoveryAny) { _%>
+  | 'discoveryComposite'
+  | 'refreshScope'
+  | 'clientConfigServer'
+  | 'hystrix'
+  <%_ } _%>
+  <%_ if (locals.serviceDiscoveryConsul) { _%>
+  | 'consul'
+  <%_ } _%>
+`,
+          { ejsPreferRaw: 'always', ejsIndent: true },
+        ),
+      ).toBe(`export type HealthStatus = 'UP' | 'DOWN' | 'UNKNOWN' | 'OUT_OF_SERVICE';
+
+export type HealthKey =
+<%_ if (locals.messageBrokerAny) { _%>
+  | 'binders'
+<%_ } _%>
+<%_ if (locals.applicationTypeGateway || locals.serviceDiscoveryAny) { _%>
+  | 'discoveryComposite'
+  | 'refreshScope'
+  | 'clientConfigServer'
+  | 'hystrix'
+<%_ } _%>
+<%_ if (locals.serviceDiscoveryConsul) { _%>
+  | 'consul'
+<%_ } _%>
+`);
+    });
+
     test('strips leading whitespace before a standalone <%_ tag', async () => {
       expect(
         await format(

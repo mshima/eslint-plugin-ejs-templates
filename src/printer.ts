@@ -240,13 +240,24 @@ export function print(path: AstPath, options: Options): Doc {
       // skip it here.  A tag counts as "slurping" both when it already uses
       // <%_ … _%> delimiters and when preferSlurping would convert it.
       // When ejsIndent is off, preserve it as-is.
-      if (ejsIndent && next && next.type !== 'content' && isWhitespaceOnly(child.value)) {
+      if (ejsIndent && next && next.type !== 'content') {
         const nextTag = next as EjsTagNode;
         const nextWillSlurp =
           isSlurpingTag(nextTag) ||
           (preferSlurping && nextTag.open === '<%' && nextTag.close === '%>' && canConvertToSlurping(nextTag.content));
         if (nextWillSlurp) {
-          continue;
+          if (isWhitespaceOnly(child.value)) {
+            continue;
+          }
+          // Strip trailing whitespace from the last line before a standalone slurping tag
+          const lastLineIndent = getLineIndent(child.value);
+          if (lastLineIndent && isWhitespaceOnly(lastLineIndent)) {
+            const contentWithoutTrailing = child.value.slice(0, -lastLineIndent.length);
+            if (contentWithoutTrailing) {
+              parts.push(contentWithoutTrailing);
+            }
+            continue;
+          }
         }
       }
       parts.push(child.value);
