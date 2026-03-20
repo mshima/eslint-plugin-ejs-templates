@@ -105,6 +105,26 @@ function bracesDelta(line: string): number {
 }
 
 /**
+ * Returns `true` when `<% … %>` can be safely converted to `<%_ … _%>` by
+ * the `preferSlurping` option.
+ *
+ * The content must satisfy all three conditions:
+ *   - Balanced braces: the number of `{` equals the number of `}`.
+ *   - Does not start with a closing brace `}` (would close a block opened
+ *     before this tag, e.g. `<% } %>` or `<% } else { %>`).
+ *   - Does not end with an opening brace `{` (would open a block whose
+ *     closing brace lives in a later tag, e.g. `<% if (x) { %>`).
+ *
+ * Tags that open or close brace-depth must keep their original delimiters so
+ * that the `ejsIndent` brace-depth tracker can correctly identify structural
+ * tags versus neutral ones.
+ */
+function canConvertToSlurping(content: string): boolean {
+  const trimmed = content.trim();
+  return bracesDelta(trimmed) === 0 && !trimmed.startsWith('}') && !trimmed.endsWith('{');
+}
+
+/**
  * Format a single EJS tag into its final string representation.
  *
  * Rules:
@@ -127,8 +147,9 @@ export function formatTag(open: string, rawContent: string, close: string, optio
   let formattedOpen = options.preferRaw && open === '<%=' ? '<%-' : open;
   let formattedClose = close;
 
-  // Convert <% … %> to <%_ … _%> when preferred.
-  if (options.preferSlurping && formattedOpen === '<%' && close === '%>') {
+  // Convert <% … %> to <%_ … _%> when preferred AND the content is safe to
+  // slurp (balanced braces, no leading `}`, no trailing `{`).
+  if (options.preferSlurping && formattedOpen === '<%' && close === '%>' && canConvertToSlurping(rawContent)) {
     formattedOpen = '<%_';
     formattedClose = '_%>';
   }
@@ -193,13 +214,16 @@ export function print(path: AstPath, options: Options): Doc {
   const collapseMultiline = ejsOpts.ejsCollapseMultiline ?? false;
   const preferSlurping = ejsOpts.ejsPreferSlurping ?? false;
   const ejsIndent = ejsOpts.ejsIndent ?? false;
-  const tagOptions: FormatTagOptions = { preferRaw, collapseMultiline, preferSlurping };
+  // preferRaw and preferSlurping are pre-applied to effective delimiters before
+  // formatTag is called (see the per-tag effOpen/effClose computation below),
+  // so they must be disabled here to prevent double-transformation.
+  const tagOptions: FormatTagOptions = { preferRaw: false, collapseMultiline, preferSlurping: false };
   // Pre-built options for single-line tag formatting (used inside the
   // multiline-split loop where content is already a single trimmed line).
   const singleLineOptions: FormatTagOptions = {
-    preferRaw,
+    preferRaw: false,
     collapseMultiline: false,
-    preferSlurping,
+    preferSlurping: false,
   };
 
   const children: EjsChildNode[] = node.children;
@@ -213,15 +237,17 @@ export function print(path: AstPath, options: Options): Doc {
       const next = children[i + 1];
       // When ejsIndent is active, pure-whitespace content immediately before
       // a slurping tag is replaced by the printer's own indentation logic –
-      // skip it here.  When ejsIndent is off, preserve it as-is.
-      if (
-        ejsIndent &&
-        next &&
-        next.type !== 'content' &&
-        isSlurpingTag(next as EjsTagNode) &&
-        isWhitespaceOnly(child.value)
-      ) {
-        continue;
+      // skip it here.  A tag counts as "slurping" both when it already uses
+      // <%_ … _%> delimiters and when preferSlurping would convert it.
+      // When ejsIndent is off, preserve it as-is.
+      if (ejsIndent && next && next.type !== 'content' && isWhitespaceOnly(child.value)) {
+        const nextTag = next as EjsTagNode;
+        const nextWillSlurp =
+          isSlurpingTag(nextTag) ||
+          (preferSlurping && nextTag.open === '<%' && nextTag.close === '%>' && canConvertToSlurping(nextTag.content));
+        if (nextWillSlurp) {
+          continue;
+        }
       }
       parts.push(child.value);
     } else {
@@ -241,11 +267,21 @@ export function print(path: AstPath, options: Options): Doc {
         // brace-depth adjustment.
         parts.push(tag.open + tag.content + tag.close);
       } else {
+        // ── Option ordering: preferRaw → preferSlurp → multiline → ejsIndent ──
+        // Apply preferRaw and preferSlurp FIRST so that the isSlurping check
+        // and ejsIndent logic operate on the final delimiters.
+        let effOpen = preferRaw && tag.open === '<%=' ? '<%-' : tag.open;
+        let effClose = tag.close;
+        if (preferSlurping && effOpen === '<%' && effClose === '%>' && canConvertToSlurping(tag.content)) {
+          effOpen = '<%_';
+          effClose = '_%>';
+        }
+
         const oldBraceDepth = braceDepth;
         braceDepth = Math.max(0, braceDepth + bracesDelta(tag.content));
         const lowerBraceDepth = Math.min(oldBraceDepth - countLeadingCloseBraces(tag.content), braceDepth);
 
-        if (isStandalone && isSlurpingTag(tag)) {
+        if (isStandalone && effOpen === '<%_' && effClose === '_%>') {
           // Whether the skipped preceding content contained a newline (so we
           // know whether to emit a `\n` before each tag).
           const prevHadNewline = !prev || prev.value.includes('\n');
@@ -276,7 +312,7 @@ export function print(path: AstPath, options: Options): Doc {
             }
 
             parts.push(
-              formatTag(tag.open, line, tag.close, {
+              formatTag(effOpen, line, effClose, {
                 ...singleLineOptions,
                 indent: ejsIndent ? indent : prevLineIndent,
               }),
@@ -287,7 +323,7 @@ export function print(path: AstPath, options: Options): Doc {
           // inline tags (ejsIndent off) use the same-line prefix from the
           // preceding content node so the close delimiter aligns with the open tag.
           const tagIndent = ejsIndent && isStandalone ? INDENT_UNIT.repeat(lowerBraceDepth) : prevLineIndent;
-          parts.push(formatTag(tag.open, tag.content, tag.close, { ...tagOptions, indent: tagIndent }));
+          parts.push(formatTag(effOpen, tag.content, effClose, { ...tagOptions, indent: tagIndent }));
         }
       }
     }
