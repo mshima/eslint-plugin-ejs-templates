@@ -317,6 +317,38 @@ import { afterEach, beforeEach, describe, expect, it, vitest } from 'vitest';
     test('valid EJS parses without error', async () => {
       await expect(format('<% if (ok) { %>')).resolves.toBeDefined();
     });
+
+    test('throws SyntaxError on missing tag close (unclosed <%)', async () => {
+      await expect(format('<% code')).rejects.toThrow(SyntaxError);
+    });
+
+    test('throws SyntaxError on missing tag open (bare %>)', async () => {
+      await expect(format('code %>')).rejects.toThrow(SyntaxError);
+    });
+
+    test('throws SyntaxError on standalone %> with no preceding <%', async () => {
+      await expect(format('%>')).rejects.toThrow(SyntaxError);
+    });
+
+    test('throws SyntaxError when second tag is missing its close', async () => {
+      await expect(format('<% a %> <% b')).rejects.toThrow(SyntaxError);
+    });
+
+    test('throws SyntaxError when %> appears after valid tag content', async () => {
+      await expect(format('<% a %>\nsome%>text')).rejects.toThrow(SyntaxError);
+    });
+
+    test('does not throw for %%> (EJS escaped close delimiter)', async () => {
+      await expect(format('%%>')).resolves.toBeDefined();
+    });
+
+    test('does not throw for <%%> (EJS escaped open delimiter)', async () => {
+      await expect(format('<%%>')).resolves.toBeDefined();
+    });
+
+    test('throws with a message mentioning the correct line for bare %>', async () => {
+      await expect(format('hello\nworld%>')).rejects.toThrow(/line 2/);
+    });
   });
 
   describe('idempotency', () => {
