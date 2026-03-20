@@ -105,15 +105,6 @@ function bracesDelta(line: string): number {
 }
 
 /**
- * Returns the trailing non-newline whitespace on the last line of `s`.
- * Used to determine the indentation that aligns the close delimiter `_%>`
- * with the open tag `<%_` when `ejsIndent` is off.
- */
-function getLineIndent(s: string): string {
-  return /([^\S\n]*)$/.exec(s)?.[1] ?? '';
-}
-
-/**
  * Format a single EJS tag into its final string representation.
  *
  * Rules:
