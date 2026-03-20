@@ -1,6 +1,7 @@
 /**
- * Autofix fixture 3.
- * Contains tags that should be fixed by `prefer-raw` and `prefer-slurping` rules.
+ * Fixture 3 – prefer-raw and prefer-slurping rules.
+ * Input contains `<%= %>` (should use `<%-`) and `<% %>` (should use `<%_ _%>`) violations.
+ * Expected output has both types of violations fixed.
  */
 
 /** Input with incorrect delimiters (violations). */

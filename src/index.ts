@@ -10,6 +10,8 @@ import type { Linter } from 'eslint';
 import { processor } from './processor.js';
 import { preferRaw } from './rules/prefer-raw.js';
 import { preferSlurping } from './rules/prefer-slurping.js';
+import { noMultilineTags } from './rules/no-multiline-tags.js';
+import { ejsIndent } from './rules/ejs-indent.js';
 
 // ---------------------------------------------------------------------------
 // Plugin definition (without configs, to avoid circular reference)
@@ -28,6 +30,8 @@ const pluginCore = {
   rules: {
     'prefer-raw': preferRaw,
     'prefer-slurping': preferSlurping,
+    'no-multiline-tags': noMultilineTags,
+    'ejs-indent': ejsIndent,
   },
 };
 
@@ -67,4 +71,4 @@ const plugin = {
 
 export default plugin;
 export { processor };
-export { preferRaw, preferSlurping };
+export { preferRaw, preferSlurping, noMultilineTags, ejsIndent };

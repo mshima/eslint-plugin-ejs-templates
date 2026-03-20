@@ -13,6 +13,8 @@ import { extractTagBlocks, canConvertToSlurping } from '../src/processor.js';
 import * as fixture1 from './fixtures/1.js';
 import * as fixture2 from './fixtures/2.js';
 import * as fixture3 from './fixtures/3.js';
+import * as fixture4 from './fixtures/4.js';
+import * as fixture5 from './fixtures/5.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -187,11 +189,11 @@ describe('processor virtual code', () => {
     expect(lines.slice(1).join('\n')).toBe(' const x = 1; ');
   });
 
-  test('multiline tag with complete content preserves newlines in virtual code', () => {
-    // Content with balanced braces → body is included in virtual code.
+  test('multiline tag with complete content gets -multiline suffix and preserves newlines in virtual code', () => {
+    // Multiline content → tag type gets `-multiline` suffix; body still included.
     const blocks = extractTagBlocks('<%_ const x = 1;\nconst y = 2; _%>');
     const lines = blocks[0].virtualCode.split('\n');
-    expect(lines[0]).toBe('//@ejs-tag:slurp');
+    expect(lines[0]).toBe('//@ejs-tag:slurp-multiline');
     expect(lines[1]).toBe(' const x = 1;');
     expect(lines[2]).toBe('const y = 2; ');
   });
@@ -243,8 +245,9 @@ describe('processor position mapping', () => {
     // The mapped error must report file line 2.
     const ejsText = '<%_\n undefinedVar;\n_%>';
     const msgs = lint(ejsText, { 'no-undef': 'error' });
-    expect(msgs.length).toBeGreaterThan(0);
-    expect(msgs[0].line).toBe(2);
+    const undefMsg = msgs.find((m) => m.message.includes("'undefinedVar'"));
+    expect(undefMsg).toBeDefined();
+    expect(undefMsg!.line).toBe(2);
   });
 
   test('no messages when there are no EJS tags', () => {
@@ -544,5 +547,299 @@ describe('fixture tests', () => {
       'templates/prefer-slurping': 'error',
     });
     expect(fixed).toBe(fixture3.expected);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tree-sitter: tag-type classification (via extractTagBlocks)
+// ---------------------------------------------------------------------------
+
+describe('extractTagBlocks (tree-sitter parser)', () => {
+  test('single-line <%= %> gets escaped-output type', () => {
+    const [b] = extractTagBlocks('<%= name %>');
+    expect(b.tagType).toBe('escaped-output');
+    expect(b.openDelim).toBe('<%=');
+    expect(b.closeDelim).toBe('%>');
+  });
+
+  test('single-line <%- %> gets raw-output type', () => {
+    const [b] = extractTagBlocks('<%- name %>');
+    expect(b.tagType).toBe('raw-output');
+  });
+
+  test('structural <% if (x) { %> gets code type', () => {
+    const [b] = extractTagBlocks('<% if (x) { %>');
+    expect(b.tagType).toBe('code');
+  });
+
+  test('balanced <% code %> gets code-slurpable type', () => {
+    const [b] = extractTagBlocks('<% doWork(); %>');
+    expect(b.tagType).toBe('code-slurpable');
+  });
+
+  test('single-line <%_ _%> gets slurp type', () => {
+    const [b] = extractTagBlocks('<%_ if (x) { _%>');
+    expect(b.tagType).toBe('slurp');
+  });
+
+  test('multiline <%_ _%> gets slurp-multiline type', () => {
+    const [b] = extractTagBlocks('<%_\n  if (x) {\n_%>');
+    expect(b.tagType).toBe('slurp-multiline');
+  });
+
+  test('multiline <%= %> gets escaped-output-multiline type', () => {
+    const [b] = extractTagBlocks('<%=\n  value\n%>');
+    expect(b.tagType).toBe('escaped-output-multiline');
+  });
+
+  test('multiline <% %> code tag gets code-multiline type', () => {
+    const [b] = extractTagBlocks('<%\n  if (x) {\n%>');
+    expect(b.tagType).toBe('code-multiline');
+  });
+
+  test('stores openDelim and closeDelim', () => {
+    const [b] = extractTagBlocks('<%_ code _%>');
+    expect(b.openDelim).toBe('<%_');
+    expect(b.closeDelim).toBe('_%>');
+  });
+
+  test('stores codeContent (with surrounding spaces)', () => {
+    const [b] = extractTagBlocks('<%= name %>');
+    expect(b.codeContent).toBe(' name ');
+  });
+
+  test('standalone tag has lineIndent equal to whitespace before it', () => {
+    const [b] = extractTagBlocks('  <%_ if (x) { _%>');
+    expect(b.lineIndent).toBe('  ');
+    expect(b.tagColumn).toBe(2);
+  });
+
+  test('inline tag has empty lineIndent', () => {
+    const [b] = extractTagBlocks('Hello <%- name %>!');
+    expect(b.lineIndent).toBe('');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tree-sitter: brace-depth / expectedIndent
+// ---------------------------------------------------------------------------
+
+describe('brace-depth tracking (ejsIndent foundation)', () => {
+  test('block at depth 0 has expectedIndent = ""', () => {
+    const [open] = extractTagBlocks('<%_ if (x) { _%>');
+    expect(open.expectedIndent).toBe('');
+  });
+
+  test('block inside depth-1 gets expectedIndent = "  "', () => {
+    const [, inner] = extractTagBlocks('<%_ if (x) { _%>\n<%_ doWork(); _%>\n<%_ } _%>');
+    expect(inner.expectedIndent).toBe('  ');
+  });
+
+  test('closing block at depth 0 after open (lowerBraceDepth = 0)', () => {
+    const [, , close] = extractTagBlocks('<%_ if (x) { _%>\n<%_ doWork(); _%>\n<%_ } _%>');
+    expect(close.expectedIndent).toBe('');
+  });
+
+  test('nested depth produces 4-space expectedIndent', () => {
+    const blocks = extractTagBlocks('<%_ if (a) { _%>\n<%_ if (b) { _%>\n<%_ doWork(); _%>\n<%_ } _%>\n<%_ } _%>');
+    expect(blocks[2].expectedIndent).toBe('    '); // depth 2
+  });
+
+  test('non-standalone slurp tag has expectedIndent = lineIndent (not changed)', () => {
+    const [b] = extractTagBlocks('Hello <%_ name _%>');
+    expect(b.expectedIndent).toBe(b.lineIndent);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Rule: no-multiline-tags – violations
+// ---------------------------------------------------------------------------
+
+describe('rule: templates/no-multiline-tags', () => {
+  test('flags a multiline <%_ _%> tag', () => {
+    const msgs = lint('<%_\nif (x) {\n_%>', { 'templates/no-multiline-tags': 'error' });
+    expect(msgs.filter((m) => m.ruleId === 'templates/no-multiline-tags').length).toBeGreaterThan(0);
+  });
+
+  test('flags a multiline <%= %> output tag', () => {
+    const msgs = lint('<%=\n  value\n%>', { 'templates/no-multiline-tags': 'error' });
+    expect(msgs.filter((m) => m.ruleId === 'templates/no-multiline-tags').length).toBeGreaterThan(0);
+  });
+
+  test('does not flag a single-line tag', () => {
+    const msgs = lint('<%_ if (x) { _%>', { 'templates/no-multiline-tags': 'error' });
+    expect(msgs.filter((m) => m.ruleId === 'templates/no-multiline-tags')).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Autofix: no-multiline-tags
+// ---------------------------------------------------------------------------
+
+describe('autofix: no-multiline-tags', () => {
+  test('collapses single-non-empty-line multiline tag (problem-statement example)', () => {
+    expect(applyFix('<%_\nif (generateSpringAuditor) {\n_%>', { 'templates/no-multiline-tags': 'error' })).toBe(
+      '<%_ if (generateSpringAuditor) { _%>',
+    );
+  });
+
+  test('splits multiline tag with 2 content lines into two single-line tags', () => {
+    expect(applyFix('<%_\n  const x = 1;\n  const y = 2;\n_%>', { 'templates/no-multiline-tags': 'error' })).toBe(
+      '<%_ const x = 1; _%>\n<%_ const y = 2; _%>',
+    );
+  });
+
+  test('ignores blank-only lines inside the tag', () => {
+    // blank-only lines are stripped; remaining single line keeps original delimiters
+    expect(applyFix('<%\n\n  doSomething();\n\n%>', { 'templates/no-multiline-tags': 'error' })).toBe(
+      '<% doSomething(); %>',
+    );
+  });
+
+  test('collapses multiline <%= %> output tag (keeps delimiter unchanged)', () => {
+    // no-multiline-tags only collapses; prefer-raw is a separate rule
+    expect(applyFix('<%=\n  value\n%>', { 'templates/no-multiline-tags': 'error' })).toBe('<%= value %>');
+  });
+
+  test('collapses multiline <%- %> raw-output tag', () => {
+    expect(applyFix('<%-\n  value\n%>', { 'templates/no-multiline-tags': 'error' })).toBe('<%- value %>');
+  });
+
+  test('preserves surrounding text', () => {
+    expect(applyFix('before\n<%_\n  code;\n_%>\nafter', { 'templates/no-multiline-tags': 'error' })).toBe(
+      'before\n<%_ code; _%>\nafter',
+    );
+  });
+
+  test('multi-line split respects original line indentation', () => {
+    // Indented tag: subsequent split lines get the same indentation as the first.
+    expect(applyFix('  <%_\n  const a = 1;\n  const b = 2;\n  _%>', { 'templates/no-multiline-tags': 'error' })).toBe(
+      '  <%_ const a = 1; _%>\n  <%_ const b = 2; _%>',
+    );
+  });
+
+  test('fix is idempotent', () => {
+    const fixed = applyFix('<%_\n  code;\n_%>', { 'templates/no-multiline-tags': 'error' });
+    expect(applyFix(fixed, { 'templates/no-multiline-tags': 'error' })).toBe(fixed);
+  });
+
+  test('no-multiline-tags does not change already-single-line tags', () => {
+    const input = '<%_ code; _%>';
+    expect(applyFix(input, { 'templates/no-multiline-tags': 'error' })).toBe(input);
+  });
+
+  test('combined with prefer-raw: multiline <%= %> is both collapsed and converted', () => {
+    const result = applyFix('<%=\n  value\n%>', {
+      'templates/no-multiline-tags': 'error',
+      'templates/prefer-raw': 'error',
+    });
+    expect(result).toBe('<%- value %>');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Rule: ejs-indent – violations
+// ---------------------------------------------------------------------------
+
+describe('rule: templates/ejs-indent', () => {
+  test('flags a standalone <%_ _%> tag with wrong indentation', () => {
+    const input = '<%_ if (x) { _%>\n    <%_ doWork(); _%>\n<%_ } _%>';
+    const msgs = lint(input, { 'templates/ejs-indent': 'error' });
+    expect(msgs.filter((m) => m.ruleId === 'templates/ejs-indent').length).toBeGreaterThan(0);
+  });
+
+  test('does not flag tags with correct brace-depth indentation', () => {
+    const input = '<%_ if (x) { _%>\n  <%_ doWork(); _%>\n<%_ } _%>';
+    const msgs = lint(input, { 'templates/ejs-indent': 'error' });
+    expect(msgs.filter((m) => m.ruleId === 'templates/ejs-indent')).toHaveLength(0);
+  });
+
+  test('does not flag inline (non-standalone) tags', () => {
+    const msgs = lint('Hello <%_ name _%>!', { 'templates/ejs-indent': 'error' });
+    expect(msgs.filter((m) => m.ruleId === 'templates/ejs-indent')).toHaveLength(0);
+  });
+
+  test('does not flag non-slurp tags', () => {
+    const msgs = lint('<% if (x) { %>\n    <% doWork(); %>\n<% } %>', { 'templates/ejs-indent': 'error' });
+    expect(msgs.filter((m) => m.ruleId === 'templates/ejs-indent')).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Autofix: ejs-indent
+// ---------------------------------------------------------------------------
+
+describe('autofix: ejs-indent', () => {
+  test('strips over-indentation from a depth-1 tag', () => {
+    const input = '<%_ if (x) { _%>\n    <%_ doWork(); _%>\n<%_ } _%>';
+    expect(applyFix(input, { 'templates/ejs-indent': 'error' })).toBe(
+      '<%_ if (x) { _%>\n  <%_ doWork(); _%>\n<%_ } _%>',
+    );
+  });
+
+  test('adds indentation to an under-indented depth-1 tag', () => {
+    const input = '<%_ if (x) { _%>\n<%_ doWork(); _%>\n<%_ } _%>';
+    expect(applyFix(input, { 'templates/ejs-indent': 'error' })).toBe(
+      '<%_ if (x) { _%>\n  <%_ doWork(); _%>\n<%_ } _%>',
+    );
+  });
+
+  test('correctly indents closing tag (depth goes back to 0)', () => {
+    const input = '<%_ if (x) { _%>\n  <%_ doWork(); _%>\n  <%_ } _%>';
+    expect(applyFix(input, { 'templates/ejs-indent': 'error' })).toBe(
+      '<%_ if (x) { _%>\n  <%_ doWork(); _%>\n<%_ } _%>',
+    );
+  });
+
+  test('handles two-level nesting', () => {
+    const input = '<%_ if (a) { _%>\n<%_ if (b) { _%>\n<%_ doWork(); _%>\n<%_ } _%>\n<%_ } _%>';
+    expect(applyFix(input, { 'templates/ejs-indent': 'error' })).toBe(
+      '<%_ if (a) { _%>\n  <%_ if (b) { _%>\n    <%_ doWork(); _%>\n  <%_ } _%>\n<%_ } _%>',
+    );
+  });
+
+  test('fix is idempotent', () => {
+    const input = '<%_ if (x) { _%>\n<%_ doWork(); _%>\n<%_ } _%>';
+    const first = applyFix(input, { 'templates/ejs-indent': 'error' });
+    const second = applyFix(first, { 'templates/ejs-indent': 'error' });
+    expect(second).toBe(first);
+  });
+
+  test('does not move inline tags', () => {
+    const input = 'Hello <%_ name _%>!';
+    expect(applyFix(input, { 'templates/ejs-indent': 'error' })).toBe(input);
+  });
+
+  test('brace depth tracks <% %> structural tags too', () => {
+    // A structural `<% if (x) { %>` (code type) increments brace depth,
+    // so the following <%_ %>  slurp tag should be indented.
+    const input = '<% if (x) { %>\n<%_ doWork(); _%>\n<% } %>';
+    expect(applyFix(input, { 'templates/ejs-indent': 'error' })).toBe('<% if (x) { %>\n  <%_ doWork(); _%>\n<% } %>');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fixture tests – formatting (no-multiline-tags + ejs-indent)
+// ---------------------------------------------------------------------------
+
+describe('formatting fixture tests', () => {
+  test('fixture 4 (no-multiline-tags + prefer-raw) autofix produces expected output', () => {
+    const fixed = applyFix(fixture4.input, fixture4.rules);
+    expect(fixed).toBe(fixture4.expected);
+  });
+
+  test('fixture 4 expected is already fixed (idempotent)', () => {
+    const fixed = applyFix(fixture4.expected, fixture4.rules);
+    expect(fixed).toBe(fixture4.expected);
+  });
+
+  test('fixture 5 (ejs-indent) autofix produces expected output', () => {
+    const fixed = applyFix(fixture5.input, fixture5.rules);
+    expect(fixed).toBe(fixture5.expected);
+  });
+
+  test('fixture 5 expected is already fixed (idempotent)', () => {
+    const fixed = applyFix(fixture5.expected, fixture5.rules);
+    expect(fixed).toBe(fixture5.expected);
   });
 });

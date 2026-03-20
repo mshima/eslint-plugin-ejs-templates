@@ -8,3 +8,5 @@
 
 export { preferRaw } from './prefer-raw.js';
 export { preferSlurping } from './prefer-slurping.js';
+export { noMultilineTags } from './no-multiline-tags.js';
+export { ejsIndent } from './ejs-indent.js';

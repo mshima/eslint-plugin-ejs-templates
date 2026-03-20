@@ -7,24 +7,17 @@
 //     http://www.apache.org/licenses/LICENSE-2.0
 
 import type { Linter } from 'eslint';
+import { parseEjs } from './ts-parser.js';
 
 // ---------------------------------------------------------------------------
-// EJS tag regex
+// Constants
 // ---------------------------------------------------------------------------
 
-/**
- * Matches a single EJS tag, capturing:
- *   group 1 – opening modifier: `-`, `_`, `=`, `#`, or empty string
- *   group 2 – tag content (JS code or comment text)
- *   group 3 – closing modifier: `-`, `_`, or `undefined`
- *
- * The negative lookahead `(?!%)` prevents matching EJS escaped delimiters
- * (`<%%>`) which should be rendered as literal `<%>` text, not parsed as tags.
- */
-const EJS_RE = /<%(?!%)([-_=#]?)([\s\S]*?)([-_])?%>/g;
+/** Indentation unit used by the ejsIndent brace-depth algorithm (2 spaces). */
+const INDENT_UNIT = '  ';
 
 // ---------------------------------------------------------------------------
-// Slurping eligibility check (mirrored from the former printer)
+// Slurping eligibility check
 // ---------------------------------------------------------------------------
 
 /**
@@ -43,6 +36,36 @@ export function canConvertToSlurping(content: string): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// Brace-depth helpers (ported from the original Prettier printer)
+// ---------------------------------------------------------------------------
+
+/** Net change in brace depth for a string (`{` count minus `}` count). */
+function bracesDelta(s: string): number {
+  return (s.match(/{/g) ?? []).length - (s.match(/}/g) ?? []).length;
+}
+
+/**
+ * Count the number of `}` that appear at the very start of `str`
+ * (before any non-whitespace, non-`}` character).  Used to determine the
+ * "effective lower brace depth" for indentation.
+ */
+function countLeadingCloseBraces(str: string): number {
+  const m = str.match(/^[\s}]*/);
+  return m?.[0] ? m[0].replace(/\s/g, '').length : 0;
+}
+
+/**
+ * Split raw EJS tag content into individual non-empty trimmed lines.
+ * Used by the `no-multiline-tags` fix to collapse multiline content.
+ */
+function splitLines(raw: string): string[] {
+  return raw
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0);
+}
+
+// ---------------------------------------------------------------------------
 // Tag-block extraction
 // ---------------------------------------------------------------------------
 
@@ -51,7 +74,7 @@ export interface TagBlock {
   /**
    * Virtual JS code for this block.
    * Line 1 is a single-line comment encoding the tag type (`//@ejs-tag:<type>`).
-   * Lines 2+ are the raw JS code content of the tag.
+   * Lines 2+ are the raw JS code content of the tag (when not omitted).
    */
   virtualCode: string;
   /** 1-based line in the original EJS file where the opening delimiter starts. */
@@ -66,101 +89,145 @@ export interface TagBlock {
   tagOffset: number;
   /** Total length of the original tag (opening delimiter + content + closing delimiter). */
   tagLength: number;
-  /** Determined tag type (same value as the `//@ejs-tag:<type>` marker). */
+  /**
+   * Determined tag type (same value as the `//@ejs-tag:<type>` marker).
+   *
+   * Base types: `escaped-output` | `raw-output` | `slurp` | `code` | `code-slurpable`
+   *
+   * Suffixes added for violations:
+   * - `-multiline`     → content contains `\n` (triggers `no-multiline-tags` rule)
+   * - `-needs-indent`  → standalone `<%_ _%>` tag whose indentation does not match
+   *                      the brace-depth expected indent (triggers `ejs-indent` rule)
+   */
   tagType: string;
-  /** Raw JS content captured between the delimiters (used for prefer-slurping fix). */
+  /** Raw JS content captured between the delimiters. */
   codeContent: string;
+  /** Full opening delimiter string (e.g. `<%`, `<%_`, `<%=`, `<%-`). */
+  openDelim: string;
+  /** Full closing delimiter string (e.g. `%>`, `_%>`, `-%>`). */
+  closeDelim: string;
+  /**
+   * Actual whitespace characters on the current line before the tag.
+   * Empty string when the tag is not standalone (has non-whitespace before it
+   * on the same line).
+   */
+  lineIndent: string;
+  /**
+   * Expected brace-depth indentation for this tag.
+   * Only meaningful for standalone `<%_ _%>` tags; empty string otherwise.
+   */
+  expectedIndent: string;
 }
 
 /**
- * Build a look-up table mapping each character offset to `{line, column}`.
- * We precompute the start offset of every line in a single pass so that the
- * per-tag position queries are O(log n) binary-search rather than O(offset)
- * string-splitting.
- */
-function buildLineStartOffsets(text: string): number[] {
-  const starts: number[] = [0];
-  for (let i = 0; i < text.length; i++) {
-    if (text[i] === '\n') starts.push(i + 1);
-  }
-  return starts;
-}
-
-/** Convert a character offset to a `{line (1-based), column (0-based)}` pair. */
-function offsetToLineCol(lineStarts: number[], offset: number): { line: number; column: number } {
-  let lo = 0;
-  let hi = lineStarts.length - 1;
-  while (lo < hi) {
-    const mid = (lo + hi + 1) >> 1;
-    if (lineStarts[mid] <= offset) lo = mid;
-    else hi = mid - 1;
-  }
-  return { line: lo + 1, column: offset - lineStarts[lo] };
-}
-
-/**
- * Extract each non-comment EJS tag from `text` as a {@link TagBlock}.
+ * Extract each non-comment EJS tag from `text` as a {@link TagBlock},
+ * using tree-sitter-embedded-template for accurate parsing.
  *
  * The virtual code for each block is structured as:
  * ```
  * //@ejs-tag:<tagType>
- * <raw JS code from the tag>
+ * <raw JS code from the tag>   (omitted for structural / incomplete tags)
  * ```
  *
- * Tag types:
+ * Tag types (base):
  * - `escaped-output`  – `<%= … %>`
  * - `raw-output`      – `<%- … %>`
  * - `slurp`           – `<%_ … _%>` / `<% … _%>` / `<%_ … %>`
  * - `code`            – `<% … %>` that cannot be promoted to slurping
  * - `code-slurpable`  – `<% … %>` that can be safely promoted to `<%_ … _%>`
+ *
+ * Violation suffixes (appended to the base type):
+ * - `-multiline`       – content contains newlines (fixable by `no-multiline-tags`)
+ * - `-needs-indent`    – wrong brace-depth indentation (fixable by `ejs-indent`)
  */
 export function extractTagBlocks(text: string): TagBlock[] {
   const blocks: TagBlock[] = [];
-  const re = new RegExp(EJS_RE.source, 'g');
-  // Build the line-start offset table once; reused for every tag position query.
-  const lineStarts = buildLineStartOffsets(text);
-  let match: RegExpExecArray | null;
 
-  while ((match = re.exec(text)) !== null) {
-    const openMod = match[1]; // -, _, =, #, or ''
-    const code = match[2]; // raw JS / comment content
-    const closeMod = match[3] ?? ''; // -, _, or ''
+  const root = parseEjs(text);
+  let braceDepth = 0;
 
-    // Skip comment tags entirely – they carry no lintable JS.
-    if (openMod === '#') continue;
+  for (const node of root.children) {
+    // Skip content nodes and comment directives.
+    if (node.type === 'content' || node.type === 'comment_directive') continue;
 
-    // Determine the tag type for the virtual comment marker.
-    let tagType: string;
-    if (openMod === '=') {
-      tagType = 'escaped-output';
-    } else if (openMod === '-') {
-      tagType = 'raw-output';
-    } else if (openMod === '_' || closeMod === '_') {
-      tagType = 'slurp';
-    } else if (closeMod === '-') {
-      // Trim-newline close: treat as plain code (no slurping suggestion).
-      tagType = 'code';
+    // Skip nodes with parse errors.
+    if (node.hasError) continue;
+
+    const tagOffset = node.startIndex;
+    const tagLength = node.endIndex - node.startIndex;
+
+    // Extract opening/closing delimiters and code content from tree-sitter nodes.
+    const openDelim: string = node.children[0]?.text ?? '<%';
+    const closeDelim: string = node.children[node.childCount - 1]?.text ?? '%>';
+    const codeNode = node.namedChildren.find((c) => c.type === 'code');
+    const codeContent: string = codeNode?.text ?? '';
+
+    // tree-sitter gives us precise position info directly.
+    const tagLine = node.startPosition.row + 1; // 1-based
+    const tagColumn = node.startPosition.column; // 0-based
+    const codeStartRow = codeNode ? codeNode.startPosition.row + 1 : tagLine;
+    const codeStartCol = codeNode ? codeNode.startPosition.column : tagColumn + openDelim.length;
+    const originalLine = codeStartRow;
+    const originalColumn = codeStartCol;
+
+    // ── Standalone detection ──────────────────────────────────────────────
+    // A tag is "standalone" when everything before it on the same line is
+    // whitespace (i.e. `tagColumn` characters of pure whitespace).
+    const lineStart = tagOffset - tagColumn;
+    const linePrefix = text.slice(lineStart, tagOffset);
+    const isStandalone = /^\s*$/.test(linePrefix);
+    const lineIndent = isStandalone ? linePrefix : '';
+
+    // ── Base tag type ─────────────────────────────────────────────────────
+    let baseType: string;
+    if (openDelim === '<%=') {
+      baseType = 'escaped-output';
+    } else if (openDelim === '<%-') {
+      baseType = 'raw-output';
+    } else if (openDelim === '<%_' || closeDelim === '_%>') {
+      baseType = 'slurp';
+    } else if (closeDelim === '-%>') {
+      baseType = 'code';
     } else {
-      // Plain `<% … %>`: check if it can be promoted to slurping.
-      tagType = canConvertToSlurping(code) ? 'code-slurpable' : 'code';
+      baseType = canConvertToSlurping(codeContent) ? 'code-slurpable' : 'code';
     }
 
-    // Position of the opening delimiter in the original file.
-    const { line: tagLine, column: tagColumn } = offsetToLineCol(lineStarts, match.index);
+    // ── Brace-depth tracking (for ejs-indent) ─────────────────────────────
+    // Updated for EVERY non-comment tag so structural `<% if %>` / `<% } %>`
+    // tags are included in the depth count even though we won't indent them.
+    const oldBraceDepth = braceDepth;
+    braceDepth = Math.max(0, braceDepth + bracesDelta(codeContent));
+    const lowerBraceDepth = Math.max(0, Math.min(oldBraceDepth - countLeadingCloseBraces(codeContent), braceDepth));
 
-    // Position of the JS code content (right after the opening delimiter).
-    const openDelimLength = 2 + openMod.length; // `<%` = 2, `<%_` = 3, etc.
-    const { line: originalLine, column: originalColumn } = offsetToLineCol(lineStarts, match.index + openDelimLength);
+    // ── Expected indent (for standalone <%_ _%> tags only) ────────────────
+    const isSlurpTag = baseType === 'slurp';
+    const expectedIndent = isStandalone && isSlurpTag ? INDENT_UNIT.repeat(lowerBraceDepth) : lineIndent;
 
-    // For `code` tags (structural openers/closers like `<% if (x) { %>` or
-    // `<% } %>`, or tags with a trim-newline close `-%>`) and for `slurp` tags
-    // whose content has unbalanced braces (e.g. `<%_ if (x) { _%>`), the raw
-    // JS content is a syntactically incomplete fragment.  Including it verbatim
-    // in the virtual JS program would cause ESLint parse errors.  Only tags
-    // whose content is a syntactically self-contained statement are safe to
-    // include, so that standard JS rules (no-undef, eqeqeq, …) can inspect them.
-    const isIncomplete = tagType === 'code' || (tagType === 'slurp' && !canConvertToSlurping(code));
-    const virtualCodeBody = isIncomplete ? '' : code;
+    // ── Multiline detection ────────────────────────────────────────────────
+    const isMultiline = codeContent.includes('\n');
+
+    // ── Final tag type (with violation suffixes) ───────────────────────────
+    let tagType = baseType;
+    if (isMultiline) {
+      tagType += '-multiline';
+    } else if (isStandalone && isSlurpTag && lineIndent !== expectedIndent) {
+      // Only add needs-indent for single-line slurp tags (multiline ones get
+      // fixed by no-multiline-tags first, then re-checked for indent).
+      tagType = 'slurp-needs-indent';
+    }
+
+    // ── Virtual code body ─────────────────────────────────────────────────
+    // Omit the body for structural (incomplete) tags to prevent ESLint parse
+    // errors.  A tag is structural when its JS content is not a
+    // syntactically self-contained statement.
+    // Use the BASE type (stripping any violation suffix) so that e.g. a
+    // `code-multiline` tag is still treated as structural/incomplete.
+    const typeForBodyOmissionCheck = isMultiline ? baseType : tagType;
+    const isIncomplete =
+      typeForBodyOmissionCheck === 'code' ||
+      typeForBodyOmissionCheck === 'code-multiline' ||
+      (baseType === 'slurp' && !canConvertToSlurping(codeContent));
+    const virtualCodeBody = isIncomplete ? '' : codeContent;
 
     blocks.push({
       virtualCode: `//@ejs-tag:${tagType}\n${virtualCodeBody}`,
@@ -168,10 +235,14 @@ export function extractTagBlocks(text: string): TagBlock[] {
       tagColumn,
       originalLine,
       originalColumn,
-      tagOffset: match.index,
-      tagLength: match[0].length,
+      tagOffset,
+      tagLength,
       tagType,
-      codeContent: code,
+      codeContent,
+      openDelim,
+      closeDelim,
+      lineIndent,
+      expectedIndent,
     });
   }
 
@@ -192,27 +263,15 @@ export function extractTagBlocks(text: string): TagBlock[] {
  * Line 3:  <second line …>     ← block.originalLine + 1 (col unchanged)
  * …
  * ```
- *
- * Column mapping for the first JS line (virtual line 2):
- *   The JS code begins immediately after the opening delimiter (e.g., `<%=`).
- *   `block.originalColumn` is the 0-based column of the first code character,
- *   so `original_column = virtual_column + block.originalColumn`.
- *   Subsequent lines begin at column 0 in the original file (the JS content
- *   already carries its own indentation), so no column adjustment is needed.
  */
 function mapMessage(msg: Linter.LintMessage, block: TagBlock): Linter.LintMessage {
   if (msg.line <= 1) {
-    // Error on the type-comment line → report at the opening delimiter position.
     return { ...msg, line: block.tagLine, column: block.tagColumn };
   }
 
-  // Lines 2+ correspond to actual JS code.
-  const codeLineIndex = msg.line - 2; // 0-based
+  const codeLineIndex = msg.line - 2;
   const originalLine = block.originalLine + codeLineIndex;
-  // Only the first code line (codeLineIndex === 0) needs a column offset,
-  // because the code begins immediately after the opening delimiter on that line.
   const originalColumn = codeLineIndex === 0 ? msg.column + block.originalColumn : msg.column;
-
   const mapped: Linter.LintMessage = { ...msg, line: originalLine, column: originalColumn };
 
   if (msg.endLine !== undefined) {
@@ -229,56 +288,94 @@ function mapMessage(msg: Linter.LintMessage, block: TagBlock): Linter.LintMessag
 // ---------------------------------------------------------------------------
 
 /**
+ * Build the collapsed/split replacement text for a multiline EJS tag.
+ *
+ * - 0 non-empty lines → `<open> <close>` (empty tag)
+ * - 1 non-empty line  → `<open> <trimmedLine> <close>`
+ * - 2+ non-empty lines → one `<open> <line> <close>` per line, separated by
+ *   `\n` + the original line indentation (so subsequent tags align with the
+ *   first one).
+ */
+function buildCollapsedTag(block: TagBlock): string {
+  const lines = splitLines(block.codeContent);
+  if (lines.length === 0) {
+    return `${block.openDelim} ${block.closeDelim}`;
+  }
+  if (lines.length === 1) {
+    return `${block.openDelim} ${lines[0]} ${block.closeDelim}`;
+  }
+  return lines
+    .map((line, i) => `${i === 0 ? '' : block.lineIndent}${block.openDelim} ${line} ${block.closeDelim}`)
+    .join('\n');
+}
+
+/**
  * Translate an ESLint fix object from the virtual JS code space back to the
  * original EJS source space.
  *
- * Our rules report fixes using sentinel ranges in the virtual code (the rule
- * has no way to know the original character offsets).  This function uses the
- * metadata stored in the {@link TagBlock} to produce a fix with the correct
- * range and replacement text for the original EJS file.
- *
- * Supported translations:
- * - `escaped-output` block → `prefer-raw` fix: replace `=` with `-` in `<%=`
- * - `code-slurpable` block → `prefer-slurping` fix: replace `<% … %>` with `<%_ … _%>`
- *
- * Returns `null` for tag types that have no registered fix translation.
+ * Rules report sentinel fixes (replacing the virtual marker comment range).
+ * This function uses `TagBlock` metadata to produce the correct fix in the
+ * original EJS file.
  */
 function translateFix(
   _fix: { range: [number, number]; text: string },
   block: TagBlock,
 ): { range: [number, number]; text: string } | null {
+  // prefer-raw: change `<%=` → `<%-`
   if (block.tagType === 'escaped-output') {
-    // Change `<%=` → `<%-`: replace the `=` (at offset 2 from tag start) with `-`.
     return { range: [block.tagOffset + 2, block.tagOffset + 3], text: '-' };
   }
 
+  // prefer-slurping: change `<% … %>` → `<%_ … _%>` (content unchanged)
   if (block.tagType === 'code-slurpable') {
-    // Change `<% code %>` → `<%_ code _%>`: replace the whole tag.
     return {
       range: [block.tagOffset, block.tagOffset + block.tagLength],
       text: `<%_${block.codeContent}_%>`,
     };
   }
 
-  return null; // no fix translation for this tag type
+  // no-multiline-tags: collapse/split multiline tag into single-line tag(s)
+  if (block.tagType.endsWith('-multiline')) {
+    return {
+      range: [block.tagOffset, block.tagOffset + block.tagLength],
+      text: buildCollapsedTag(block),
+    };
+  }
+
+  // ejs-indent: fix the whitespace before a standalone <%_ _%> tag
+  if (block.tagType === 'slurp-needs-indent') {
+    // Replace the line prefix (from line start to tag start) with the expected indent.
+    const indentStart = block.tagOffset - block.tagColumn;
+    return {
+      range: [indentStart, block.tagOffset],
+      text: block.expectedIndent,
+    };
+  }
+
+  return null;
 }
 
-/**
- * Per-file block metadata shared between `preprocess` and `postprocess`.
- * Keyed by the filename passed to the processor.
- */
+// ---------------------------------------------------------------------------
+// Per-file block map
+// ---------------------------------------------------------------------------
+
 const fileBlocksMap = new Map<string, TagBlock[]>();
+
+// ---------------------------------------------------------------------------
+// ESLint processor
+// ---------------------------------------------------------------------------
 
 /**
  * ESLint processor for `.ejs` files.
  *
- * Each non-comment EJS tag (`<% … %>`, `<%= … %>`, `<%- … %>`, `<%_ … _%>`)
- * is extracted into its own virtual JavaScript block.  The first line of every
- * block is a single-line comment (`//@ejs-tag:<type>`) that encodes the tag
- * type so that plugin rules can detect EJS-specific patterns.  The remaining
- * lines are the raw JS content of the tag, preserving their original line
- * structure so that `postprocess` can map ESLint messages back to the correct
- * positions in the source `.ejs` file.
+ * Each non-comment EJS tag is extracted into its own virtual JavaScript block.
+ * The first line of every block is a single-line comment (`//@ejs-tag:<type>`)
+ * that encodes the tag type (and any violation suffixes) so that plugin rules
+ * can detect EJS-specific patterns.  The remaining lines are the raw JS
+ * content of the tag.
+ *
+ * Parsing is backed by tree-sitter-embedded-template for accurate position
+ * information and robust syntax handling.
  */
 export const processor: Linter.Processor = {
   meta: { name: 'ejs' },
@@ -299,14 +396,12 @@ export const processor: Linter.Processor = {
       return blockMessages.map((msg) => {
         const mapped = mapMessage(msg, block);
 
-        // Translate fix objects from virtual code space to original source space.
         if (mapped.fix) {
           const translated = translateFix(mapped.fix, block);
           if (translated) {
             return { ...mapped, fix: translated };
           }
-          // No translation available – drop the fix to avoid applying a
-          // wrong range to the original source.
+          // No translation available – drop the fix.
           const result = { ...mapped };
           delete result.fix;
           return result;
