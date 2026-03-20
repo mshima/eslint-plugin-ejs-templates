@@ -69,7 +69,8 @@ function extractDelimiters(node: SyntaxNode): { open: string; content: string; c
  * Convert a tree-sitter root SyntaxNode into our internal EJS AST.
  *
  * @throws {SyntaxError} when the source contains a syntax error detected by
- *   tree-sitter (an `ERROR` node in the tree).
+ *   tree-sitter (an `ERROR` node in the tree), or when a closing delimiter
+ *   `%>` appears in content without a matching opening delimiter `<%`.
  */
 function syntaxNodeToAst(root: SyntaxNode, originalText: string): EjsRootNode {
   const children: EjsChildNode[] = [];
@@ -82,6 +83,27 @@ function syntaxNodeToAst(root: SyntaxNode, originalText: string): EjsRootNode {
     }
 
     if (node.type === 'content') {
+      // Detect a bare `%>` in content that is not preceded by `%` (which
+      // would make it part of the `%%>` EJS escape sequence).  Such a token
+      // means a closing delimiter `%>` appeared without a matching `<%`.
+      const unmatchedClose = /(?<!%)%>/.exec(node.text);
+      if (unmatchedClose) {
+        const before = node.text.slice(0, unmatchedClose.index);
+        const newlines = (before.match(/\n/g) ?? []).length;
+        const row = node.startPosition.row + newlines;
+        // When the match is on the first line of the node, offset from the
+        // node's own start column.  On subsequent lines the node starts at
+        // column 0, so the column is simply the distance from the preceding
+        // newline to the match position.
+        const col =
+          newlines === 0
+            ? node.startPosition.column + unmatchedClose.index
+            : unmatchedClose.index - before.lastIndexOf('\n') - 1;
+        throw new SyntaxError(
+          `EJS syntax error at line ${row + 1}, column ${col + 1}: unexpected closing delimiter "%>" without a matching opening delimiter`,
+        );
+      }
+
       children.push({
         type: 'content',
         value: node.text,

@@ -10,6 +10,8 @@ import { describe, test, expect } from 'vitest';
 import * as prettier from 'prettier';
 import plugin from '../src/index.js';
 import type { EjsPluginOptions } from '../src/types.js';
+import { readdir } from 'fs/promises';
+import path from 'path';
 
 type FormatOptions = prettier.Options & Partial<EjsPluginOptions>;
 
@@ -195,6 +197,45 @@ describe('prettier-plugin-templates (EJS)', () => {
       expect(await format('    <%_ if (foo) { _%>', { ejsIndent: true })).toBe('<%_ if (foo) { _%>\n');
     });
 
+    test('strips leading whitespace before a standalone <%_ tag with ejsPreferRaw: always', async () => {
+      expect(
+        await format(
+          `export type HealthStatus = 'UP' | 'DOWN' | 'UNKNOWN' | 'OUT_OF_SERVICE';
+
+export type HealthKey =
+  <%_ if (locals.messageBrokerAny) { _%>
+  | 'binders'
+  <%_ } _%>
+  <%_ if (locals.applicationTypeGateway || locals.serviceDiscoveryAny) { _%>
+  | 'discoveryComposite'
+  | 'refreshScope'
+  | 'clientConfigServer'
+  | 'hystrix'
+  <%_ } _%>
+  <%_ if (locals.serviceDiscoveryConsul) { _%>
+  | 'consul'
+  <%_ } _%>
+`,
+          { ejsPreferRaw: 'always', ejsIndent: true },
+        ),
+      ).toBe(`export type HealthStatus = 'UP' | 'DOWN' | 'UNKNOWN' | 'OUT_OF_SERVICE';
+
+export type HealthKey =
+<%_ if (locals.messageBrokerAny) { _%>
+  | 'binders'
+<%_ } _%>
+<%_ if (locals.applicationTypeGateway || locals.serviceDiscoveryAny) { _%>
+  | 'discoveryComposite'
+  | 'refreshScope'
+  | 'clientConfigServer'
+  | 'hystrix'
+<%_ } _%>
+<%_ if (locals.serviceDiscoveryConsul) { _%>
+  | 'consul'
+<%_ } _%>
+`);
+    });
+
     test('strips leading whitespace before a standalone <%_ tag', async () => {
       expect(
         await format(
@@ -232,6 +273,36 @@ import { afterEach, beforeEach, describe, expect, it, vitest } from 'vitest';
         '<%_ } else { _%>\n' +
         '  <%_ const x = 2; _%>\n' +
         '<%_ } _%>\n';
+      expect(await format(input, { ejsIndent: true })).toBe(expected);
+    });
+
+    test('handles multiple open and close braces on the same line', async () => {
+      const input = `  {
+    path: '<%- applicationTypeMicroservice ? lowercaseBaseName : '' %>',
+    loadChildren: () => import('./entities/entity.routes'),
+  },
+<%_ if (applicationTypeGateway && microfrontend) { _%>
+  <%_ for (const remote of microfrontends) { _%>
+  {
+    path: '<%- remote.lowercaseBaseName %>',
+    loadChildren: () => loadEntityRoutes('<%- remote.lowercaseBaseName %>'),
+  },
+  <%_ } _%>
+<%_ } _%>
+`;
+      const expected = `  {
+    path: '<%- applicationTypeMicroservice ? lowercaseBaseName : '' %>',
+    loadChildren: () => import('./entities/entity.routes'),
+  },
+<%_ if (applicationTypeGateway && microfrontend) { _%>
+  <%_ for (const remote of microfrontends) { _%>
+  {
+    path: '<%- remote.lowercaseBaseName %>',
+    loadChildren: () => loadEntityRoutes('<%- remote.lowercaseBaseName %>'),
+  },
+  <%_ } _%>
+<%_ } _%>
+`;
       expect(await format(input, { ejsIndent: true })).toBe(expected);
     });
 
@@ -311,11 +382,79 @@ import { afterEach, beforeEach, describe, expect, it, vitest } from 'vitest';
     test('preserves non-%> close delimiters when ejsPreferSlurping is true', async () => {
       expect(await format('<% code -%>', { ejsPreferSlurping: true })).toBe('<% code -%>\n');
     });
+
+    test('does not convert <% } %> (leading close brace) when ejsPreferSlurping is true', async () => {
+      expect(await format('<% } %>', { ejsPreferSlurping: true })).toBe('<% } %>\n');
+    });
+
+    test('does not convert <% if (foo) { %> (trailing open brace) when ejsPreferSlurping is true', async () => {
+      expect(await format('<% if (foo) { %>', { ejsPreferSlurping: true })).toBe('<% if (foo) { %>\n');
+    });
+
+    test('does not convert <% } else { %> (leading close + trailing open brace) when ejsPreferSlurping is true', async () => {
+      expect(await format('<% } else { %>', { ejsPreferSlurping: true })).toBe('<% } else { %>\n');
+    });
+
+    test('converts <% const x = { a: 1 }; %> (balanced inline braces) when ejsPreferSlurping is true', async () => {
+      expect(await format('<% const x = { a: 1 }; %>', { ejsPreferSlurping: true })).toBe(
+        '<%_ const x = { a: 1 }; _%>\n',
+      );
+    });
+
+    test('ejsIndent correctly indents standalone tags converted by ejsPreferSlurping', async () => {
+      // The structural tags already use <%_ _%> delimiters.  The neutral
+      // <% doWork(); %> tag (balanced braces, no leading `}` or trailing `{`)
+      // IS converted to <%_ _%> by preferSlurping, and ejsIndent then applies
+      // the correct brace-depth indentation to the converted tag.
+      const input = '<%_ if (foo) { _%>\n<% doWork(); %>\n<%_ } _%>\n';
+      expect(await format(input, { ejsPreferSlurping: true, ejsIndent: true })).toBe(
+        '<%_ if (foo) { _%>\n  <%_ doWork(); _%>\n<%_ } _%>\n',
+      );
+    });
+
+    test('ejsPreferSlurping with ejsIndent is idempotent', async () => {
+      const input = '<%_ if (foo) { _%>\n<% doWork(); %>\n<%_ } _%>\n';
+      const first = await format(input, { ejsPreferSlurping: true, ejsIndent: true });
+      const second = await format(first, { ejsPreferSlurping: true, ejsIndent: true });
+      expect(second).toBe(first);
+    });
   });
 
   describe('tree-sitter syntax validation', () => {
     test('valid EJS parses without error', async () => {
       await expect(format('<% if (ok) { %>')).resolves.toBeDefined();
+    });
+
+    test('throws SyntaxError on missing tag close (unclosed <%)', async () => {
+      await expect(format('<% code')).rejects.toThrow(SyntaxError);
+    });
+
+    test('throws SyntaxError on missing tag open (bare %>)', async () => {
+      await expect(format('code %>')).rejects.toThrow(SyntaxError);
+    });
+
+    test('throws SyntaxError on standalone %> with no preceding <%', async () => {
+      await expect(format('%>')).rejects.toThrow(SyntaxError);
+    });
+
+    test('throws SyntaxError when second tag is missing its close', async () => {
+      await expect(format('<% a %> <% b')).rejects.toThrow(SyntaxError);
+    });
+
+    test('throws SyntaxError when %> appears after valid tag content', async () => {
+      await expect(format('<% a %>\nsome%>text')).rejects.toThrow(SyntaxError);
+    });
+
+    test('does not throw for %%> (EJS escaped close delimiter)', async () => {
+      await expect(format('%%>')).resolves.toBeDefined();
+    });
+
+    test('does not throw for <%%> (EJS escaped open delimiter)', async () => {
+      await expect(format('<%%>')).resolves.toBeDefined();
+    });
+
+    test('throws with a message mentioning the correct line for bare %>', async () => {
+      await expect(format('hello\nworld%>')).rejects.toThrow(/line 2/);
     });
   });
 
@@ -450,5 +589,19 @@ import { afterEach, beforeEach, describe, expect, it, vitest } from 'vitest';
         '  _%>\n';
       expect(await format(input)).toBe(input);
     });
+  });
+
+  describe('fixtures', async () => {
+    const fixturesDir = path.join(import.meta.dirname, 'fixtures');
+    const files = new Set(await readdir(fixturesDir));
+    for (const file of files) {
+      test(`formats ${file} fixture without error`, async () => {
+        const fixture = path.join(fixturesDir, file);
+        const { options, input, expected = input } = await import(fixture);
+
+        const result = await format(input, { ...options, filepath: fixture });
+        expect(result).toBe(expected);
+      });
+    }
   });
 });

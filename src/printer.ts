@@ -8,7 +8,14 @@
 
 import type { AstPath, Options, Doc } from 'prettier';
 import { doc } from 'prettier';
-import type { EjsRootNode, EjsTagNode, EjsChildNode, EjsPluginOptions, FormatTagOptions } from './types.js';
+import type {
+  EjsRootNode,
+  EjsTagNode,
+  EjsChildNode,
+  EjsPluginOptions,
+  FormatTagOptions,
+  EjsTextNode,
+} from './types.js';
 
 const { hardline } = doc.builders;
 
@@ -56,15 +63,6 @@ function getLineIndent(s: string): string {
 }
 
 /**
- * Returns `true` when the tag uses both whitespace-slurping delimiters
- * (`<%_` … `_%>`).  These are the tags whose indentation is managed by the
- * printer's brace-depth tracking logic.
- */
-function isSlurpingTag(tag: EjsTagNode): boolean {
-  return tag.open === '<%_' && tag.close === '_%>';
-}
-
-/**
  * Split the raw content of an EJS tag into individual non-empty trimmed lines.
  */
 function splitLines(raw: string): string[] {
@@ -105,6 +103,26 @@ function bracesDelta(line: string): number {
 }
 
 /**
+ * Returns `true` when `<% … %>` can be safely converted to `<%_ … _%>` by
+ * the `preferSlurping` option.
+ *
+ * The content must satisfy all three conditions:
+ *   - Balanced braces: the number of `{` equals the number of `}`.
+ *   - Does not start with a closing brace `}` (would close a block opened
+ *     before this tag, e.g. `<% } %>` or `<% } else { %>`).
+ *   - Does not end with an opening brace `{` (would open a block whose
+ *     closing brace lives in a later tag, e.g. `<% if (x) { %>`).
+ *
+ * Tags that open or close brace-depth must keep their original delimiters so
+ * that the `ejsIndent` brace-depth tracker can correctly identify structural
+ * tags versus neutral ones.
+ */
+function canConvertToSlurping(content: string): boolean {
+  const trimmed = content.trim();
+  return bracesDelta(trimmed) === 0 && !trimmed.startsWith('}') && !trimmed.endsWith('{');
+}
+
+/**
  * Format a single EJS tag into its final string representation.
  *
  * Rules:
@@ -127,8 +145,9 @@ export function formatTag(open: string, rawContent: string, close: string, optio
   let formattedOpen = options.preferRaw && open === '<%=' ? '<%-' : open;
   let formattedClose = close;
 
-  // Convert <% … %> to <%_ … _%> when preferred.
-  if (options.preferSlurping && formattedOpen === '<%' && close === '%>') {
+  // Convert <% … %> to <%_ … _%> when preferred AND the content is safe to
+  // slurp (balanced braces, no leading `}`, no trailing `{`).
+  if (options.preferSlurping && formattedOpen === '<%' && close === '%>' && canConvertToSlurping(rawContent)) {
     formattedOpen = '<%_';
     formattedClose = '_%>';
   }
@@ -193,18 +212,25 @@ export function print(path: AstPath, options: Options): Doc {
   const collapseMultiline = ejsOpts.ejsCollapseMultiline ?? false;
   const preferSlurping = ejsOpts.ejsPreferSlurping ?? false;
   const ejsIndent = ejsOpts.ejsIndent ?? false;
-  const tagOptions: FormatTagOptions = { preferRaw, collapseMultiline, preferSlurping };
+  // preferRaw and preferSlurping are pre-applied to effective delimiters before
+  // formatTag is called (see the per-tag effOpen/effClose computation below),
+  // so they must be disabled here to prevent double-transformation.
+  const tagOptions: FormatTagOptions = { preferRaw: false, collapseMultiline, preferSlurping: false };
   // Pre-built options for single-line tag formatting (used inside the
   // multiline-split loop where content is already a single trimmed line).
   const singleLineOptions: FormatTagOptions = {
-    preferRaw,
+    preferRaw: false,
     collapseMultiline: false,
-    preferSlurping,
+    preferSlurping: false,
   };
 
   const children: EjsChildNode[] = node.children;
   const parts: string[] = [];
   let braceDepth = 0;
+  // Track what was actually pushed to output (for prevLineIndent calculation)
+  let lastPushedChild: EjsChildNode | EjsTextNode | null = null;
+  // Track the original preceding node (for isStandalone calculation, even if we stripped it)
+  let lastOriginalChild: EjsChildNode | null = null;
 
   for (let i = 0; i < children.length; i++) {
     const child = children[i];
@@ -212,43 +238,78 @@ export function print(path: AstPath, options: Options): Doc {
     if (child.type === 'content') {
       const next = children[i + 1];
       // When ejsIndent is active, pure-whitespace content immediately before
-      // a slurping tag is replaced by the printer's own indentation logic –
-      // skip it here.  When ejsIndent is off, preserve it as-is.
-      if (
-        ejsIndent &&
-        next &&
-        next.type !== 'content' &&
-        isSlurpingTag(next as EjsTagNode) &&
-        isWhitespaceOnly(child.value)
-      ) {
-        continue;
+      // a slurping tag is replaced by the printer's own indentation logic.
+      if (ejsIndent && next && next.type !== 'content') {
+        const nextTag = next as EjsTagNode;
+        const nextWillSlurp =
+          (nextTag.open === '<%_' && nextTag.close === '_%>') ||
+          (preferSlurping && nextTag.open === '<%' && nextTag.close === '%>' && canConvertToSlurping(nextTag.content));
+        if (nextWillSlurp) {
+          // Skip indentation-only whitespace on the same line.
+          if (isWhitespaceOnly(child.value) && !child.value.includes('\n')) {
+            lastOriginalChild = child;
+            continue;
+          }
+
+          // Strip trailing indentation after the last newline, preserving the newline.
+          const lastNl = child.value.lastIndexOf('\n');
+          if (lastNl !== -1) {
+            const afterLastNl = child.value.slice(lastNl + 1);
+            if (isWhitespaceOnly(afterLastNl)) {
+              parts.push(child.value.slice(0, lastNl + 1));
+              lastPushedChild = child;
+              lastOriginalChild = child;
+              continue;
+            }
+          }
+        }
       }
+
       parts.push(child.value);
+      lastPushedChild = child;
+      lastOriginalChild = child;
     } else {
       const tag = child as EjsTagNode;
-      const prev = children[i - 1];
       // A tag is "standalone" when nothing (or only whitespace) precedes it
       // on the same line, meaning the printer controls its indentation.
-      const isStandalone = !prev || (prev.type === 'content' && isWhitespaceOnly(prev.value));
+      const lastOriginalEndsWithNewline =
+        lastOriginalChild && lastOriginalChild.type === 'content' && lastOriginalChild.value.includes('\n');
+      const isStandalone =
+        !lastOriginalChild ||
+        (lastOriginalChild.type === 'content' &&
+          (isWhitespaceOnly(lastOriginalChild.value) || lastOriginalEndsWithNewline));
 
       // When ejsIndent is off, the close delimiter of a multiline tag should
       // align with the open tag.  Compute the leading whitespace on the same
       // line as the open tag once here for reuse in all tag branches below.
-      const prevLineIndent = !ejsIndent && prev && prev.type === 'content' ? getLineIndent(prev.value) : '';
+      const prevLineIndent =
+        !ejsIndent && lastPushedChild && lastPushedChild.type === 'content' ? getLineIndent(lastPushedChild.value) : '';
 
       if (tag.type === 'comment_directive') {
         // Comment tags are emitted verbatim – no trimming, collapsing, or
         // brace-depth adjustment.
         parts.push(tag.open + tag.content + tag.close);
+        lastPushedChild = tag;
+        lastOriginalChild = tag;
       } else {
+        // ── Option ordering: preferRaw → preferSlurp → multiline → ejsIndent ──
+        // Apply preferRaw and preferSlurp FIRST so that the isSlurping check
+        // and ejsIndent logic operate on the final delimiters.
+        let effOpen = preferRaw && tag.open === '<%=' ? '<%-' : tag.open;
+        let effClose = tag.close;
+        if (preferSlurping && effOpen === '<%' && effClose === '%>' && canConvertToSlurping(tag.content)) {
+          effOpen = '<%_';
+          effClose = '_%>';
+        }
+
         const oldBraceDepth = braceDepth;
         braceDepth = Math.max(0, braceDepth + bracesDelta(tag.content));
         const lowerBraceDepth = Math.min(oldBraceDepth - countLeadingCloseBraces(tag.content), braceDepth);
 
-        if (isStandalone && isSlurpingTag(tag)) {
+        if (isStandalone && effOpen === '<%_' && effClose === '_%>') {
           // Whether the skipped preceding content contained a newline (so we
           // know whether to emit a `\n` before each tag).
-          const prevHadNewline = !prev || prev.value.includes('\n');
+          const prevHadNewline = !lastPushedChild || (lastPushedChild as EjsTextNode).value.includes('\n');
 
           const lines = collapseMultiline ? splitLines(tag.content) : [tag.content].filter((l) => l.length > 0);
 
@@ -262,7 +323,10 @@ export function print(path: AstPath, options: Options): Doc {
               // AND the preceding content had a newline.  When ejsIndent is off,
               // the original content node was not skipped, so it already carries
               // the newline.  Never emit a newline at the very start of the output.
-              if (ejsIndent && prevHadNewline && parts.length > 0) {
+              // Also avoid emitting a duplicate newline if the last pushed content
+              // already ends with one.
+              const lastCharIsNewline = parts.length > 0 && parts[parts.length - 1].endsWith('\n');
+              if (ejsIndent && prevHadNewline && parts.length > 0 && !lastCharIsNewline) {
                 parts.push('\n');
               }
             } else {
@@ -276,7 +340,7 @@ export function print(path: AstPath, options: Options): Doc {
             }
 
             parts.push(
-              formatTag(tag.open, line, tag.close, {
+              formatTag(effOpen, line, effClose, {
                 ...singleLineOptions,
                 indent: ejsIndent ? indent : prevLineIndent,
               }),
@@ -287,8 +351,10 @@ export function print(path: AstPath, options: Options): Doc {
           // inline tags (ejsIndent off) use the same-line prefix from the
           // preceding content node so the close delimiter aligns with the open tag.
           const tagIndent = ejsIndent && isStandalone ? INDENT_UNIT.repeat(lowerBraceDepth) : prevLineIndent;
-          parts.push(formatTag(tag.open, tag.content, tag.close, { ...tagOptions, indent: tagIndent }));
+          parts.push(formatTag(effOpen, tag.content, effClose, { ...tagOptions, indent: tagIndent }));
         }
+        lastPushedChild = tag;
+        lastOriginalChild = tag;
       }
     }
   }
