@@ -72,10 +72,10 @@ converted to `<%-` (raw output) by default:
 
 ## Plugin Options
 
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `ejsPreferRaw` | `'always' \| 'never' \| 'auto'` | `'auto'` | Controls `<%=` → `<%-` conversion. `'auto'` converts unless the file ends with `.html.ejs`. |
-| `ejsCollapseMultiline` | `boolean` | `true` | Collapse multiline EJS tags onto a single line. |
+| Option                 | Type                            | Default  | Description                                                                                 |
+| ---------------------- | ------------------------------- | -------- | ------------------------------------------------------------------------------------------- |
+| `ejsPreferRaw`         | `'always' \| 'never' \| 'auto'` | `'auto'` | Controls `<%=` → `<%-` conversion. `'auto'` converts unless the file ends with `.html.ejs`. |
+| `ejsCollapseMultiline` | `boolean`                       | `true`   | Collapse multiline EJS tags onto a single line.                                             |
 
 ### Example `.prettierrc`
 
@@ -90,7 +90,7 @@ converted to `<%-` (raw output) by default:
 ## All Supported Delimiters
 
 | Delimiter | Meaning                                |
-|-----------|----------------------------------------|
+| --------- | -------------------------------------- |
 | `<%`      | Code (no output)                       |
 | `<%=`     | Output (HTML-escaped)                  |
 | `<%-`     | Output (raw / unescaped)               |

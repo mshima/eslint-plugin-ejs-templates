@@ -119,15 +119,13 @@ describe('prettier-plugin-templates (EJS)', () => {
 
   describe('<%- vs <%=', () => {
     test('converts <%=  to <%- in non-.html.ejs files (ejsPreferRaw: auto)', async () => {
-      expect(await format('<%= value %>', { filepath: 'template.ejs', ejsPreferRaw: 'auto' })).toBe(
-        '<%- value %>\n',
-      );
+      expect(await format('<%= value %>', { filepath: 'template.ejs', ejsPreferRaw: 'auto' })).toBe('<%- value %>\n');
     });
 
     test('keeps <%=  in .html.ejs files (ejsPreferRaw: auto)', async () => {
-      expect(
-        await format('<%= value %>', { filepath: 'template.html.ejs', ejsPreferRaw: 'auto' }),
-      ).toBe('<%= value %>\n');
+      expect(await format('<%= value %>', { filepath: 'template.html.ejs', ejsPreferRaw: 'auto' })).toBe(
+        '<%= value %>\n',
+      );
     });
 
     test('does not convert <%=  by default (ejsPreferRaw defaults to never)', async () => {
@@ -144,9 +142,7 @@ describe('prettier-plugin-templates (EJS)', () => {
     });
 
     test('ejsPreferRaw: never – never converts', async () => {
-      expect(
-        await format('<%= value %>', { filepath: 'template.ejs', ejsPreferRaw: 'never' }),
-      ).toBe('<%= value %>\n');
+      expect(await format('<%= value %>', { filepath: 'template.ejs', ejsPreferRaw: 'never' })).toBe('<%= value %>\n');
     });
 
     test('does not affect <%- in any mode', async () => {
@@ -196,21 +192,35 @@ describe('prettier-plugin-templates (EJS)', () => {
 
   describe('indentation (brace-depth tracking)', () => {
     test('strips leading whitespace before a standalone <%_ tag', async () => {
-      expect(await format('  <%_ if (foo) { _%>', { ejsIndent: true })).toBe('<%_ if (foo) { _%>\n');
+      expect(await format('    <%_ if (foo) { _%>', { ejsIndent: true })).toBe('<%_ if (foo) { _%>\n');
+    });
+
+    test('strips leading whitespace before a standalone <%_ tag', async () => {
+      expect(
+        await format(
+          `<%# comment -%>
+<%_ if (clientTestFrameworkVitest) { _%>
+import { afterEach, beforeEach, describe, expect, it, vitest } from 'vitest';
+`,
+          { ejsPreferRaw: 'always', ejsIndent: true },
+        ),
+      ).toBe(
+        "<%# comment -%>\n<%_ if (clientTestFrameworkVitest) { _%>\nimport { afterEach, beforeEach, describe, expect, it, vitest } from 'vitest';\n",
+      );
     });
 
     test('strips leading whitespace from multiline <%_ tag opening line', async () => {
-      expect(await format('  <%_\n  if (foo) {\n  _%>', { ejsCollapseMultiline: true, ejsIndent: true })).toBe('<%_ if (foo) { _%>\n');
+      expect(
+        await format('    <%_\n  if (foo) {\n  _%>', {
+          ejsCollapseMultiline: true,
+          ejsIndent: true,
+        }),
+      ).toBe('<%_ if (foo) { _%>\n');
     });
 
     test('adds indentation to nested consecutive <%_..._%> tags based on brace depth', async () => {
       const input = '<%_ { _%>\n<%_ { _%>\n<%_ const y = 2; _%>\n<%_ } _%>\n<%_ } _%>';
-      const expected =
-        '<%_ { _%>\n' +
-        '  <%_ { _%>\n' +
-        '    <%_ const y = 2; _%>\n' +
-        '  <%_ } _%>\n' +
-        '<%_ } _%>\n';
+      const expected = '<%_ { _%>\n' + '  <%_ { _%>\n' + '    <%_ const y = 2; _%>\n' + '  <%_ } _%>\n' + '<%_ } _%>\n';
       expect(await format(input, { ejsIndent: true })).toBe(expected);
     });
 
@@ -231,15 +241,10 @@ describe('prettier-plugin-templates (EJS)', () => {
       // The for-loop tag opens a new block ({), increasing depth to 2.
       // The closing } tag decrements depth back to 1 before emitting,
       // so it gets one indent level (  <%_ } _%>).
-      const input =
-        '<%_ if (outer) { _%>\n' +
-        '<%_ for (const x of xs) {\n  doSomething(x);\n_%>\n' +
-        '<%_ } _%>\n';
+      const input = '<%_ if (outer) { _%>\n' + '<%_ for (const x of xs) {\n  doSomething(x);\n_%>\n' + '<%_ } _%>\n';
       const result = await format(input, { ejsCollapseMultiline: false, ejsIndent: true });
       expect(result).toBe(
-        '<%_ if (outer) { _%>\n' +
-        '  <%_ for (const x of xs) {\n  doSomething(x);\n  _%>\n' +
-        '  <%_ } _%>\n',
+        '<%_ if (outer) { _%>\n' + '  <%_ for (const x of xs) {\n  doSomething(x);\n  _%>\n' + '  <%_ } _%>\n',
       );
     });
 
@@ -255,37 +260,24 @@ describe('prettier-plugin-templates (EJS)', () => {
         '<%_ } _%>\n';
       expect(await format(input, { ejsIndent: true })).toBe(
         '<%_ for (const { a } of items) {\n' +
-        '    const { b } = a;\n' +
-        '_%>\n' +
-        '  <%_ doSomething(b); _%>\n' +
-        '<%_ } _%>\n',
+          '    const { b } = a;\n' +
+          '_%>\n' +
+          '  <%_ doSomething(b); _%>\n' +
+          '<%_ } _%>\n',
       );
     });
 
     test('multiline tag with multiple open braces increments depth by full count', async () => {
       // Two open braces on two separate lines → depth increases by 2.
       const input =
-        '<%_ if (a) {\n' +
-        '    if (b) {\n' +
-        '_%>\n' +
-        '<%_ doWork(); _%>\n' +
-        '<%_ } _%>\n' +
-        '<%_ } _%>\n';
+        '<%_ if (a) {\n' + '    if (b) {\n' + '_%>\n' + '<%_ doWork(); _%>\n' + '<%_ } _%>\n' + '<%_ } _%>\n';
       expect(await format(input, { ejsIndent: true })).toBe(
-        '<%_ if (a) {\n' +
-        '    if (b) {\n' +
-        '_%>\n' +
-        '    <%_ doWork(); _%>\n' +
-        '  <%_ } _%>\n' +
-        '<%_ } _%>\n',
+        '<%_ if (a) {\n' + '    if (b) {\n' + '_%>\n' + '    <%_ doWork(); _%>\n' + '  <%_ } _%>\n' + '<%_ } _%>\n',
       );
     });
 
     test('does not add indentation by default (ejsIndent defaults to false)', async () => {
-      const input =
-        '<%_ if (foo) { _%>\n' +
-        '<%_ const x = 1; _%>\n' +
-        '<%_ } _%>\n';
+      const input = '<%_ if (foo) { _%>\n' + '<%_ const x = 1; _%>\n' + '<%_ } _%>\n';
       // With ejsIndent: false (default), output is identical to input.
       expect(await format(input)).toBe(input);
     });
@@ -336,20 +328,14 @@ describe('prettier-plugin-templates (EJS)', () => {
     });
 
     test('multiline content (ejsCollapseMultiline: false) is idempotent', async () => {
-      const input =
-        '<%_ for (const item of items) {\n' +
-        '      const { name } = item;\n' +
-        '_%>\n';
+      const input = '<%_ for (const item of items) {\n' + '      const { name } = item;\n' + '_%>\n';
       const first = await format(input, { ejsCollapseMultiline: false });
       const second = await format(first, { ejsCollapseMultiline: false });
       expect(second).toBe(first);
     });
 
     test('multiline content with ejsIndent is idempotent', async () => {
-      const input =
-        '<%_ if (outer) { _%>\n' +
-        '<%_ for (const x of xs) {\n  doSomething(x);\n_%>\n' +
-        '<%_ } _%>\n';
+      const input = '<%_ if (outer) { _%>\n' + '<%_ for (const x of xs) {\n  doSomething(x);\n_%>\n' + '<%_ } _%>\n';
       const first = await format(input, { ejsCollapseMultiline: false, ejsIndent: true });
       const second = await format(first, { ejsCollapseMultiline: false, ejsIndent: true });
       expect(second).toBe(first);
@@ -363,10 +349,7 @@ describe('prettier-plugin-templates (EJS)', () => {
     });
 
     test('multiline slurping tag content is preserved as-is', async () => {
-      const input =
-        '<%_ for (const x of xs) {\n' +
-        '  doSomething(x);\n' +
-        '_%>\n';
+      const input = '<%_ for (const x of xs) {\n' + '  doSomething(x);\n' + '_%>\n';
       expect(await format(input)).toBe(input);
     });
 
@@ -381,10 +364,7 @@ describe('prettier-plugin-templates (EJS)', () => {
     });
 
     test('multi-tag template without explicit indentation is returned unchanged', async () => {
-      const input =
-        '<%_ if (foo) { _%>\n' +
-        '<%_ const x = 1; _%>\n' +
-        '<%_ } _%>\n';
+      const input = '<%_ if (foo) { _%>\n' + '<%_ const x = 1; _%>\n' + '<%_ } _%>\n';
       expect(await format(input)).toBe(input);
     });
   });
@@ -427,8 +407,8 @@ describe('prettier-plugin-templates (EJS)', () => {
       const result = await format(input, { ejsCollapseMultiline: false });
       expect(result).toBe(
         '<%_ for (const relationshipsByType of Object.values(differentRelationships).filter(r => r)) {\n' +
-        '      const { otherEntity } = relationshipsByType[0];\n' +
-        '_%>\n',
+          '      const { otherEntity } = relationshipsByType[0];\n' +
+          '_%>\n',
       );
     });
 
