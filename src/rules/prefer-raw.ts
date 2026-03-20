@@ -19,6 +19,7 @@ import type { Rule } from 'eslint';
 export const preferRaw: Rule.RuleModule = {
   meta: {
     type: 'suggestion',
+    fixable: 'code',
     docs: {
       description: 'Prefer `<%-` (raw output) over `<%=` (HTML-escaped output)',
       url: 'https://github.com/mshima/prettier-plugin-templates',
@@ -39,6 +40,12 @@ export const preferRaw: Rule.RuleModule = {
             context.report({
               loc: comment.loc!,
               messageId: 'preferRaw',
+              fix(fixer) {
+                // Provide a sentinel fix. The processor's postprocess replaces
+                // this with the correct range in the original EJS source
+                // (changing `=` to `-` in the `<%=` opening delimiter).
+                return fixer.replaceTextRange([comment.range![0], comment.range![1]], '');
+              },
             });
           }
         }

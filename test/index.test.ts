@@ -10,6 +10,9 @@ import { describe, test, expect } from 'vitest';
 import { Linter } from 'eslint';
 import plugin from '../src/index.js';
 import { extractTagBlocks, canConvertToSlurping } from '../src/processor.js';
+import * as fixture1 from './fixtures/1.js';
+import * as fixture2 from './fixtures/2.js';
+import * as fixture3 from './fixtures/3.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -20,24 +23,37 @@ function makeLinter(): Linter {
   return new Linter({ configType: 'flat' });
 }
 
+/** The flat config used for all EJS linting in tests. */
+function makeConfig(
+  rules: Record<string, Linter.RuleSeverityAndOptions | Linter.RuleSeverity> = {},
+): Linter.FlatConfig[] {
+  return [
+    {
+      files: ['**/*.ejs'],
+      plugins: { templates: plugin },
+      processor: 'templates/ejs',
+      rules,
+    },
+  ];
+}
+
 /** Lint an EJS string and return all messages. */
 function lint(
   ejsText: string,
   rules: Record<string, Linter.RuleSeverityAndOptions | Linter.RuleSeverity> = {},
 ): Linter.LintMessage[] {
-  const linter = makeLinter();
-  return linter.verify(
-    ejsText,
-    [
-      {
-        files: ['**/*.ejs'],
-        plugins: { templates: plugin },
-        processor: 'templates/ejs',
-        rules,
-      },
-    ],
-    { filename: 'template.ejs' },
-  );
+  return makeLinter().verify(ejsText, makeConfig(rules), { filename: 'template.ejs' });
+}
+
+/**
+ * Apply ESLint autofix to an EJS string and return the fixed text.
+ * Uses `Linter.verifyAndFix` which iterates until no further fixes are possible.
+ */
+function applyFix(
+  ejsText: string,
+  rules: Record<string, Linter.RuleSeverityAndOptions | Linter.RuleSeverity> = {},
+): string {
+  return makeLinter().verifyAndFix(ejsText, makeConfig(rules), { filename: 'template.ejs' }).output;
 }
 
 // ---------------------------------------------------------------------------
@@ -171,12 +187,31 @@ describe('processor virtual code', () => {
     expect(lines.slice(1).join('\n')).toBe(' const x = 1; ');
   });
 
-  test('multiline tag preserves newlines in virtual code', () => {
-    const blocks = extractTagBlocks('<%_ if (a) {\n  doWork();\n_%>');
+  test('multiline tag with complete content preserves newlines in virtual code', () => {
+    // Content with balanced braces → body is included in virtual code.
+    const blocks = extractTagBlocks('<%_ const x = 1;\nconst y = 2; _%>');
     const lines = blocks[0].virtualCode.split('\n');
     expect(lines[0]).toBe('//@ejs-tag:slurp');
-    expect(lines[1]).toBe(' if (a) {');
-    expect(lines[2]).toBe('  doWork();');
+    expect(lines[1]).toBe(' const x = 1;');
+    expect(lines[2]).toBe('const y = 2; ');
+  });
+
+  test('structural slurp tag (unbalanced braces) omits code body to prevent parse errors', () => {
+    // `if (x) {` is unbalanced → body must be omitted so ESLint can parse the virtual code.
+    const blocks = extractTagBlocks('<%_ if (x) { _%>');
+    const lines = blocks[0].virtualCode.split('\n');
+    expect(lines[0]).toBe('//@ejs-tag:slurp');
+    // Body omitted – only the marker comment is present.
+    expect(lines.slice(1).join('\n').trim()).toBe('');
+  });
+
+  test('code tag (unbalanced plain <% %>) omits code body to prevent parse errors', () => {
+    // `<% if (x) { %>` is classified as `code` (not `code-slurpable`) because the
+    // content ends with `{`.  Its body must be omitted to avoid ESLint parse errors.
+    const blocks = extractTagBlocks('<% if (x) { %>');
+    const lines = blocks[0].virtualCode.split('\n');
+    expect(lines[0]).toBe('//@ejs-tag:code');
+    expect(lines.slice(1).join('\n').trim()).toBe('');
   });
 });
 
@@ -203,7 +238,9 @@ describe('processor position mapping', () => {
   });
 
   test('error in second line of multiline tag maps to correct line', () => {
-    // Tag spans lines 1-3; 'undefinedVar' is on line 2 of the tag (= file line 2)
+    // The tag starts on file line 1 (`<%_`), the code with the error is on
+    // file line 2 (` undefinedVar;`), and the closing delimiter is on line 3 (`_%>`).
+    // The mapped error must report file line 2.
     const ejsText = '<%_\n undefinedVar;\n_%>';
     const msgs = lint(ejsText, { 'no-undef': 'error' });
     expect(msgs.length).toBeGreaterThan(0);
@@ -371,5 +408,141 @@ describe('standard JS rules via processor', () => {
   test('eqeqeq detects == in EJS output tag', () => {
     const msgs = lint('<% if (a == b) {} %>', { eqeqeq: 'error', 'no-undef': 'off' });
     expect(msgs.filter((m) => m.ruleId === 'eqeqeq').length).toBeGreaterThan(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Autofix: prefer-raw
+// ---------------------------------------------------------------------------
+
+describe('autofix: prefer-raw', () => {
+  test('fixes <%= %> to <%- %>', () => {
+    expect(applyFix('<%= name %>', { 'templates/prefer-raw': 'error' })).toBe('<%- name %>');
+  });
+
+  test('fixes all <%= %> tags in a file', () => {
+    expect(applyFix('<%= a %> and <%= b %>', { 'templates/prefer-raw': 'error' })).toBe('<%- a %> and <%- b %>');
+  });
+
+  test('does not change <%- %> tags (already fixed)', () => {
+    const input = '<%- name %>';
+    expect(applyFix(input, { 'templates/prefer-raw': 'error' })).toBe(input);
+  });
+
+  test('does not change <% %> code tags', () => {
+    const input = '<% const x = 1; %>';
+    expect(applyFix(input, { 'templates/prefer-raw': 'error' })).toBe(input);
+  });
+
+  test('fixes a tag in the middle of surrounding text', () => {
+    expect(applyFix('Hello, <%= name %>!', { 'templates/prefer-raw': 'error' })).toBe('Hello, <%- name %>!');
+  });
+
+  test('fixes a tag on a non-first line', () => {
+    expect(applyFix('line1\n<%= value %>\nline3', { 'templates/prefer-raw': 'error' })).toBe(
+      'line1\n<%- value %>\nline3',
+    );
+  });
+
+  test('fix is idempotent (re-applying produces no further change)', () => {
+    const fixed = applyFix('<%= x %>', { 'templates/prefer-raw': 'error' });
+    expect(applyFix(fixed, { 'templates/prefer-raw': 'error' })).toBe(fixed);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Autofix: prefer-slurping
+// ---------------------------------------------------------------------------
+
+describe('autofix: prefer-slurping', () => {
+  test('fixes <% code %> to <%_ code _%>', () => {
+    expect(applyFix('<% doWork(); %>', { 'templates/prefer-slurping': 'error' })).toBe('<%_ doWork(); _%>');
+  });
+
+  test('fixes a slurpable tag with inline object literal', () => {
+    expect(applyFix('<% const x = { a: 1 }; %>', { 'templates/prefer-slurping': 'error' })).toBe(
+      '<%_ const x = { a: 1 }; _%>',
+    );
+  });
+
+  test('does not change <%_ _%> tags (already slurping)', () => {
+    const input = '<%_ code _%>';
+    expect(applyFix(input, { 'templates/prefer-slurping': 'error' })).toBe(input);
+  });
+
+  test('does not change <% if (x) { %> (trailing open brace)', () => {
+    const input = '<% if (x) { %>';
+    expect(applyFix(input, { 'templates/prefer-slurping': 'error' })).toBe(input);
+  });
+
+  test('does not change <% } %> (leading close brace)', () => {
+    const input = '<% } %>';
+    expect(applyFix(input, { 'templates/prefer-slurping': 'error' })).toBe(input);
+  });
+
+  test('preserves surrounding text when fixing', () => {
+    expect(applyFix('before\n<% doWork(); %>\nafter', { 'templates/prefer-slurping': 'error' })).toBe(
+      'before\n<%_ doWork(); _%>\nafter',
+    );
+  });
+
+  test('fix is idempotent (re-applying produces no further change)', () => {
+    const fixed = applyFix('<% doWork(); %>', { 'templates/prefer-slurping': 'error' });
+    expect(applyFix(fixed, { 'templates/prefer-slurping': 'error' })).toBe(fixed);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Autofix: both rules together
+// ---------------------------------------------------------------------------
+
+describe('autofix: prefer-raw and prefer-slurping together', () => {
+  test('fixes both types of violations in a single pass', () => {
+    const input = '<%= a %>\n<% doWork(); %>';
+    const fixed = applyFix(input, { 'templates/prefer-raw': 'error', 'templates/prefer-slurping': 'error' });
+    expect(fixed).toBe('<%- a %>\n<%_ doWork(); _%>');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fixture tests
+// ---------------------------------------------------------------------------
+
+describe('fixture tests', () => {
+  test('fixture 1 (real-world EJS) produces no violations with both rules enabled', () => {
+    const msgs = lint(fixture1.input, {
+      'templates/prefer-raw': 'error',
+      'templates/prefer-slurping': 'error',
+    });
+    expect(msgs).toHaveLength(0);
+  });
+
+  test('fixture 2 (real-world EJS) produces no violations with both rules enabled', () => {
+    const msgs = lint(fixture2.input, {
+      'templates/prefer-raw': 'error',
+      'templates/prefer-slurping': 'error',
+    });
+    expect(msgs).toHaveLength(0);
+  });
+
+  test('fixture 2 is already in expected form (input === expected)', () => {
+    expect(fixture2.input).toBe(fixture2.expected);
+  });
+
+  test('fixture 3 input has violations (needs prefer-raw and prefer-slurping fixes)', () => {
+    const msgs = lint(fixture3.input, {
+      'templates/prefer-raw': 'error',
+      'templates/prefer-slurping': 'error',
+    });
+    expect(msgs.filter((m) => m.ruleId === 'templates/prefer-raw').length).toBeGreaterThan(0);
+    expect(msgs.filter((m) => m.ruleId === 'templates/prefer-slurping').length).toBeGreaterThan(0);
+  });
+
+  test('fixture 3 autofix produces the expected output', () => {
+    const fixed = applyFix(fixture3.input, {
+      'templates/prefer-raw': 'error',
+      'templates/prefer-slurping': 'error',
+    });
+    expect(fixed).toBe(fixture3.expected);
   });
 });

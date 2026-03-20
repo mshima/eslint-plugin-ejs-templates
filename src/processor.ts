@@ -62,13 +62,40 @@ export interface TagBlock {
   originalLine: number;
   /** 0-based column in the original EJS file where the JS code content starts. */
   originalColumn: number;
+  /** Character offset of the tag start (`<`) in the original source. */
+  tagOffset: number;
+  /** Total length of the original tag (opening delimiter + content + closing delimiter). */
+  tagLength: number;
+  /** Determined tag type (same value as the `//@ejs-tag:<type>` marker). */
+  tagType: string;
+  /** Raw JS content captured between the delimiters (used for prefer-slurping fix). */
+  codeContent: string;
 }
 
-/** Convert a character offset in `text` to a {line (1-based), column (0-based)} pair. */
-function offsetToLineCol(text: string, offset: number): { line: number; column: number } {
-  const slice = text.slice(0, offset);
-  const parts = slice.split('\n');
-  return { line: parts.length, column: parts[parts.length - 1].length };
+/**
+ * Build a look-up table mapping each character offset to `{line, column}`.
+ * We precompute the start offset of every line in a single pass so that the
+ * per-tag position queries are O(log n) binary-search rather than O(offset)
+ * string-splitting.
+ */
+function buildLineStartOffsets(text: string): number[] {
+  const starts: number[] = [0];
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === '\n') starts.push(i + 1);
+  }
+  return starts;
+}
+
+/** Convert a character offset to a `{line (1-based), column (0-based)}` pair. */
+function offsetToLineCol(lineStarts: number[], offset: number): { line: number; column: number } {
+  let lo = 0;
+  let hi = lineStarts.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (lineStarts[mid] <= offset) lo = mid;
+    else hi = mid - 1;
+  }
+  return { line: lo + 1, column: offset - lineStarts[lo] };
 }
 
 /**
@@ -90,6 +117,8 @@ function offsetToLineCol(text: string, offset: number): { line: number; column: 
 export function extractTagBlocks(text: string): TagBlock[] {
   const blocks: TagBlock[] = [];
   const re = new RegExp(EJS_RE.source, 'g');
+  // Build the line-start offset table once; reused for every tag position query.
+  const lineStarts = buildLineStartOffsets(text);
   let match: RegExpExecArray | null;
 
   while ((match = re.exec(text)) !== null) {
@@ -117,20 +146,21 @@ export function extractTagBlocks(text: string): TagBlock[] {
     }
 
     // Position of the opening delimiter in the original file.
-    const { line: tagLine, column: tagColumn } = offsetToLineCol(text, match.index);
+    const { line: tagLine, column: tagColumn } = offsetToLineCol(lineStarts, match.index);
 
     // Position of the JS code content (right after the opening delimiter).
     const openDelimLength = 2 + openMod.length; // `<%` = 2, `<%_` = 3, etc.
-    const { line: originalLine, column: originalColumn } = offsetToLineCol(text, match.index + openDelimLength);
+    const { line: originalLine, column: originalColumn } = offsetToLineCol(lineStarts, match.index + openDelimLength);
 
     // For `code` tags (structural openers/closers like `<% if (x) { %>` or
-    // `<% } %>`, or tags with a trim-newline close `-%>`), the raw JS content
-    // is often a syntactically incomplete fragment.  Including it verbatim in
-    // the virtual JS program would cause ESLint parse errors.  Since neither
-    // the `prefer-raw` nor the `prefer-slurping` rule needs to inspect the
-    // contents of a `code`-typed block, we omit the code from the virtual
-    // file and keep only the marker comment.
-    const virtualCodeBody = tagType === 'code' ? '' : code;
+    // `<% } %>`, or tags with a trim-newline close `-%>`) and for `slurp` tags
+    // whose content has unbalanced braces (e.g. `<%_ if (x) { _%>`), the raw
+    // JS content is a syntactically incomplete fragment.  Including it verbatim
+    // in the virtual JS program would cause ESLint parse errors.  Only tags
+    // whose content is a syntactically self-contained statement are safe to
+    // include, so that standard JS rules (no-undef, eqeqeq, …) can inspect them.
+    const isIncomplete = tagType === 'code' || (tagType === 'slurp' && !canConvertToSlurping(code));
+    const virtualCodeBody = isIncomplete ? '' : code;
 
     blocks.push({
       virtualCode: `//@ejs-tag:${tagType}\n${virtualCodeBody}`,
@@ -138,6 +168,10 @@ export function extractTagBlocks(text: string): TagBlock[] {
       tagColumn,
       originalLine,
       originalColumn,
+      tagOffset: match.index,
+      tagLength: match[0].length,
+      tagType,
+      codeContent: code,
     });
   }
 
@@ -191,8 +225,43 @@ function mapMessage(msg: Linter.LintMessage, block: TagBlock): Linter.LintMessag
 }
 
 // ---------------------------------------------------------------------------
-// ESLint processor
+// Fix translation
 // ---------------------------------------------------------------------------
+
+/**
+ * Translate an ESLint fix object from the virtual JS code space back to the
+ * original EJS source space.
+ *
+ * Our rules report fixes using sentinel ranges in the virtual code (the rule
+ * has no way to know the original character offsets).  This function uses the
+ * metadata stored in the {@link TagBlock} to produce a fix with the correct
+ * range and replacement text for the original EJS file.
+ *
+ * Supported translations:
+ * - `escaped-output` block → `prefer-raw` fix: replace `=` with `-` in `<%=`
+ * - `code-slurpable` block → `prefer-slurping` fix: replace `<% … %>` with `<%_ … _%>`
+ *
+ * Returns `null` for tag types that have no registered fix translation.
+ */
+function translateFix(
+  _fix: { range: [number, number]; text: string },
+  block: TagBlock,
+): { range: [number, number]; text: string } | null {
+  if (block.tagType === 'escaped-output') {
+    // Change `<%=` → `<%-`: replace the `=` (at offset 2 from tag start) with `-`.
+    return { range: [block.tagOffset + 2, block.tagOffset + 3], text: '-' };
+  }
+
+  if (block.tagType === 'code-slurpable') {
+    // Change `<% code %>` → `<%_ code _%>`: replace the whole tag.
+    return {
+      range: [block.tagOffset, block.tagOffset + block.tagLength],
+      text: `<%_${block.codeContent}_%>`,
+    };
+  }
+
+  return null; // no fix translation for this tag type
+}
 
 /**
  * Per-file block metadata shared between `preprocess` and `postprocess`.
@@ -227,9 +296,26 @@ export const processor: Linter.Processor = {
     return messages.flatMap((blockMessages, i) => {
       const block = blocks[i];
       if (!block) return blockMessages;
-      return blockMessages.map((msg) => mapMessage(msg, block));
+      return blockMessages.map((msg) => {
+        const mapped = mapMessage(msg, block);
+
+        // Translate fix objects from virtual code space to original source space.
+        if (mapped.fix) {
+          const translated = translateFix(mapped.fix, block);
+          if (translated) {
+            return { ...mapped, fix: translated };
+          }
+          // No translation available – drop the fix to avoid applying a
+          // wrong range to the original source.
+          const result = { ...mapped };
+          delete result.fix;
+          return result;
+        }
+
+        return mapped;
+      });
     });
   },
 
-  supportsAutofix: false,
+  supportsAutofix: true,
 };

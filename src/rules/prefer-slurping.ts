@@ -20,6 +20,7 @@ import type { Rule } from 'eslint';
 export const preferSlurping: Rule.RuleModule = {
   meta: {
     type: 'suggestion',
+    fixable: 'code',
     docs: {
       description: 'Prefer `<%_ … _%>` (whitespace-slurping) over `<% … %>` where safe',
       url: 'https://github.com/mshima/prettier-plugin-templates',
@@ -40,6 +41,12 @@ export const preferSlurping: Rule.RuleModule = {
             context.report({
               loc: comment.loc!,
               messageId: 'preferSlurping',
+              fix(fixer) {
+                // Provide a sentinel fix. The processor's postprocess replaces
+                // this with the correct range in the original EJS source
+                // (replacing the whole `<% … %>` tag with `<%_ … _%>`).
+                return fixer.replaceTextRange([comment.range![0], comment.range![1]], '');
+              },
             });
           }
         }
