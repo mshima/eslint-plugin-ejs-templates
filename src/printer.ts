@@ -22,10 +22,7 @@ const INDENT_UNIT = '  ';
  * Determine whether `<%=` should be converted to `<%-` for this file,
  * given the plugin option and the file path.
  */
-function shouldPreferRaw(
-  option: EjsPluginOptions['ejsPreferRaw'],
-  filepath: string | undefined,
-): boolean {
+function shouldPreferRaw(option: EjsPluginOptions['ejsPreferRaw'], filepath: string | undefined): boolean {
   switch (option) {
     case 'always':
       return true;
@@ -41,6 +38,21 @@ function shouldPreferRaw(
 /** Returns `true` when `s` contains only whitespace characters (or is empty). */
 function isWhitespaceOnly(s: string): boolean {
   return /^\s*$/.test(s);
+}
+
+/**
+ * Returns the whitespace-only portion of `s` that follows its last newline
+ * (or the whole string when it contains no newline).  Returns an empty string
+ * when that portion contains any non-whitespace characters.
+ *
+ * This is the indentation that sits on the same line as whatever follows `s`
+ * in the template.  Used to align the close delimiter of a multiline tag with
+ * its open delimiter when `ejsIndent` is off.
+ */
+function getLineIndent(s: string): string {
+  const lastNl = s.lastIndexOf('\n');
+  const linePrefix = lastNl === -1 ? s : s.slice(lastNl + 1);
+  return isWhitespaceOnly(linePrefix) ? linePrefix : '';
 }
 
 /**
@@ -62,23 +74,34 @@ function splitLines(raw: string): string[] {
     .filter((line) => line.length > 0);
 }
 
-/** Returns `true` when the (trimmed) line opens a new block. */
-function endsWithOpenBrace(line: string): boolean {
-  return line.trimEnd().endsWith('{');
-}
-
-/** Returns `true` when the (trimmed) line closes a block. */
-function startsWithCloseBrace(line: string): boolean {
-  return line.trimStart().startsWith('}');
-}
-
 /**
- * Returns the trailing non-newline whitespace on the last line of `s`.
- * Used to determine the indentation that aligns the close delimiter `_%>`
- * with the open tag `<%_` when `ejsIndent` is off.
+ * Counts the number of leading close braces in a string, ignoring any
+ * intermittent white spaces or new lines.
+ *
+ * @param str The input string.
+ * @returns The count of leading close braces.
  */
-function getLineIndent(s: string): string {
-  return /([^\S\n]*)$/.exec(s)?.[1] ?? '';
+function countLeadingCloseBraces(str: string): number {
+  // Regex explanation:
+  // ^      - Matches the start of the string
+  // [\\s}] - Matches a whitespace character (\\s) or a close brace (})
+  // *      - Matches the preceding character set zero or more times
+  const match = str.match(/^[\s}]*/);
+
+  if (match?.[0]) {
+    // The matched substring might contain whitespaces, so we remove them
+    // before counting the remaining characters (which should only be '}')
+    const bracesOnly = match[0].replace(/\s/g, '');
+    return bracesOnly.length;
+  }
+
+  return 0;
+}
+
+function bracesDelta(line: string): number {
+  const open = (line.match(/{/g) ?? []).length;
+  const close = (line.match(/}/g) ?? []).length;
+  return open - close;
 }
 
 /**
@@ -99,12 +122,7 @@ function getLineIndent(s: string): string {
  *      the close delimiter is placed on its own line preceded by
  *      `options.indent` (so it aligns with the open tag).
  */
-export function formatTag(
-  open: string,
-  rawContent: string,
-  close: string,
-  options: FormatTagOptions,
-): string {
+export function formatTag(open: string, rawContent: string, close: string, options: FormatTagOptions): string {
   // Convert <%=  to <%- when preferred.
   let formattedOpen = options.preferRaw && open === '<%=' ? '<%-' : open;
   let formattedClose = close;
@@ -133,20 +151,25 @@ export function formatTag(
     return `${formattedOpen} ${trimmed} ${formattedClose}`;
   }
 
-  // Multiline result: preserve the raw content structure.
-  // Strip trailing spaces/tabs (but not newlines) to remove any indent placed
-  // before the close delimiter by a previous format pass (ensures idempotency).
-  let normalizedContent = rawContent.replace(/[^\S\n]+$/, '');
-  // Ensure the content ends with a newline so the close delimiter sits on its
-  // own line.
-  if (!normalizedContent.endsWith('\n')) {
-    normalizedContent += '\n';
+  // Multiline result: behaviour differs by close delimiter.
+  if (formattedClose === '_%>') {
+    // Slurping close: always place _%> on its own indented new line.
+    // Strip trailing spaces/tabs (but not newlines) so a previous format pass's
+    // indent prefix does not accumulate (ensures idempotency).
+    let normalizedContent = rawContent.replace(/[^\S\n]+$/, '');
+    if (!normalizedContent.endsWith('\n')) {
+      normalizedContent += '\n';
+    }
+    const indent = options.indent ?? '';
+    const sep = normalizedContent.startsWith(' ') || normalizedContent.startsWith('\n') ? '' : ' ';
+    return `${formattedOpen}${sep}${normalizedContent}${indent}${formattedClose}`;
+  } else {
+    // Non-slurping close (%>, -%>, …): preserve the raw content without any
+    // modification — do not strip trailing whitespace and do not reposition
+    // the close delimiter onto a new line.
+    const sep = rawContent.startsWith(' ') || rawContent.startsWith('\n') ? '' : ' ';
+    return `${formattedOpen}${sep}${rawContent}${formattedClose}`;
   }
-  const indent = options.indent ?? '';
-  // Add a separator space only when the raw content does not already start
-  // with whitespace (e.g. when the caller already passed a trimmed string).
-  const separator = normalizedContent.startsWith(' ') || normalizedContent.startsWith('\n') ? '' : ' ';
-  return `${formattedOpen}${separator}${normalizedContent}${indent}${formattedClose}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -173,7 +196,11 @@ export function print(path: AstPath, options: Options): Doc {
   const tagOptions: FormatTagOptions = { preferRaw, collapseMultiline, preferSlurping };
   // Pre-built options for single-line tag formatting (used inside the
   // multiline-split loop where content is already a single trimmed line).
-  const singleLineOptions: FormatTagOptions = { preferRaw, collapseMultiline: false, preferSlurping };
+  const singleLineOptions: FormatTagOptions = {
+    preferRaw,
+    collapseMultiline: false,
+    preferSlurping,
+  };
 
   const children: EjsChildNode[] = node.children;
   const parts: string[] = [];
@@ -187,7 +214,13 @@ export function print(path: AstPath, options: Options): Doc {
       // When ejsIndent is active, pure-whitespace content immediately before
       // a slurping tag is replaced by the printer's own indentation logic –
       // skip it here.  When ejsIndent is off, preserve it as-is.
-      if (ejsIndent && next && next.type !== 'content' && isSlurpingTag(next as EjsTagNode) && isWhitespaceOnly(child.value)) {
+      if (
+        ejsIndent &&
+        next &&
+        next.type !== 'content' &&
+        isSlurpingTag(next as EjsTagNode) &&
+        isWhitespaceOnly(child.value)
+      ) {
         continue;
       }
       parts.push(child.value);
@@ -196,96 +229,65 @@ export function print(path: AstPath, options: Options): Doc {
       const prev = children[i - 1];
       // A tag is "standalone" when nothing (or only whitespace) precedes it
       // on the same line, meaning the printer controls its indentation.
-      const isStandalone =
-        !prev || (prev.type === 'content' && isWhitespaceOnly(prev.value));
+      const isStandalone = !prev || (prev.type === 'content' && isWhitespaceOnly(prev.value));
+
+      // When ejsIndent is off, the close delimiter of a multiline tag should
+      // align with the open tag.  Compute the leading whitespace on the same
+      // line as the open tag once here for reuse in all tag branches below.
+      const prevLineIndent = !ejsIndent && prev && prev.type === 'content' ? getLineIndent(prev.value) : '';
 
       if (tag.type === 'comment_directive') {
         // Comment tags are emitted verbatim – no trimming, collapsing, or
         // brace-depth adjustment.
         parts.push(tag.open + tag.content + tag.close);
-      } else if (isStandalone && isSlurpingTag(tag)) {
-        // Whether the skipped preceding content contained a newline (so we
-        // know whether to emit a `\n` before each tag).
-        const prevHadNewline = !prev || prev.value.includes('\n');
+      } else {
+        const oldBraceDepth = braceDepth;
+        braceDepth = Math.max(0, braceDepth + bracesDelta(tag.content));
+        const lowerBraceDepth = Math.min(oldBraceDepth - countLeadingCloseBraces(tag.content), braceDepth);
 
-        // When not collapsing, if the raw content starts with a newline the
-        // author placed the code on the next line after `<%_`.  Preserve that
-        // structure by passing the raw content through; `formatTag` will emit
-        // an empty separator (no space between `<%_` and the newline).
-        // For content that does NOT start with `\n` keep the existing
-        // trim-and-collapse-to-single-line behaviour.
-        // The filter uses `.trim().length > 0` rather than `.length > 0` so
-        // that a purely-whitespace raw content (e.g. `"\n"`) is treated as
-        // empty and the tag is skipped, matching the behaviour of the trim()
-        // branch.
-        const lines = collapseMultiline
-          ? splitLines(tag.content)
-          : [tag.content.startsWith('\n') ? tag.content : tag.content.trim()].filter((l) => l.trim().length > 0);
+        if (isStandalone && isSlurpingTag(tag)) {
+          // Whether the skipped preceding content contained a newline (so we
+          // know whether to emit a `\n` before each tag).
+          const prevHadNewline = !prev || prev.value.includes('\n');
 
-        // Derive the close-delimiter indent for the non-ejsIndent case from
-        // the preceding content node's trailing whitespace.  This preserves
-        // the alignment between `<%_` and `_%>` without forcing a full
-        // brace-depth reformat.
-        const prevCloseIndent =
-          !ejsIndent && prev && prev.type === 'content' ? getLineIndent(prev.value) : '';
+          const lines = collapseMultiline ? splitLines(tag.content) : [tag.content].filter((l) => l.length > 0);
 
-        for (let j = 0; j < lines.length; j++) {
-          const line = lines[j];
+          for (let j = 0; j < lines.length; j++) {
+            const line = lines[j];
+            const indent = ejsIndent ? INDENT_UNIT.repeat(lowerBraceDepth) : '';
 
-          if (ejsIndent && startsWithCloseBrace(line)) {
-            braceDepth = Math.max(0, braceDepth - 1);
-          }
-
-          // openIndent: pushed before the formatted tag (controls <%_ position).
-          // closeIndent: passed to formatTag as indent for the close delimiter.
-          const openIndent = ejsIndent ? INDENT_UNIT.repeat(braceDepth) : '';
-          const closeIndent = ejsIndent ? INDENT_UNIT.repeat(braceDepth) : prevCloseIndent;
-
-          if (j === 0) {
-            // For the first line of this tag: emit a leading newline only when
-            // ejsIndent is active (meaning the preceding whitespace was skipped)
-            // AND the preceding content had a newline.  When ejsIndent is off,
-            // the original content node was not skipped, so it already carries
-            // the newline.  Never emit a newline at the very start of the output.
-            if (ejsIndent && prevHadNewline && parts.length > 0) {
+            if (j === 0) {
+              // For the first line of this tag: emit a leading newline only when
+              // ejsIndent is active (meaning the preceding whitespace was skipped)
+              // AND the preceding content had a newline.  When ejsIndent is off,
+              // the original content node was not skipped, so it already carries
+              // the newline.  Never emit a newline at the very start of the output.
+              if (ejsIndent && prevHadNewline && parts.length > 0) {
+                parts.push('\n');
+              }
+            } else {
+              // Subsequent lines (split from multiline content) always get a
+              // fresh line.
               parts.push('\n');
             }
-          } else {
-            // Subsequent lines (split from multiline content) always get a
-            // fresh line.
-            parts.push('\n');
+
+            if (indent) {
+              parts.push(indent);
+            }
+
+            parts.push(
+              formatTag(tag.open, line, tag.close, {
+                ...singleLineOptions,
+                indent: ejsIndent ? indent : prevLineIndent,
+              }),
+            );
           }
-
-          if (openIndent) {
-            parts.push(openIndent);
-          }
-
-          parts.push(formatTag(tag.open, line, tag.close, { ...singleLineOptions, indent: closeIndent }));
-
-          if (ejsIndent && endsWithOpenBrace(line)) {
-            braceDepth++;
-          }
-        }
-      } else {
-        // Inline tag (preceded by non-whitespace) or non-slurping tag.
-        // Still track brace depth (when ejsIndent is on) so that a later
-        // standalone block is indented correctly.
-        const line = collapseMultiline
-          ? splitLines(tag.content).join(' ')
-          : tag.content.trim();
-
-        if (ejsIndent && startsWithCloseBrace(line)) {
-          braceDepth = Math.max(0, braceDepth - 1);
-        }
-
-        // For standalone tags the printer owns the indentation level; for
-        // inline tags there is no meaningful indent to add to the close
-        // delimiter.
-        const tagIndent = ejsIndent && isStandalone ? INDENT_UNIT.repeat(braceDepth) : '';
-        parts.push(formatTag(tag.open, tag.content, tag.close, { ...tagOptions, indent: tagIndent }));
-
-        if (ejsIndent && endsWithOpenBrace(line)) {
-          braceDepth++;
+        } else {
+          // For standalone tags the printer owns the indentation level; for
+          // inline tags (ejsIndent off) use the same-line prefix from the
+          // preceding content node so the close delimiter aligns with the open tag.
+          const tagIndent = ejsIndent && isStandalone ? INDENT_UNIT.repeat(lowerBraceDepth) : prevLineIndent;
+          parts.push(formatTag(tag.open, tag.content, tag.close, { ...tagOptions, indent: tagIndent }));
         }
       }
     }

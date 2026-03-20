@@ -46,8 +46,7 @@ const ejsOptions: Record<keyof EjsPluginOptions, SupportOption> = {
     category: 'EJS',
     type: 'boolean',
     default: false,
-    description:
-      'Convert plain <% … %> script tags to the whitespace-slurping form <%_ … _%>.',
+    description: 'Convert plain <% … %> script tags to the whitespace-slurping form <%_ … _%>.',
   },
   ejsIndent: {
     category: 'EJS',

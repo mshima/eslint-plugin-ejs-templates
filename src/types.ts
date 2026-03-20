@@ -7,11 +7,7 @@
 //     http://www.apache.org/licenses/LICENSE-2.0
 
 /** Node types emitted by the tree-sitter-embedded-template grammar. */
-export type EjsDirectiveType =
-  | 'directive'
-  | 'output_directive'
-  | 'comment_directive'
-  | 'graphql_directive';
+export type EjsDirectiveType = 'directive' | 'output_directive' | 'comment_directive' | 'graphql_directive';
 
 export type EjsNodeType = EjsDirectiveType | 'content';
 

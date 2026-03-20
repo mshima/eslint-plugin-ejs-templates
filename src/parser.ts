@@ -29,8 +29,7 @@ async function getParser(): Promise<Parser> {
       });
 
       // Resolve the language-specific WASM grammar file.
-      const langWasm: string =
-        require.resolve('tree-sitter-embedded-template/tree-sitter-embedded_template.wasm');
+      const langWasm: string = require.resolve('tree-sitter-embedded-template/tree-sitter-embedded_template.wasm');
       const lang = await Language.load(langWasm);
 
       const parser = new Parser();
@@ -46,12 +45,7 @@ async function getParser(): Promise<Parser> {
 // ---------------------------------------------------------------------------
 
 /** Node types that represent EJS directive tags. */
-const DIRECTIVE_TYPES = new Set<string>([
-  'directive',
-  'output_directive',
-  'comment_directive',
-  'graphql_directive',
-]);
+const DIRECTIVE_TYPES = new Set<string>(['directive', 'output_directive', 'comment_directive', 'graphql_directive']);
 
 /**
  * Extract the opening delimiter, code content, and closing delimiter from a
@@ -65,9 +59,7 @@ function extractDelimiters(node: SyntaxNode): { open: string; content: string; c
   const open = children[0]?.text ?? '<%';
   const close = children[children.length - 1]?.text ?? '%>';
 
-  const contentNode = node.namedChildren.find(
-    (c: SyntaxNode) => c.type === 'code' || c.type === 'comment',
-  );
+  const contentNode = node.namedChildren.find((c: SyntaxNode) => c.type === 'code' || c.type === 'comment');
   const content = contentNode?.text ?? '';
 
   return { open, close, content };

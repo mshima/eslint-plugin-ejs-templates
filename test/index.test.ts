@@ -82,17 +82,50 @@ describe('prettier-plugin-templates (EJS)', () => {
     });
   });
 
+  describe('close delimiter behaviour by tag type', () => {
+    test('_%> is always placed on its own new line for multiline content', async () => {
+      // Even if the raw content does not end with a newline, _%> must be put
+      // on its own line so the slurping delimiter is unambiguous.
+      const input = '<%_ if (foo) {\n  doSomething(); _%>';
+      expect(await format(input)).toBe('<%_ if (foo) {\n  doSomething();\n_%>\n');
+    });
+
+    test('_%> with indent is placed on its own indented new line', async () => {
+      // When an indent is in play (from ejsIndent or prevLineIndent), it
+      // appears before _%> on its own line.
+      const input = '  <%_ if (foo) {\n  doSomething();\n  _%>';
+      expect(await format(input)).toBe('  <%_ if (foo) {\n  doSomething();\n  _%>\n');
+    });
+
+    test('%> does not trim trailing whitespace from multiline content', async () => {
+      // For a non-slurping close, the raw content is preserved as-is —
+      // trailing spaces on the last line are not stripped.
+      const input = '<% if (foo) {\n  doSomething();  %>';
+      expect(await format(input)).toBe('<% if (foo) {\n  doSomething();  %>\n');
+    });
+
+    test('%> does not force close delimiter onto a new line', async () => {
+      // For a non-slurping close, the %> stays wherever the raw content
+      // puts it — no newline is injected before %>.
+      const input = '<% if (foo) {\n  doSomething(); %>';
+      expect(await format(input)).toBe('<% if (foo) {\n  doSomething(); %>\n');
+    });
+
+    test('%> multiline content with trailing newline is preserved as-is', async () => {
+      const input = '<% if (foo) {\n  doSomething();\n%>';
+      expect(await format(input)).toBe('<% if (foo) {\n  doSomething();\n%>\n');
+    });
+  });
+
   describe('<%- vs <%=', () => {
     test('converts <%=  to <%- in non-.html.ejs files (ejsPreferRaw: auto)', async () => {
-      expect(await format('<%= value %>', { filepath: 'template.ejs', ejsPreferRaw: 'auto' })).toBe(
-        '<%- value %>\n',
-      );
+      expect(await format('<%= value %>', { filepath: 'template.ejs', ejsPreferRaw: 'auto' })).toBe('<%- value %>\n');
     });
 
     test('keeps <%=  in .html.ejs files (ejsPreferRaw: auto)', async () => {
-      expect(
-        await format('<%= value %>', { filepath: 'template.html.ejs', ejsPreferRaw: 'auto' }),
-      ).toBe('<%= value %>\n');
+      expect(await format('<%= value %>', { filepath: 'template.html.ejs', ejsPreferRaw: 'auto' })).toBe(
+        '<%= value %>\n',
+      );
     });
 
     test('does not convert <%=  by default (ejsPreferRaw defaults to never)', async () => {
@@ -109,9 +142,7 @@ describe('prettier-plugin-templates (EJS)', () => {
     });
 
     test('ejsPreferRaw: never – never converts', async () => {
-      expect(
-        await format('<%= value %>', { filepath: 'template.ejs', ejsPreferRaw: 'never' }),
-      ).toBe('<%= value %>\n');
+      expect(await format('<%= value %>', { filepath: 'template.ejs', ejsPreferRaw: 'never' })).toBe('<%= value %>\n');
     });
 
     test('does not affect <%- in any mode', async () => {
@@ -161,21 +192,35 @@ describe('prettier-plugin-templates (EJS)', () => {
 
   describe('indentation (brace-depth tracking)', () => {
     test('strips leading whitespace before a standalone <%_ tag', async () => {
-      expect(await format('  <%_ if (foo) { _%>', { ejsIndent: true })).toBe('<%_ if (foo) { _%>\n');
+      expect(await format('    <%_ if (foo) { _%>', { ejsIndent: true })).toBe('<%_ if (foo) { _%>\n');
+    });
+
+    test('strips leading whitespace before a standalone <%_ tag', async () => {
+      expect(
+        await format(
+          `<%# comment -%>
+<%_ if (clientTestFrameworkVitest) { _%>
+import { afterEach, beforeEach, describe, expect, it, vitest } from 'vitest';
+`,
+          { ejsPreferRaw: 'always', ejsIndent: true },
+        ),
+      ).toBe(
+        "<%# comment -%>\n<%_ if (clientTestFrameworkVitest) { _%>\nimport { afterEach, beforeEach, describe, expect, it, vitest } from 'vitest';\n",
+      );
     });
 
     test('strips leading whitespace from multiline <%_ tag opening line', async () => {
-      expect(await format('  <%_\n  if (foo) {\n  _%>', { ejsCollapseMultiline: true, ejsIndent: true })).toBe('<%_ if (foo) { _%>\n');
+      expect(
+        await format('    <%_\n  if (foo) {\n  _%>', {
+          ejsCollapseMultiline: true,
+          ejsIndent: true,
+        }),
+      ).toBe('<%_ if (foo) { _%>\n');
     });
 
     test('adds indentation to nested consecutive <%_..._%> tags based on brace depth', async () => {
       const input = '<%_ { _%>\n<%_ { _%>\n<%_ const y = 2; _%>\n<%_ } _%>\n<%_ } _%>';
-      const expected =
-        '<%_ { _%>\n' +
-        '  <%_ { _%>\n' +
-        '    <%_ const y = 2; _%>\n' +
-        '  <%_ } _%>\n' +
-        '<%_ } _%>\n';
+      const expected = '<%_ { _%>\n' + '  <%_ { _%>\n' + '    <%_ const y = 2; _%>\n' + '  <%_ } _%>\n' + '<%_ } _%>\n';
       expect(await format(input, { ejsIndent: true })).toBe(expected);
     });
 
@@ -193,23 +238,46 @@ describe('prettier-plugin-templates (EJS)', () => {
     test('close delimiter aligns with open tag indentation for multiline content', async () => {
       // At brace-depth 1 (indented) the close delimiter must align with the
       // <%_ open tag (  _%> aligns with   <%_).
-      const input =
-        '<%_ if (outer) { _%>\n' +
-        '<%_ for (const x of xs) {\n  doSomething(x);\n_%>\n' +
-        '<%_ } _%>\n';
+      // The for-loop tag opens a new block ({), increasing depth to 2.
+      // The closing } tag decrements depth back to 1 before emitting,
+      // so it gets one indent level (  <%_ } _%>).
+      const input = '<%_ if (outer) { _%>\n' + '<%_ for (const x of xs) {\n  doSomething(x);\n_%>\n' + '<%_ } _%>\n';
       const result = await format(input, { ejsCollapseMultiline: false, ejsIndent: true });
       expect(result).toBe(
-        '<%_ if (outer) { _%>\n' +
-        '  <%_ for (const x of xs) {\n  doSomething(x);\n  _%>\n' +
-        '<%_ } _%>\n',
+        '<%_ if (outer) { _%>\n' + '  <%_ for (const x of xs) {\n  doSomething(x);\n  _%>\n' + '  <%_ } _%>\n',
+      );
+    });
+
+    test('multiline tag with destructuring correctly increments brace depth', async () => {
+      // The for-loop opens a block on its first content line, but the tag ends
+      // with a destructuring statement (;).  Depth must still increment by 1
+      // so the next tag is correctly indented.
+      const input =
+        '<%_ for (const { a } of items) {\n' +
+        '    const { b } = a;\n' +
+        '_%>\n' +
+        '<%_ doSomething(b); _%>\n' +
+        '<%_ } _%>\n';
+      expect(await format(input, { ejsIndent: true })).toBe(
+        '<%_ for (const { a } of items) {\n' +
+          '    const { b } = a;\n' +
+          '_%>\n' +
+          '  <%_ doSomething(b); _%>\n' +
+          '<%_ } _%>\n',
+      );
+    });
+
+    test('multiline tag with multiple open braces increments depth by full count', async () => {
+      // Two open braces on two separate lines → depth increases by 2.
+      const input =
+        '<%_ if (a) {\n' + '    if (b) {\n' + '_%>\n' + '<%_ doWork(); _%>\n' + '<%_ } _%>\n' + '<%_ } _%>\n';
+      expect(await format(input, { ejsIndent: true })).toBe(
+        '<%_ if (a) {\n' + '    if (b) {\n' + '_%>\n' + '    <%_ doWork(); _%>\n' + '  <%_ } _%>\n' + '<%_ } _%>\n',
       );
     });
 
     test('does not add indentation by default (ejsIndent defaults to false)', async () => {
-      const input =
-        '<%_ if (foo) { _%>\n' +
-        '<%_ const x = 1; _%>\n' +
-        '<%_ } _%>\n';
+      const input = '<%_ if (foo) { _%>\n' + '<%_ const x = 1; _%>\n' + '<%_ } _%>\n';
       // With ejsIndent: false (default), output is identical to input.
       expect(await format(input)).toBe(input);
     });
@@ -260,20 +328,14 @@ describe('prettier-plugin-templates (EJS)', () => {
     });
 
     test('multiline content (ejsCollapseMultiline: false) is idempotent', async () => {
-      const input =
-        '<%_ for (const item of items) {\n' +
-        '      const { name } = item;\n' +
-        '_%>\n';
+      const input = '<%_ for (const item of items) {\n' + '      const { name } = item;\n' + '_%>\n';
       const first = await format(input, { ejsCollapseMultiline: false });
       const second = await format(first, { ejsCollapseMultiline: false });
       expect(second).toBe(first);
     });
 
     test('multiline content with ejsIndent is idempotent', async () => {
-      const input =
-        '<%_ if (outer) { _%>\n' +
-        '<%_ for (const x of xs) {\n  doSomething(x);\n_%>\n' +
-        '<%_ } _%>\n';
+      const input = '<%_ if (outer) { _%>\n' + '<%_ for (const x of xs) {\n  doSomething(x);\n_%>\n' + '<%_ } _%>\n';
       const first = await format(input, { ejsCollapseMultiline: false, ejsIndent: true });
       const second = await format(first, { ejsCollapseMultiline: false, ejsIndent: true });
       expect(second).toBe(first);
@@ -287,10 +349,7 @@ describe('prettier-plugin-templates (EJS)', () => {
     });
 
     test('multiline slurping tag content is preserved as-is', async () => {
-      const input =
-        '<%_ for (const x of xs) {\n' +
-        '  doSomething(x);\n' +
-        '_%>\n';
+      const input = '<%_ for (const x of xs) {\n' + '  doSomething(x);\n' + '_%>\n';
       expect(await format(input)).toBe(input);
     });
 
@@ -305,10 +364,7 @@ describe('prettier-plugin-templates (EJS)', () => {
     });
 
     test('multi-tag template without explicit indentation is returned unchanged', async () => {
-      const input =
-        '<%_ if (foo) { _%>\n' +
-        '<%_ const x = 1; _%>\n' +
-        '<%_ } _%>\n';
+      const input = '<%_ if (foo) { _%>\n' + '<%_ const x = 1; _%>\n' + '<%_ } _%>\n';
       expect(await format(input)).toBe(input);
     });
   });
@@ -351,66 +407,48 @@ describe('prettier-plugin-templates (EJS)', () => {
       const result = await format(input, { ejsCollapseMultiline: false });
       expect(result).toBe(
         '<%_ for (const relationshipsByType of Object.values(differentRelationships).filter(r => r)) {\n' +
-        '      const { otherEntity } = relationshipsByType[0];\n' +
-        '_%>\n',
+          '      const { otherEntity } = relationshipsByType[0];\n' +
+          '_%>\n',
       );
     });
 
-    test('issue 1: content starting with newline after <%_ is preserved (multiline)', async () => {
-      // When the author puts the code on the next line after <%_, the
-      // formatter must NOT merge the first code line onto the <%_ line.
+    test('indented multiline <%_ tag preserves leading whitespace on close delimiter by default', async () => {
+      // When a <%_ tag is indented (preceded by whitespace on its line) and its
+      // content is multiline, the _%> close delimiter must carry the same
+      // leading whitespace as the <%_ open tag.
       const input =
-        '<%_\n' +
-        'const tsKeyId = primaryKey.tsSampleValues[0];\n' +
-        'const testEntity = tsPrimaryKeySamples[0];\n' +
-        '_%>\n';
-      const result = await format(input);
-      expect(result).toBe(input);
-    });
-
-    test('issue 1: idempotency – formatting the fixed output a second time changes nothing', async () => {
-      const input =
-        '<%_\n' +
-        'const tsKeyId = primaryKey.tsSampleValues[0];\n' +
-        'const testEntity = tsPrimaryKeySamples[0];\n' +
-        '_%>\n';
-      const first = await format(input);
-      const second = await format(first);
-      expect(second).toBe(first);
-    });
-
-    test('issue 2: multiline tag starting with newline – first code line is NOT merged onto <%_ line', async () => {
-      const input =
-        '<%_\n' +
-        'for (const relationship of relationships.filter(rel => !rel.otherEntity.embedded)) {\n' +
-        '    const { persistableRelationship } = relationship;\n' +
-        '    const relationshipName = relationship.relationshipName;\n' +
-        '_%>\n';
-      const result = await format(input);
-      expect(result).toBe(input);
-    });
-
-    test('issue 3: close delimiter _%> keeps same indentation as open tag <%_', async () => {
-      // When <%_ is indented (e.g. two spaces) the closing _%> must carry
-      // the same indent so the tag is visually balanced.
-      const input =
-        '  <%_ if (relationship.persistableRelationship && (!relationship.collection || paginationNo)) {\n' +
-        '    const fieldName = "." + relationship.otherEntityField;\n' +
-        '    const { fieldSupportsSortBy: relatedFieldSupportsSortBy } = relationship.relatedField;\n' +
+        '    return {\n' +
+        '  <%_ for (field of fields) {\n' +
+        '        const { fieldName, fieldTypeBoolean, fieldTypeTimed } = field;\n' +
         '  _%>\n';
-      const result = await format(input);
-      expect(result).toBe(input);
+      expect(await format(input)).toBe(input);
     });
 
-    test('issue 3: idempotency – formatting the fixed output a second time changes nothing', async () => {
+    test('indented multiline <%_ tag is idempotent by default', async () => {
       const input =
-        '  <%_ if (relationship.persistableRelationship && (!relationship.collection || paginationNo)) {\n' +
-        '    const fieldName = "." + relationship.otherEntityField;\n' +
-        '    const { fieldSupportsSortBy: relatedFieldSupportsSortBy } = relationship.relatedField;\n' +
+        '    return {\n' +
+        '  <%_ for (field of fields) {\n' +
+        '        const { fieldName, fieldTypeBoolean, fieldTypeTimed } = field;\n' +
         '  _%>\n';
       const first = await format(input);
       const second = await format(first);
       expect(second).toBe(first);
+    });
+
+    test('full template from problem statement is returned unchanged by default', async () => {
+      const input =
+        '<%_ if (containDefaultProperties) { _%>\n' +
+        '\n' +
+        '  private getFormDefaults(): <%= entityAngularName %>FormDefaults {\n' +
+        '  <%_ if (fields.some(field => field.fieldTypeTimed)) { _%>\n' +
+        '      const currentTime = dayjs();\n' +
+        '  <%_ } _%>\n' +
+        '\n' +
+        '    return {\n' +
+        '  <%_ for (field of fields) {\n' +
+        '        const { fieldName, fieldTypeBoolean, fieldTypeTimed } = field;\n' +
+        '  _%>\n';
+      expect(await format(input)).toBe(input);
     });
   });
 });
