@@ -229,6 +229,7 @@ export function print(path: AstPath, options: Options): Doc {
   const children: EjsChildNode[] = node.children;
   const parts: string[] = [];
   let braceDepth = 0;
+  let lastPushedChild: EjsChildNode | null = null;
 
   for (let i = 0; i < children.length; i++) {
     const child = children[i];
@@ -246,37 +247,53 @@ export function print(path: AstPath, options: Options): Doc {
           isSlurpingTag(nextTag) ||
           (preferSlurping && nextTag.open === '<%' && nextTag.close === '%>' && canConvertToSlurping(nextTag.content));
         if (nextWillSlurp) {
-          if (isWhitespaceOnly(child.value)) {
+          // Only skip whitespace content that doesn't contain any newlines – that's
+          // indentation-only whitespace on the same line.  If there are newlines,
+          // we need to preserve them to separate the content from the next tag.
+          if (isWhitespaceOnly(child.value) && !child.value.includes('\n')) {
             continue;
           }
           // Strip trailing whitespace from the last line before a standalone slurping tag
-          const lastLineIndent = getLineIndent(child.value);
-          if (lastLineIndent && isWhitespaceOnly(lastLineIndent)) {
-            const contentWithoutTrailing = child.value.slice(0, -lastLineIndent.length);
-            if (contentWithoutTrailing) {
-              parts.push(contentWithoutTrailing);
+          // but preserve any newlines that should still separate the content from the tag.
+          const lastNl = child.value.lastIndexOf('\n');
+          if (lastNl !== -1) {
+            const afterLastNl = child.value.slice(lastNl + 1);
+            if (isWhitespaceOnly(afterLastNl)) {
+              // Only push up to and including the last newline, stripping trailing spaces
+              parts.push(child.value.slice(0, lastNl + 1));
+              lastPushedChild = child;
+              continue;
             }
-            continue;
           }
         }
       }
       parts.push(child.value);
+      lastPushedChild = child;
     } else {
       const tag = child as EjsTagNode;
-      const prev = children[i - 1];
       // A tag is "standalone" when nothing (or only whitespace) precedes it
       // on the same line, meaning the printer controls its indentation.
-      const isStandalone = !prev || (prev.type === 'content' && isWhitespaceOnly(prev.value));
+      // Use lastPushedChild instead of prev to account for content nodes that
+      // were skipped when ejsIndent is enabled. Also consider tags standalone if
+      // the last pushed content ends with a newline (meaning trailing whitespace was
+      // stripped), since we're letting the printer handle indentation.
+      const lastPushedEndsWithNewline =
+        lastPushedChild && lastPushedChild.type === 'content' && lastPushedChild.value.includes('\n');
+      const isStandalone =
+        !lastPushedChild ||
+        (lastPushedChild.type === 'content' && (isWhitespaceOnly(lastPushedChild.value) || lastPushedEndsWithNewline));
 
       // When ejsIndent is off, the close delimiter of a multiline tag should
       // align with the open tag.  Compute the leading whitespace on the same
       // line as the open tag once here for reuse in all tag branches below.
-      const prevLineIndent = !ejsIndent && prev && prev.type === 'content' ? getLineIndent(prev.value) : '';
+      const prevLineIndent =
+        !ejsIndent && lastPushedChild && lastPushedChild.type === 'content' ? getLineIndent(lastPushedChild.value) : '';
 
       if (tag.type === 'comment_directive') {
         // Comment tags are emitted verbatim – no trimming, collapsing, or
         // brace-depth adjustment.
         parts.push(tag.open + tag.content + tag.close);
+        lastPushedChild = tag;
       } else {
         // ── Option ordering: preferRaw → preferSlurp → multiline → ejsIndent ──
         // Apply preferRaw and preferSlurp FIRST so that the isSlurping check
@@ -295,7 +312,7 @@ export function print(path: AstPath, options: Options): Doc {
         if (isStandalone && effOpen === '<%_' && effClose === '_%>') {
           // Whether the skipped preceding content contained a newline (so we
           // know whether to emit a `\n` before each tag).
-          const prevHadNewline = !prev || prev.value.includes('\n');
+          const prevHadNewline = !lastPushedChild || lastPushedChild.value.includes('\n');
 
           const lines = collapseMultiline ? splitLines(tag.content) : [tag.content].filter((l) => l.length > 0);
 
@@ -309,7 +326,10 @@ export function print(path: AstPath, options: Options): Doc {
               // AND the preceding content had a newline.  When ejsIndent is off,
               // the original content node was not skipped, so it already carries
               // the newline.  Never emit a newline at the very start of the output.
-              if (ejsIndent && prevHadNewline && parts.length > 0) {
+              // Also avoid emitting a duplicate newline if the last pushed content
+              // already ends with one.
+              const lastCharIsNewline = parts.length > 0 && parts[parts.length - 1].endsWith('\n');
+              if (ejsIndent && prevHadNewline && parts.length > 0 && !lastCharIsNewline) {
                 parts.push('\n');
               }
             } else {
@@ -336,6 +356,7 @@ export function print(path: AstPath, options: Options): Doc {
           const tagIndent = ejsIndent && isStandalone ? INDENT_UNIT.repeat(lowerBraceDepth) : prevLineIndent;
           parts.push(formatTag(effOpen, tag.content, effClose, { ...tagOptions, indent: tagIndent }));
         }
+        lastPushedChild = tag;
       }
     }
   }

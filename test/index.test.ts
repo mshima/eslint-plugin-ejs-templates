@@ -10,6 +10,8 @@ import { describe, test, expect } from 'vitest';
 import * as prettier from 'prettier';
 import plugin from '../src/index.js';
 import type { EjsPluginOptions } from '../src/types.js';
+import { readdir } from 'fs/promises';
+import path from 'path';
 
 type FormatOptions = prettier.Options & Partial<EjsPluginOptions>;
 
@@ -271,6 +273,36 @@ import { afterEach, beforeEach, describe, expect, it, vitest } from 'vitest';
         '<%_ } else { _%>\n' +
         '  <%_ const x = 2; _%>\n' +
         '<%_ } _%>\n';
+      expect(await format(input, { ejsIndent: true })).toBe(expected);
+    });
+
+    test('handles multiple open and close braces on the same line', async () => {
+      const input = `  {
+    path: '<%- applicationTypeMicroservice ? lowercaseBaseName : '' %>',
+    loadChildren: () => import('./entities/entity.routes'),
+  },
+<%_ if (applicationTypeGateway && microfrontend) { _%>
+  <%_ for (const remote of microfrontends) { _%>
+  {
+    path: '<%- remote.lowercaseBaseName %>',
+    loadChildren: () => loadEntityRoutes('<%- remote.lowercaseBaseName %>'),
+  },
+  <%_ } _%>
+<%_ } _%>
+`;
+      const expected = `  {
+    path: '<%- applicationTypeMicroservice ? lowercaseBaseName : '' %>',
+    loadChildren: () => import('./entities/entity.routes'),
+  },
+<%_ if (applicationTypeGateway && microfrontend) { _%>
+  <%_ for (const remote of microfrontends) { _%>
+  {
+    path: '<%- remote.lowercaseBaseName %>',
+    loadChildren: () => loadEntityRoutes('<%- remote.lowercaseBaseName %>'),
+  },
+  <%_ } _%>
+<%_ } _%>
+`;
       expect(await format(input, { ejsIndent: true })).toBe(expected);
     });
 
@@ -557,5 +589,19 @@ import { afterEach, beforeEach, describe, expect, it, vitest } from 'vitest';
         '  _%>\n';
       expect(await format(input)).toBe(input);
     });
+  });
+
+  describe('fixtures', async () => {
+    const fixturesDir = path.join(import.meta.dirname, 'fixtures');
+    const files = new Set(await readdir(fixturesDir));
+    for (const file of files) {
+      test(`formats ${file} fixture without error`, async () => {
+        const fixture = path.join(fixturesDir, file);
+        const { options, input, expected = input } = await import(fixture);
+
+        const result = await format(input, { ...options, filepath: fixture });
+        expect(result).toBe(expected);
+      });
+    }
   });
 });
