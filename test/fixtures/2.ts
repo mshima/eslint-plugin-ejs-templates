@@ -9,7 +9,7 @@ export const input = `  "devDependencies": {
 <%_ if (microfrontend) { _%>
   <%_ if (applicationTypeGateway) { _%>
     "@angular-architects/module-federation-runtime": "<%- nodeDependencies['@angular-architects/module-federation-runtime'] %>",
-<%_ } _%>
+  <%_ } _%>
     "@angular-architects/module-federation": "<%- nodeDependencies['@angular-architects/module-federation'] %>",
 <%_ } _%>
 `;
