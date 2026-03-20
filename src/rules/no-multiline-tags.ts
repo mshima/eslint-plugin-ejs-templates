@@ -1,4 +1,4 @@
-// Copyright 2024 The prettier-plugin-templates Authors
+// Copyright 2024 The eslint-plugin-templates Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -42,7 +42,7 @@ export const noMultilineTags: Rule.RuleModule = {
     fixable: 'code',
     docs: {
       description: 'Collapse multiline EJS tags onto a single line (ports ejsCollapseMultiline)',
-      url: 'https://github.com/mshima/prettier-plugin-templates',
+      url: 'https://github.com/mshima/prettier-plugin-templates#no-multiline-tags',
     },
     messages: {
       noMultilineTags: 'EJS tag content spans multiple lines; collapse to a single line.',

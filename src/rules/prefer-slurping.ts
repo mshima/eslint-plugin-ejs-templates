@@ -1,4 +1,4 @@
-// Copyright 2024 The prettier-plugin-templates Authors
+// Copyright 2024 The eslint-plugin-templates Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -23,7 +23,7 @@ export const preferSlurping: Rule.RuleModule = {
     fixable: 'code',
     docs: {
       description: 'Prefer `<%_ … _%>` (whitespace-slurping) over `<% … %>` where safe',
-      url: 'https://github.com/mshima/prettier-plugin-templates',
+      url: 'https://github.com/mshima/prettier-plugin-templates#prefer-slurping',
     },
     messages: {
       preferSlurping: 'Prefer `<%_ … _%>` (whitespace-slurping) over `<% … %>`.',

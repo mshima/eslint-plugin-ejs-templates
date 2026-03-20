@@ -1,4 +1,4 @@
-// Copyright 2024 The prettier-plugin-templates Authors
+// Copyright 2024 The eslint-plugin-templates Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -38,7 +38,7 @@ export const ejsIndent: Rule.RuleModule = {
     fixable: 'whitespace',
     docs: {
       description: 'Enforce brace-depth indentation on standalone <%_ _%> tags (ports ejsIndent)',
-      url: 'https://github.com/mshima/prettier-plugin-templates',
+      url: 'https://github.com/mshima/prettier-plugin-templates#ejs-indent',
     },
     messages: {
       ejsIndent: 'Incorrect indentation for EJS tag; expected {{expected}} spaces, got {{actual}} spaces.',

@@ -1,90 +1,143 @@
-# prettier-plugin-templates
+# eslint-plugin-templates
 
-A [Prettier](https://prettier.io/) plugin for [EJS](https://ejs.co/) (Embedded JavaScript) templates.
+An [ESLint](https://eslint.org/) plugin for [EJS](https://ejs.co/) (Embedded JavaScript) templates.
 
-Parsing is backed by [tree-sitter-embedded-template](https://github.com/tree-sitter/tree-sitter-embedded-template), which provides syntax validation in addition to formatting.
+EJS files are parsed by [tree-sitter-embedded-template](https://github.com/tree-sitter/tree-sitter-embedded-template) via [web-tree-sitter](https://github.com/tree-sitter/tree-sitter/tree/master/lib/binding_web), which provides accurate position information for all lint messages and autofixes.
 
 ## Features
 
-- **Syntax validation** – uses tree-sitter to validate EJS syntax; reports a `SyntaxError` for malformed templates
-- **Content normalisation** – tag content is trimmed and collapsed to a single line
-- **Single-space padding** – ensures exactly one space between the delimiter and the content
-- **`<%-` preference** – optionally converts `<%=` (HTML-escaped) to `<%-` (raw output), configurable per project and per file type
-- **All delimiter variants** – `<%_`, `<%-`, `<%=`, `<%#`, `_%>`, `-%>`, `%>` are preserved
-- **Indentation preserved** – surrounding whitespace before a tag is kept as-is
+- **EJS processor** – extracts each EJS tag into its own virtual JS block so standard ESLint rules (`no-undef`, `eqeqeq`, …) can inspect the embedded JavaScript
+- **Autofix support** – all four plugin rules are fixable; run `eslint --fix` (or configure your editor) to automatically apply the fixes
+- **`templates/prefer-raw`** – flags `<%= … %>` (HTML-escaped output) and suggests `<%- … %>` (raw output)
+- **`templates/prefer-slurping`** – flags `<% … %>` code tags that can be safely converted to `<%_ … _%>` (whitespace-slurping)
+- **`templates/no-multiline-tags`** – flags EJS tags whose content spans multiple lines and collapses them to a single line (or splits them into multiple single-line tags)
+- **`templates/ejs-indent`** – enforces brace-depth–based indentation on standalone `<%_ … _%>` tags
 
 ## Installation
 
 ```sh
-npm install --save-dev prettier prettier-plugin-templates
+npm install --save-dev eslint eslint-plugin-templates
 ```
 
 ## Usage
 
-Add the plugin to your Prettier configuration (`.prettierrc`):
+Add the plugin to your ESLint flat config (`eslint.config.js`):
 
-```json
-{
-  "plugins": ["prettier-plugin-templates"]
-}
+```js
+import templates from 'eslint-plugin-templates';
+
+export default [
+  // Apply the EJS processor to all *.ejs files and opt in to rules:
+  ...templates.configs.recommended,
+  {
+    files: ['**/*.ejs'],
+    rules: {
+      'templates/prefer-raw': 'error',
+      'templates/prefer-slurping': 'error',
+      'templates/no-multiline-tags': 'error',
+      'templates/ejs-indent': 'error',
+    },
+  },
+];
 ```
 
-Then run Prettier as usual:
+Then run ESLint as usual:
 
 ```sh
-npx prettier --write "**/*.ejs"
+npx eslint "**/*.ejs"
+# or auto-fix violations:
+npx eslint --fix "**/*.ejs"
 ```
 
-## Formatting Rules
+## Rules
 
-### Tag content trimming
+### `templates/prefer-raw`
 
-Content inside EJS tags is trimmed and normalised to use exactly one space on each side.
+Prefers `<%-` (raw / unescaped output) over `<%=` (HTML-escaped output).
+
+|             |                                              |
+| ----------- | -------------------------------------------- |
+| **Fixable** | Yes — `eslint --fix` converts `<%=` to `<%-` |
 
 ```ejs
-<%   foo   %>   →   <% foo %>
-<%foo%>         →   <% foo %>
+<!-- ✗ violation -->
+<%= value %>
+
+<!-- ✓ fixed -->
+<%- value %>
 ```
 
-### Multiline tags collapsed to single line
+### `templates/prefer-slurping`
+
+Prefers `<%_ … _%>` (whitespace-slurping) over `<% … %>` for code tags whose content has balanced braces and does not open or close a brace block by itself.
+
+|             |                                                        |
+| ----------- | ------------------------------------------------------ |
+| **Fixable** | Yes — `eslint --fix` converts `<% … %>` to `<%_ … _%>` |
 
 ```ejs
+<!-- ✗ violation -->
+<% const cssClass = active ? 'active' : ''; %>
+
+<!-- ✓ fixed -->
+<%_ const cssClass = active ? 'active' : ''; _%>
+```
+
+Tags that open or close brace depth are left unchanged:
+
+```ejs
+<% if (condition) { %>  ← not flagged (opens a block)
+<% } %>                 ← not flagged (closes a block)
+```
+
+### `templates/no-multiline-tags`
+
+Flags EJS tags whose content spans multiple lines. The autofix collapses the tag to a single line, or splits it into multiple single-line tags (one per non-empty content line).
+
+|             |                                                 |
+| ----------- | ----------------------------------------------- |
+| **Fixable** | Yes — `eslint --fix` collapses / splits the tag |
+
+```ejs
+<!-- ✗ violation: single content line split across newlines -->
 <%_
 if (generateSpringAuditor) {
 _%>
-```
 
-becomes:
-
-```ejs
+<!-- ✓ fixed -->
 <%_ if (generateSpringAuditor) { _%>
 ```
 
-### `<%-` preferred over `<%=` for non-HTML files
-
-In files that do **not** end with `.html.ejs`, `<%=` (HTML-escaped output) is automatically
-converted to `<%-` (raw output) by default:
-
 ```ejs
-<%= value %>   →   <%- value %>   (in template.ejs)
-<%= value %>   →   <%= value %>   (in template.html.ejs – unchanged)
+<!-- ✗ violation: multiple content lines -->
+<%_
+  const x = 1;
+  const y = 2;
+_%>
+
+<!-- ✓ fixed: split into separate single-line tags -->
+<%_ const x = 1; _%>
+<%_ const y = 2; _%>
 ```
 
-## Plugin Options
+### `templates/ejs-indent`
 
-| Option                 | Type                            | Default  | Description                                                                                 |
-| ---------------------- | ------------------------------- | -------- | ------------------------------------------------------------------------------------------- |
-| `ejsPreferRaw`         | `'always' \| 'never' \| 'auto'` | `'auto'` | Controls `<%=` → `<%-` conversion. `'auto'` converts unless the file ends with `.html.ejs`. |
-| `ejsCollapseMultiline` | `boolean`                       | `true`   | Collapse multiline EJS tags onto a single line.                                             |
+Enforces brace-depth–based indentation on standalone `<%_ … _%>` tags (two spaces per brace-depth level).
 
-### Example `.prettierrc`
+|             |                                                     |
+| ----------- | --------------------------------------------------- |
+| **Fixable** | Yes — `eslint --fix` adjusts the leading whitespace |
 
-```json
-{
-  "plugins": ["prettier-plugin-templates"],
-  "ejsPreferRaw": "always",
-  "ejsCollapseMultiline": true
-}
+```ejs
+<!-- ✗ violation: wrong indentation -->
+<%_ if (show) { _%>
+<%_ doWork(); _%>
+<%_ } _%>
+
+<!-- ✓ fixed -->
+<%_ if (show) { _%>
+  <%_ doWork(); _%>
+<%_ } _%>
 ```
 
 ## All Supported Delimiters

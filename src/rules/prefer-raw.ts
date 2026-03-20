@@ -1,4 +1,4 @@
-// Copyright 2024 The prettier-plugin-templates Authors
+// Copyright 2024 The eslint-plugin-templates Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -22,7 +22,7 @@ export const preferRaw: Rule.RuleModule = {
     fixable: 'code',
     docs: {
       description: 'Prefer `<%-` (raw output) over `<%=` (HTML-escaped output)',
-      url: 'https://github.com/mshima/prettier-plugin-templates',
+      url: 'https://github.com/mshima/prettier-plugin-templates#prefer-raw',
     },
     messages: {
       preferRaw: 'Prefer `<%-` (raw / unescaped output) over `<%=` (HTML-escaped output).',
