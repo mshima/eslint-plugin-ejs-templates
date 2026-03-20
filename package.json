@@ -1,7 +1,7 @@
 {
-  "name": "prettier-plugin-templates",
+  "name": "eslint-plugin-templates",
   "version": "0.0.1",
-  "description": "Prettier plugin for EJS (Embedded JavaScript) templates using tree-sitter",
+  "description": "ESLint plugin for EJS (Embedded JavaScript) templates — processor and rules",
   "type": "module",
   "main": "dist/index.cjs",
   "module": "dist/index.js",
@@ -38,11 +38,11 @@
     "url": "git+https://github.com/mshima/prettier-plugin-templates.git"
   },
   "keywords": [
-    "prettier",
-    "prettier-plugin",
+    "eslint",
+    "eslint-plugin",
     "ejs",
     "template",
-    "tree-sitter"
+    "processor"
   ],
   "author": "",
   "license": "Apache-2.0",
@@ -50,12 +50,8 @@
     "url": "https://github.com/mshima/prettier-plugin-templates/issues"
   },
   "homepage": "https://github.com/mshima/prettier-plugin-templates#readme",
-  "dependencies": {
-    "tree-sitter-embedded-template": "^0.25.0",
-    "web-tree-sitter": "^0.26.7"
-  },
   "peerDependencies": {
-    "prettier": ">=3.0.0"
+    "eslint": ">=9.0.0"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

@@ -6,98 +6,65 @@
 //
 //     http://www.apache.org/licenses/LICENSE-2.0
 
-import type { Plugin, SupportOption } from 'prettier';
-import { parse } from './parser.js';
-import { print } from './printer.js';
-import type { EjsRootNode, EjsPluginOptions } from './types.js';
+import type { Linter } from 'eslint';
+import { processor } from './processor.js';
+import { preferRaw } from './rules/prefer-raw.js';
+import { preferSlurping } from './rules/prefer-slurping.js';
 
 // ---------------------------------------------------------------------------
-// Plugin-specific options
+// Plugin definition (without configs, to avoid circular reference)
 // ---------------------------------------------------------------------------
 
-const ejsOptions: Record<keyof EjsPluginOptions, SupportOption> = {
-  ejsPreferRaw: {
-    category: 'EJS',
-    type: 'choice',
-    default: 'never',
-    description:
-      'Prefer <%- (raw / unescaped output) over <%= (HTML-escaped output). ' +
-      '"always" converts unconditionally, "never" disables conversion, ' +
-      '"auto" converts for every file that is not a .html.ejs file.',
-    choices: [
-      { value: 'always', description: 'Always prefer <%-' },
-      { value: 'never', description: 'Never convert <%=' },
-      {
-        value: 'auto',
-        description: 'Auto-detect based on file extension (.html.ejs keeps <%=)',
-      },
-    ],
+const pluginName = 'templates';
+
+const pluginCore = {
+  meta: {
+    name: 'eslint-plugin-templates',
+    version: '0.0.1',
   },
-  ejsCollapseMultiline: {
-    category: 'EJS',
-    type: 'boolean',
-    default: false,
-    description:
-      'Split multiline EJS tags into separate single-line tags, one per non-empty line. ' +
-      'When false (the default), tag content is trimmed only when the trimmed result is a single line; ' +
-      'multiline content is preserved as-is.',
+  processors: {
+    ejs: processor,
   },
-  ejsPreferSlurping: {
-    category: 'EJS',
-    type: 'boolean',
-    default: false,
-    description: 'Convert plain <% … %> script tags to the whitespace-slurping form <%_ … _%>.',
-  },
-  ejsIndent: {
-    category: 'EJS',
-    type: 'boolean',
-    default: false,
-    description:
-      'Enable brace-depth indentation for standalone whitespace-slurping (<%_ … _%>) tags. ' +
-      'When true, the printer strips leading whitespace before such tags and re-indents them ' +
-      'based on the current JavaScript brace depth. ' +
-      'When false (the default), indentation is left untouched so that a file with no other ' +
-      'active options is returned unchanged.',
+  rules: {
+    'prefer-raw': preferRaw,
+    'prefer-slurping': preferSlurping,
   },
 };
 
 // ---------------------------------------------------------------------------
-// Plugin definition
+// Built-in flat configs
 // ---------------------------------------------------------------------------
 
-const plugin: Plugin<EjsRootNode> = {
-  languages: [
-    {
-      name: 'EJS',
-      parsers: ['ejs'],
-      extensions: ['.ejs'],
-      vscodeLanguageIds: ['html'],
-    },
-  ],
-
-  parsers: {
-    ejs: {
-      async parse(text: string) {
-        return parse(text);
-      },
-      astFormat: 'ejs-ast',
-      locStart(node) {
-        return node.start;
-      },
-      locEnd(node) {
-        return node.end;
-      },
-    },
+/**
+ * Recommended config: applies the EJS processor to all `*.ejs` files.
+ * No rules are enabled by default – opt in to individual rules as needed.
+ *
+ * @example
+ * ```js
+ * // eslint.config.js
+ * import templates from 'eslint-plugin-templates';
+ * export default [
+ *   ...templates.configs.recommended,
+ * ];
+ * ```
+ */
+const recommended: Linter.FlatConfig[] = [
+  {
+    files: ['**/*.ejs'],
+    plugins: { [pluginName]: pluginCore },
+    processor: `${pluginName}/ejs`,
   },
+];
 
-  printers: {
-    'ejs-ast': {
-      print,
-    },
-  },
+// ---------------------------------------------------------------------------
+// Final plugin export
+// ---------------------------------------------------------------------------
 
-  options: ejsOptions,
+const plugin = {
+  ...pluginCore,
+  configs: { recommended },
 };
 
 export default plugin;
-export { parse, print };
+export { processor };
+export { preferRaw, preferSlurping };

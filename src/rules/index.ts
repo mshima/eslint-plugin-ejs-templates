@@ -6,8 +6,5 @@
 //
 //     http://www.apache.org/licenses/LICENSE-2.0
 
-/**
- * EJS tag types used by the processor to classify each non-comment EJS tag.
- * Stored here as a shared reference for the processor and rules.
- */
-export type EjsTagType = 'escaped-output' | 'raw-output' | 'slurp' | 'code' | 'code-slurpable';
+export { preferRaw } from './prefer-raw.js';
+export { preferSlurping } from './prefer-slurping.js';
