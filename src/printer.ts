@@ -8,7 +8,14 @@
 
 import type { AstPath, Options, Doc } from 'prettier';
 import { doc } from 'prettier';
-import type { EjsRootNode, EjsTagNode, EjsChildNode, EjsPluginOptions, FormatTagOptions } from './types.js';
+import type {
+  EjsRootNode,
+  EjsTagNode,
+  EjsChildNode,
+  EjsPluginOptions,
+  FormatTagOptions,
+  EjsTextNode,
+} from './types.js';
 
 const { hardline } = doc.builders;
 
@@ -221,7 +228,7 @@ export function print(path: AstPath, options: Options): Doc {
   const parts: string[] = [];
   let braceDepth = 0;
   // Track what was actually pushed to output (for prevLineIndent calculation)
-  let lastPushedChild: EjsChildNode | null = null;
+  let lastPushedChild: EjsChildNode | EjsTextNode | null = null;
   // Track the original preceding node (for isStandalone calculation, even if we stripped it)
   let lastOriginalChild: EjsChildNode | null = null;
 
@@ -302,7 +309,7 @@ export function print(path: AstPath, options: Options): Doc {
         if (isStandalone && effOpen === '<%_' && effClose === '_%>') {
           // Whether the skipped preceding content contained a newline (so we
           // know whether to emit a `\n` before each tag).
-          const prevHadNewline = !lastPushedChild || lastPushedChild.value.includes('\n');
+          const prevHadNewline = !lastPushedChild || (lastPushedChild as EjsTextNode).value.includes('\n');
 
           const lines = collapseMultiline ? splitLines(tag.content) : [tag.content].filter((l) => l.length > 0);
 
