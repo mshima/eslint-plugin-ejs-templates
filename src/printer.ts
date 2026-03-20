@@ -56,15 +56,6 @@ function getLineIndent(s: string): string {
 }
 
 /**
- * Returns `true` when the tag uses both whitespace-slurping delimiters
- * (`<%_` … `_%>`).  These are the tags whose indentation is managed by the
- * printer's brace-depth tracking logic.
- */
-function isSlurpingTag(tag: EjsTagNode): boolean {
-  return tag.open === '<%_' && tag.close === '_%>';
-}
-
-/**
  * Split the raw content of an EJS tag into individual non-empty trimmed lines.
  */
 function splitLines(raw: string): string[] {
@@ -229,7 +220,10 @@ export function print(path: AstPath, options: Options): Doc {
   const children: EjsChildNode[] = node.children;
   const parts: string[] = [];
   let braceDepth = 0;
+  // Track what was actually pushed to output (for prevLineIndent calculation)
   let lastPushedChild: EjsChildNode | null = null;
+  // Track the original preceding node (for isStandalone calculation, even if we stripped it)
+  let lastOriginalChild: EjsChildNode | null = null;
 
   for (let i = 0; i < children.length; i++) {
     const child = children[i];
@@ -237,51 +231,46 @@ export function print(path: AstPath, options: Options): Doc {
     if (child.type === 'content') {
       const next = children[i + 1];
       // When ejsIndent is active, pure-whitespace content immediately before
-      // a slurping tag is replaced by the printer's own indentation logic –
-      // skip it here.  A tag counts as "slurping" both when it already uses
-      // <%_ … _%> delimiters and when preferSlurping would convert it.
-      // When ejsIndent is off, preserve it as-is.
+      // a slurping tag is replaced by the printer's own indentation logic.
       if (ejsIndent && next && next.type !== 'content') {
         const nextTag = next as EjsTagNode;
         const nextWillSlurp =
-          isSlurpingTag(nextTag) ||
+          (nextTag.open === '<%_' && nextTag.close === '_%>') ||
           (preferSlurping && nextTag.open === '<%' && nextTag.close === '%>' && canConvertToSlurping(nextTag.content));
         if (nextWillSlurp) {
-          // Only skip whitespace content that doesn't contain any newlines – that's
-          // indentation-only whitespace on the same line.  If there are newlines,
-          // we need to preserve them to separate the content from the next tag.
+          // Skip indentation-only whitespace on the same line.
           if (isWhitespaceOnly(child.value) && !child.value.includes('\n')) {
+            lastOriginalChild = child;
             continue;
           }
-          // Strip trailing whitespace from the last line before a standalone slurping tag
-          // but preserve any newlines that should still separate the content from the tag.
+
+          // Strip trailing indentation after the last newline, preserving the newline.
           const lastNl = child.value.lastIndexOf('\n');
           if (lastNl !== -1) {
             const afterLastNl = child.value.slice(lastNl + 1);
             if (isWhitespaceOnly(afterLastNl)) {
-              // Only push up to and including the last newline, stripping trailing spaces
               parts.push(child.value.slice(0, lastNl + 1));
               lastPushedChild = child;
+              lastOriginalChild = child;
               continue;
             }
           }
         }
       }
+
       parts.push(child.value);
       lastPushedChild = child;
+      lastOriginalChild = child;
     } else {
       const tag = child as EjsTagNode;
       // A tag is "standalone" when nothing (or only whitespace) precedes it
       // on the same line, meaning the printer controls its indentation.
-      // Use lastPushedChild instead of prev to account for content nodes that
-      // were skipped when ejsIndent is enabled. Also consider tags standalone if
-      // the last pushed content ends with a newline (meaning trailing whitespace was
-      // stripped), since we're letting the printer handle indentation.
-      const lastPushedEndsWithNewline =
-        lastPushedChild && lastPushedChild.type === 'content' && lastPushedChild.value.includes('\n');
+      const lastOriginalEndsWithNewline =
+        lastOriginalChild && lastOriginalChild.type === 'content' && lastOriginalChild.value.includes('\n');
       const isStandalone =
-        !lastPushedChild ||
-        (lastPushedChild.type === 'content' && (isWhitespaceOnly(lastPushedChild.value) || lastPushedEndsWithNewline));
+        !lastOriginalChild ||
+        (lastOriginalChild.type === 'content' &&
+          (isWhitespaceOnly(lastOriginalChild.value) || lastOriginalEndsWithNewline));
 
       // When ejsIndent is off, the close delimiter of a multiline tag should
       // align with the open tag.  Compute the leading whitespace on the same
@@ -294,6 +283,7 @@ export function print(path: AstPath, options: Options): Doc {
         // brace-depth adjustment.
         parts.push(tag.open + tag.content + tag.close);
         lastPushedChild = tag;
+        lastOriginalChild = tag;
       } else {
         // ── Option ordering: preferRaw → preferSlurp → multiline → ejsIndent ──
         // Apply preferRaw and preferSlurp FIRST so that the isSlurping check
@@ -357,6 +347,7 @@ export function print(path: AstPath, options: Options): Doc {
           parts.push(formatTag(effOpen, tag.content, effClose, { ...tagOptions, indent: tagIndent }));
         }
         lastPushedChild = tag;
+        lastOriginalChild = tag;
       }
     }
   }
