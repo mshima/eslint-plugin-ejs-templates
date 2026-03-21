@@ -10,7 +10,7 @@ import { processor } from './processor.js';
 import { preferRaw } from './rules/prefer-raw.js';
 import { preferSlurpingCodeonly } from './rules/prefer-slurping-codeonly.js';
 import { preferSlurpMultiline } from './rules/prefer-slurp-multiline.js';
-import { noMultilineTags } from './rules/no-multiline-tags.js';
+import { preferSingleLineTags } from './rules/prefer-single-line-tags.js';
 import { slurpNewline } from './rules/slurp-newline.js';
 import { indent } from './rules/indent.js';
 import { type Config } from 'eslint/config';
@@ -33,7 +33,7 @@ const pluginCore = {
     'prefer-raw': preferRaw,
     'prefer-slurping-codeonly': preferSlurpingCodeonly,
     'experimental-prefer-slurp-multiline': preferSlurpMultiline,
-    'no-multiline-tags': noMultilineTags,
+    'prefer-single-line-tags': preferSingleLineTags,
     'slurp-newline': slurpNewline,
     indent,
   },
@@ -83,7 +83,7 @@ const all: Config[] = [
     rules: {
       [`${pluginName}/experimental-prefer-slurp-multiline`]: 'error',
       [`${pluginName}/prefer-slurping-codeonly`]: 'error',
-      [`${pluginName}/no-multiline-tags`]: 'error',
+      [`${pluginName}/prefer-single-line-tags`]: 'error',
       [`${pluginName}/slurp-newline`]: 'error',
       [`${pluginName}/indent`]: 'error',
       [`${pluginName}/prefer-raw`]: 'error',
@@ -102,4 +102,4 @@ const plugin = {
 
 export default plugin;
 export { processor };
-export { preferRaw, preferSlurpingCodeonly, preferSlurpMultiline, noMultilineTags, slurpNewline, indent };
+export { preferRaw, preferSlurpingCodeonly, preferSlurpMultiline, preferSingleLineTags, slurpNewline, indent };

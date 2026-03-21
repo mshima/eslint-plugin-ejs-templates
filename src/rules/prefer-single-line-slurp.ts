@@ -9,13 +9,12 @@
 import type { Rule } from 'eslint';
 
 /**
- * ESLint rule: collapse multiline EJS tags onto a single line.
+ * ESLint rule: collapse multiline `<%_` EJS tags onto a single line.
  *
- * This ports the `ejsCollapseMultiline` option from the original Prettier
- * plugin.  The processor marks any tag whose raw content contains newlines
- * with a `-multiline` suffix on the tag type (e.g. `slurp-multiline`,
- * `code-multiline`, `escaped-output-multiline`).  This rule detects that
- * suffix and offers an autofix.
+ * The processor marks any slurp tag (`<%_ … _%>`) whose raw content contains
+ * newlines with the `slurp-multiline` tag type.  This rule detects that type
+ * and offers an autofix.  Only `<%_`-style (slurp) tags are targeted;
+ * multiline `<% %>`, `<%= %>`, and `<%- %>` tags are left unchanged.
  *
  * All non-empty content lines are joined into a single line.  Lines that
  * start with `.` (method / property chaining) are joined without a leading
@@ -36,16 +35,16 @@ import type { Rule } from 'eslint';
  * ```
  * → `<%_ const notSortableFields = 'foo.bar'.split(); _%>`
  */
-export const noMultilineTags: Rule.RuleModule = {
+export const preferSingleLineSlurp: Rule.RuleModule = {
   meta: {
     type: 'suggestion',
     fixable: 'code',
     docs: {
-      description: 'Collapse multiline EJS tags onto a single line (ports ejsCollapseMultiline)',
-      url: 'https://github.com/mshima/eslint-plugin-ejs-templates#no-multiline-tags',
+      description: 'Collapse multiline <%_ EJS tags onto a single line',
+      url: 'https://github.com/mshima/eslint-plugin-ejs-templates#prefer-single-line-slurp',
     },
     messages: {
-      noMultilineTags: 'EJS tag content spans multiple lines; collapse to a single line.',
+      preferSingleLineSlurp: 'Slurp tag (<%_) content spans multiple lines; collapse to a single line.',
     },
     schema: [],
   },
@@ -56,11 +55,11 @@ export const noMultilineTags: Rule.RuleModule = {
         const sourceCode = context.sourceCode;
         const comments = sourceCode.getAllComments();
         for (const comment of comments) {
-          if (comment.type === 'Line' && comment.value.trim().includes('-multiline')) {
+          if (comment.type === 'Line' && comment.value.trim() === '@ejs-tag:slurp-multiline') {
             const { range = [0, 0] } = comment;
             context.report({
               loc: comment.loc ?? { line: 0, column: 0 },
-              messageId: 'noMultilineTags',
+              messageId: 'preferSingleLineSlurp',
               fix(fixer) {
                 // Sentinel fix — the processor's postprocess translates this
                 // to a replacement of the entire original EJS tag.

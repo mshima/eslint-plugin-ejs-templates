@@ -173,7 +173,7 @@ export interface TagBlock {
    * Base types: `escaped-output` | `raw-output` | `slurp` | `code` | `code-slurpable`
    *
    * Suffixes added for violations:
-   * - `-multiline`         → content contains `\n` (triggers `no-multiline-tags` rule)
+   * - `-multiline`         → content contains `\n` (triggers `prefer-single-line-tags` rule)
    * - `-needs-indent`      → standalone `<%_ _%>` tag whose indentation does not match
    *                          the brace-depth expected indent (triggers `indent` rule)
    * - `-not-standalone`    → slurp tag that is inline (triggers `slurp-newline` rule)
@@ -264,7 +264,7 @@ export interface TagBlock {
  * - `code-slurpable`  – `<% … %>` that can be safely promoted to `<%_ … _%>`
  *
  * Violation suffixes (appended to the base type):
- * - `-multiline`         – content contains newlines (fixable by `no-multiline-tags`)
+ * - `-multiline`         – content contains newlines (fixable by `prefer-single-line-tags`)
  * - `-needs-indent`      – wrong brace-depth indentation (fixable by `indent`)
  * - `-not-standalone`    – slurp tag is inline (fixable by `slurp-newline`)
  */
@@ -344,7 +344,7 @@ export function extractTagBlocks(text: string): TagBlock[] {
       tagType = 'slurp-not-standalone';
     } else if (isStandalone && isSlurpTag && lineIndent !== expectedIndent) {
       // Only add needs-indent for single-line slurp tags (multiline ones get
-      // fixed by no-multiline-tags first, then re-checked for indent).
+      // fixed by prefer-single-line-tags first, then re-checked for indent).
       tagType = 'slurp-needs-indent';
     }
 
@@ -552,9 +552,9 @@ function buildCollapsedTag(block: TagBlock): string {
  * meaningful replacement in the original EJS source.
  *
  * - Generic sentinel (`text === ''`): used by `prefer-raw`, `prefer-slurping-codeonly`,
- *   `no-multiline-tags`, `indent`.
+ *   `prefer-single-line-tags`, `indent`.
  * - `SENTINEL_PREFER_SLURP_MULTILINE`: used by `experimental-prefer-slurp-multiline` to avoid
- *   collision with `no-multiline-tags` for `code-multiline`/`code-slurpable-multiline`
+ *   collision with `prefer-single-line-tags` for `code-multiline`/`code-slurpable-multiline`
  *   tag types.
  * - `SENTINEL_SLURP_NEWLINE`: used by `slurp-newline`.
  *
@@ -610,7 +610,7 @@ function translateFix(
       };
     }
 
-    // no-multiline-tags: collapse multiline tag into single-line tag(s)
+    // prefer-single-line-tags: collapse multiline tag into single-line tag(s)
     if (block.tagType.endsWith('-multiline')) {
       return {
         range: [block.tagOffset, block.tagOffset + block.tagLength],

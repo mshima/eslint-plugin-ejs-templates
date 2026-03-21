@@ -11,7 +11,7 @@ EJS files are parsed by [tree-sitter-embedded-template](https://github.com/tree-
 - **`ejs-templates/prefer-raw`** – flags `<%= … %>` and suggests `<%- … %>`
 - **`ejs-templates/prefer-slurping-codeonly`** – flags `<% … %>` code tags that can be safely converted to `<%_ … _%>`
 - **`ejs-templates/experimental-prefer-slurp-multiline`** – converts multiline `<% … %>` to `<%_ … _%>`
-- **`ejs-templates/no-multiline-tags`** – collapses multiline EJS tags to single-line tags
+- **`ejs-templates/prefer-single-line-tags`** – collapses multiline EJS tags to single-line tags
 - **`ejs-templates/slurp-newline`** – ensures `<%_ … _%>` tags are on their own line
 - **`ejs-templates/indent`** – enforces brace-depth–based indentation on standalone `<%_ … _%>` tags
 
@@ -48,7 +48,7 @@ export default defineConfig([
       // Enable EJS-specific rules (apply in this recommended order):
       'ejs-templates/experimental-prefer-slurp-multiline': 'error',
       'ejs-templates/prefer-slurping-codeonly': 'error',
-      'ejs-templates/no-multiline-tags': 'error',
+      'ejs-templates/prefer-single-line-tags': 'error',
       'ejs-templates/slurp-newline': 'error',
       'ejs-templates/indent': 'error',
       'ejs-templates/prefer-raw': 'error',
@@ -100,7 +100,7 @@ Apply rules in the following order for best results:
 
 1. `experimental-prefer-slurp-multiline` — convert multiline `<% %>` to `<%_ %>` first
 2. `prefer-slurping-codeonly` — convert single-line `<% %>` to `<%_ %>`
-3. `no-multiline-tags` — collapse remaining multiline tags
+3. `prefer-single-line-tags` — collapse remaining multiline tags
 4. `slurp-newline` — ensure slurp tags are on their own line
 5. `indent` — enforce brace-depth indentation
 6. `prefer-raw` — prefer `<%-` over `<%=`
@@ -148,7 +148,7 @@ Tags that open or close brace depth are left unchanged:
 ### `ejs-templates/experimental-prefer-slurp-multiline`
 
 Converts multiline `<% … %>` tags to `<%_ … _%>`. Apply this rule **before**
-`no-multiline-tags` so that multiline `<% %>` tags get their delimiters changed
+`prefer-single-line-tags` so that multiline `<% %>` tags get their delimiters changed
 before being collapsed.
 
 |             |                                                              |
@@ -167,7 +167,7 @@ before being collapsed.
 _%>
 ```
 
-### `ejs-templates/no-multiline-tags`
+### `ejs-templates/prefer-single-line-tags`
 
 Flags EJS tags whose content spans multiple lines. The autofix splits the content
 into separate single-line tags — one tag per statement boundary (`;`, `}`, `{`).

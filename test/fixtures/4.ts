@@ -1,5 +1,5 @@
 /**
- * Fixture 4 – no-multiline-tags (porting ejsCollapseMultiline).
+ * Fixture 4 – prefer-single-line-tags (porting ejsCollapseMultiline).
  *
  * Input contains multiline EJS tags in several forms.
  * Expected output collapses each tag to single-line tag(s):
@@ -31,6 +31,6 @@ export const expected = `<%_ if (generateSpringAuditor) { _%>
 `;
 
 export const rules = {
-  'ejs-templates/no-multiline-tags': 'error' as const,
+  'ejs-templates/prefer-single-line-tags': 'error' as const,
   'ejs-templates/prefer-raw': 'error' as const,
 };

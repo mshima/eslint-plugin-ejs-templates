@@ -15,13 +15,13 @@ import { SENTINEL_PREFER_SLURP_MULTILINE } from '../processor.js';
  * A `<% … %>` tag that spans multiple lines (i.e. its content contains
  * newlines) should use the whitespace-slurping form `<%_ … _%>` so that
  * the surrounding whitespace / newlines are cleaned up when the tag is
- * later collapsed by `no-multiline-tags`.
+ * later collapsed by `prefer-single-line-tags`.
  *
  * The processor marks such tags with `code-multiline` or
  * `code-slurpable-multiline` tag types.  This rule detects those marker
  * comments and provides an autofix that changes the delimiters.
  *
- * Note: apply this rule **before** `no-multiline-tags` in your config so
+ * Note: apply this rule **before** `prefer-single-line-tags` in your config so
  * that multiline `<% %>` tags get their delimiters changed first.
  *
  * ```ejs
@@ -68,7 +68,7 @@ export const preferSlurpMultiline: Rule.RuleModule = {
               fix(fixer) {
                 // Use a distinct sentinel text so that `translateFix` in the
                 // processor can tell this fix apart from the generic `''`
-                // sentinel used by `no-multiline-tags` (which fires on the
+                // sentinel used by `prefer-single-line-tags` (which fires on the
                 // same `code-multiline` / `code-slurpable-multiline` types).
                 return fixer.replaceTextRange([range[0], range[1]], SENTINEL_PREFER_SLURP_MULTILINE);
               },
