@@ -10,7 +10,7 @@ EJS files are parsed by [tree-sitter-embedded-template](https://github.com/tree-
 - **Autofix support** – all four plugin rules are fixable; run `eslint --fix` (or configure your editor) to automatically apply the fixes
 - **`templates/prefer-raw`** – flags `<%= … %>` (HTML-escaped output) and suggests `<%- … %>` (raw output)
 - **`templates/prefer-slurping`** – flags `<% … %>` code tags that can be safely converted to `<%_ … _%>` (whitespace-slurping)
-- **`templates/no-multiline-tags`** – flags EJS tags whose content spans multiple lines and collapses them to a single line (or splits them into multiple single-line tags)
+- **`templates/no-multiline-tags`** – flags EJS tags whose content spans multiple lines and collapses them to a single joined line
 - **`templates/ejs-indent`** – enforces brace-depth–based indentation on standalone `<%_ … _%>` tags
 
 ## Installation
@@ -39,6 +39,14 @@ export default [
     },
   },
 ];
+```
+
+Or use `configs.all` to enable every rule in one step:
+
+```js
+import templates from 'eslint-plugin-templates';
+
+export default [...templates.configs.all];
 ```
 
 Then run ESLint as usual:
@@ -92,11 +100,14 @@ Tags that open or close brace depth are left unchanged:
 
 ### `templates/no-multiline-tags`
 
-Flags EJS tags whose content spans multiple lines. The autofix collapses the tag to a single line, or splits it into multiple single-line tags (one per non-empty content line).
+Flags EJS tags whose content spans multiple lines. The autofix joins all
+non-empty content lines into a single line. Lines that start with `.` (chained
+method / property access) are joined without a preceding space so that
+`'foo.bar'\n.split()` collapses cleanly to `'foo.bar'.split()`.
 
-|             |                                                 |
-| ----------- | ----------------------------------------------- |
-| **Fixable** | Yes — `eslint --fix` collapses / splits the tag |
+|             |                                        |
+| ----------- | -------------------------------------- |
+| **Fixable** | Yes — `eslint --fix` collapses the tag |
 
 ```ejs
 <!-- ✗ violation: single content line split across newlines -->
@@ -115,9 +126,19 @@ _%>
   const y = 2;
 _%>
 
-<!-- ✓ fixed: split into separate single-line tags -->
-<%_ const x = 1; _%>
-<%_ const y = 2; _%>
+<!-- ✓ fixed: joined into a single tag -->
+<%_ const x = 1; const y = 2; _%>
+```
+
+```ejs
+<!-- ✗ violation: chained method split across lines -->
+<%_
+  const arr = 'foo.bar'
+    .split();
+_%>
+
+<!-- ✓ fixed: dot-continuation joined without space -->
+<%_ const arr = 'foo.bar'.split(); _%>
 ```
 
 ### `templates/ejs-indent`

@@ -60,13 +60,40 @@ const recommended: Linter.FlatConfig[] = [
   },
 ];
 
+/**
+ * All config: applies the EJS processor to all `*.ejs` files and enables
+ * every plugin rule as `'error'`.
+ *
+ * @example
+ * ```js
+ * // eslint.config.js
+ * import templates from 'eslint-plugin-templates';
+ * export default [
+ *   ...templates.configs.all,
+ * ];
+ * ```
+ */
+const all: Linter.FlatConfig[] = [
+  {
+    files: ['**/*.ejs'],
+    plugins: { [pluginName]: pluginCore },
+    processor: `${pluginName}/ejs`,
+    rules: {
+      [`${pluginName}/prefer-raw`]: 'error',
+      [`${pluginName}/prefer-slurping`]: 'error',
+      [`${pluginName}/no-multiline-tags`]: 'error',
+      [`${pluginName}/ejs-indent`]: 'error',
+    },
+  },
+];
+
 // ---------------------------------------------------------------------------
 // Final plugin export
 // ---------------------------------------------------------------------------
 
 const plugin = {
   ...pluginCore,
-  configs: { recommended },
+  configs: { recommended, all },
 };
 
 export default plugin;

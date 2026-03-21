@@ -389,6 +389,24 @@ describe('plugin shape', () => {
     const config = plugin.configs.recommended[0];
     expect(config.files).toEqual(['**/*.ejs']);
   });
+
+  test('plugin exposes all config', () => {
+    expect(Array.isArray(plugin.configs.all)).toBe(true);
+    expect(plugin.configs.all.length).toBeGreaterThan(0);
+  });
+
+  test('all config targets *.ejs files', () => {
+    const config = plugin.configs.all[0];
+    expect(config.files).toEqual(['**/*.ejs']);
+  });
+
+  test('all config enables all four rules as error', () => {
+    const config = plugin.configs.all[0];
+    expect(config.rules?.['templates/prefer-raw']).toBe('error');
+    expect(config.rules?.['templates/prefer-slurping']).toBe('error');
+    expect(config.rules?.['templates/no-multiline-tags']).toBe('error');
+    expect(config.rules?.['templates/ejs-indent']).toBe('error');
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -504,6 +522,43 @@ describe('autofix: prefer-raw and prefer-slurping together', () => {
     const input = '<%= a %>\n<% doWork(); %>';
     const fixed = applyFix(input, { 'templates/prefer-raw': 'error', 'templates/prefer-slurping': 'error' });
     expect(fixed).toBe('<%- a %>\n<%_ doWork(); _%>');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Autofix: general JS rules via processor
+// ---------------------------------------------------------------------------
+
+describe('autofix: general JS rules via processor', () => {
+  test('no-var fix is mapped back to the correct position in the EJS source', () => {
+    // `no-var` converts `var` declarations to `const`/`let`.
+    const result = applyFix('<% var x = 1; %>', { 'no-var': 'error' });
+    // The fix must operate inside the EJS tag, not corrupt the delimiters.
+    expect(result).toMatch(/^<%[\s_]*\s*(const|let)\s+x\s*=\s*1\s*;/);
+    expect(result).not.toContain('var');
+  });
+
+  test('no-var fix does not corrupt EJS delimiters', () => {
+    const result = applyFix('<% var x = 1; %>', { 'no-var': 'error' });
+    expect(result.startsWith('<%')).toBe(true);
+    expect(result.endsWith('%>')).toBe(true);
+  });
+
+  test('no-var fix works on a tag in the middle of surrounding text', () => {
+    const result = applyFix('before\n<% var x = 1; %>\nafter', { 'no-var': 'error' });
+    expect(result).not.toContain('var');
+    expect(result).toContain('before\n');
+    expect(result).toContain('\nafter');
+  });
+
+  test('standard JS fix and plugin fix can both fire in the same pass', () => {
+    // no-var should fire on `var` in a code-slurpable block.
+    // prefer-slurping should also fire on the same block.
+    // verifyAndFix iterates until stable – both fixes must be applied.
+    const result = applyFix('<% var x = 1; %>', { 'no-var': 'error', 'templates/prefer-slurping': 'error' });
+    expect(result).not.toContain('var');
+    expect(result.startsWith('<%_')).toBe(true);
+    expect(result.endsWith('_%>')).toBe(true);
   });
 });
 
@@ -683,9 +738,9 @@ describe('autofix: no-multiline-tags', () => {
     );
   });
 
-  test('splits multiline tag with 2 content lines into two single-line tags', () => {
+  test('splits multiline tag with 2 content lines into single joined tag', () => {
     expect(applyFix('<%_\n  const x = 1;\n  const y = 2;\n_%>', { 'templates/no-multiline-tags': 'error' })).toBe(
-      '<%_ const x = 1; _%>\n<%_ const y = 2; _%>',
+      '<%_ const x = 1; const y = 2; _%>',
     );
   });
 
@@ -711,10 +766,9 @@ describe('autofix: no-multiline-tags', () => {
     );
   });
 
-  test('multi-line split respects original line indentation', () => {
-    // Indented tag: subsequent split lines get the same indentation as the first.
+  test('joins multi-line tag into single tag regardless of indentation', () => {
     expect(applyFix('  <%_\n  const a = 1;\n  const b = 2;\n  _%>', { 'templates/no-multiline-tags': 'error' })).toBe(
-      '  <%_ const a = 1; _%>\n  <%_ const b = 2; _%>',
+      '  <%_ const a = 1; const b = 2; _%>',
     );
   });
 
@@ -734,6 +788,11 @@ describe('autofix: no-multiline-tags', () => {
       'templates/prefer-raw': 'error',
     });
     expect(result).toBe('<%- value %>');
+  });
+
+  test('joins chained method call across lines (problem-statement example)', () => {
+    const input = "<%_\n  const arr = 'foo.bar'\n    .split();\n_%>";
+    expect(applyFix(input, { 'templates/no-multiline-tags': 'error' })).toBe("<%_ const arr = 'foo.bar'.split(); _%>");
   });
 });
 

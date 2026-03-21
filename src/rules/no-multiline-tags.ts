@@ -9,8 +9,7 @@
 import type { Rule } from 'eslint';
 
 /**
- * ESLint rule: collapse multiline EJS tags onto a single line (or split them
- * into multiple single-line tags, one per non-empty content line).
+ * ESLint rule: collapse multiline EJS tags onto a single line.
  *
  * This ports the `ejsCollapseMultiline` option from the original Prettier
  * plugin.  The processor marks any tag whose raw content contains newlines
@@ -18,7 +17,9 @@ import type { Rule } from 'eslint';
  * `code-multiline`, `escaped-output-multiline`).  This rule detects that
  * suffix and offers an autofix.
  *
- * Examples of violations and their fixes:
+ * All non-empty content lines are joined into a single line.  Lines that
+ * start with `.` (method / property chaining) are joined without a leading
+ * space to preserve the original intent:
  *
  * ```ejs
  * <%_
@@ -29,12 +30,11 @@ import type { Rule } from 'eslint';
  *
  * ```ejs
  * <%_
- *   const x = 1;
- *   const y = 2;
+ *   const notSortableFields = 'foo.bar'
+ *     .split();
  * _%>
  * ```
- * → `<%_ const x = 1; _%>`
- *    `<%_ const y = 2; _%>`
+ * → `<%_ const notSortableFields = 'foo.bar'.split(); _%>`
  */
 export const noMultilineTags: Rule.RuleModule = {
   meta: {

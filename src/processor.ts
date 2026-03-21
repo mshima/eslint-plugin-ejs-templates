@@ -56,13 +56,38 @@ function countLeadingCloseBraces(str: string): number {
 
 /**
  * Split raw EJS tag content into individual non-empty trimmed lines.
- * Used by the `no-multiline-tags` fix to collapse multiline content.
  */
 function splitLines(raw: string): string[] {
   return raw
     .split('\n')
     .map((l) => l.trim())
     .filter((l) => l.length > 0);
+}
+
+/**
+ * Join trimmed content lines into a single expression.
+ *
+ * Lines that start with `.` (chained method/property access) are appended
+ * directly to the previous line without an intervening space, so that e.g.
+ *
+ * ```
+ * 'foo.bar'
+ * .split()
+ * ```
+ *
+ * becomes `'foo.bar'.split()` rather than `'foo.bar' .split()`.
+ *
+ * Only `.` is handled specially.  Other continuation patterns (`[`, `(`,
+ * operators) are less common in EJS tags, and joining them with a space still
+ * produces valid JavaScript.  A space-joined result is always syntactically
+ * correct because JavaScript's automatic semicolon insertion (ASI) rules do
+ * not insert a semicolon before `.`.
+ */
+function joinLines(lines: string[]): string {
+  return lines.reduce((acc, line, i) => {
+    if (i === 0) return line;
+    return line.startsWith('.') ? `${acc}${line}` : `${acc} ${line}`;
+  }, '');
 }
 
 // ---------------------------------------------------------------------------
@@ -288,71 +313,113 @@ function mapMessage(msg: Linter.LintMessage, block: TagBlock): Linter.LintMessag
 // ---------------------------------------------------------------------------
 
 /**
- * Build the collapsed/split replacement text for a multiline EJS tag.
+ * Build the collapsed replacement text for a multiline EJS tag.
+ *
+ * All non-empty trimmed content lines are joined into a single line.
+ * Lines that start with `.` (chained method / property access) are joined
+ * without a leading space so that `'foo.bar'\n.split()` collapses to
+ * `'foo.bar'.split()` rather than `'foo.bar' .split()`.
  *
  * - 0 non-empty lines → `<open> <close>` (empty tag)
- * - 1 non-empty line  → `<open> <trimmedLine> <close>`
- * - 2+ non-empty lines → one `<open> <line> <close>` per line, separated by
- *   `\n` + the original line indentation (so subsequent tags align with the
- *   first one).
+ * - 1+ non-empty lines → `<open> <joined content> <close>`
  */
 function buildCollapsedTag(block: TagBlock): string {
   const lines = splitLines(block.codeContent);
   if (lines.length === 0) {
     return `${block.openDelim} ${block.closeDelim}`;
   }
-  if (lines.length === 1) {
-    return `${block.openDelim} ${lines[0]} ${block.closeDelim}`;
-  }
-  return lines
-    .map((line, i) => `${i === 0 ? '' : block.lineIndent}${block.openDelim} ${line} ${block.closeDelim}`)
-    .join('\n');
+  return `${block.openDelim} ${joinLines(lines)} ${block.closeDelim}`;
 }
 
 /**
  * Translate an ESLint fix object from the virtual JS code space back to the
  * original EJS source space.
  *
- * Rules report sentinel fixes (replacing the virtual marker comment range).
- * This function uses `TagBlock` metadata to produce the correct fix in the
- * original EJS file.
+ * Two fix kinds are supported:
+ *
+ * **Sentinel fixes** (from plugin rules): the plugin rules report a fix that
+ * replaces the virtual marker comment (`//@ejs-tag:<type>`) with an empty
+ * string.  Those fixes always start at offset 0 and have `text === ''`.  They
+ * are translated using the `TagBlock` metadata to produce a meaningful
+ * replacement in the original EJS source.
+ *
+ * **General JS fixes** (from standard ESLint rules such as `no-var`,
+ * `prefer-const`, etc.): the fix offsets are positions within the virtual
+ * code's body (after the marker comment line).  They are translated by mapping
+ * the virtual code offsets back to the corresponding positions in the original
+ * EJS source.  The virtual body begins right after the marker line, so:
+ *
+ * ```
+ * originalOffset = tagOffset + openDelim.length + (virtualOffset - markerLen)
+ * ```
+ *
+ * where `markerLen = '//@ejs-tag:'.length + tagType.length + 1` (the `+1` is
+ * for the `\n` that separates the marker from the body).
  */
 function translateFix(
-  _fix: { range: [number, number]; text: string },
+  fix: { range: [number, number]; text: string },
   block: TagBlock,
 ): { range: [number, number]; text: string } | null {
-  // prefer-raw: change `<%=` → `<%-`
-  if (block.tagType === 'escaped-output') {
-    return { range: [block.tagOffset + 2, block.tagOffset + 3], text: '-' };
+  // ── Sentinel fix detection ─────────────────────────────────────────────
+  // Plugin rules use fixer.replaceTextRange([comment.range![0], comment.range![1]], '')
+  // which always starts at 0 (the marker comment is at the top of the virtual
+  // file) and replaces with empty text.
+  const isSentinelFix = fix.range[0] === 0 && fix.text === '';
+
+  if (isSentinelFix) {
+    // prefer-raw: change `<%=` → `<%-`
+    if (block.tagType === 'escaped-output') {
+      return { range: [block.tagOffset + 2, block.tagOffset + 3], text: '-' };
+    }
+
+    // prefer-slurping: change `<% … %>` → `<%_ … _%>` (content unchanged)
+    if (block.tagType === 'code-slurpable') {
+      return {
+        range: [block.tagOffset, block.tagOffset + block.tagLength],
+        text: `<%_${block.codeContent}_%>`,
+      };
+    }
+
+    // no-multiline-tags: collapse multiline tag into a single-line tag
+    if (block.tagType.endsWith('-multiline')) {
+      return {
+        range: [block.tagOffset, block.tagOffset + block.tagLength],
+        text: buildCollapsedTag(block),
+      };
+    }
+
+    // ejs-indent: fix the whitespace before a standalone <%_ _%> tag
+    if (block.tagType === 'slurp-needs-indent') {
+      // Replace the line prefix (from line start to tag start) with the expected indent.
+      const indentStart = block.tagOffset - block.tagColumn;
+      return {
+        range: [indentStart, block.tagOffset],
+        text: block.expectedIndent,
+      };
+    }
+
+    return null;
   }
 
-  // prefer-slurping: change `<% … %>` → `<%_ … _%>` (content unchanged)
-  if (block.tagType === 'code-slurpable') {
-    return {
-      range: [block.tagOffset, block.tagOffset + block.tagLength],
-      text: `<%_${block.codeContent}_%>`,
-    };
+  // ── General JS fix ─────────────────────────────────────────────────────
+  // The virtual code is:  '//@ejs-tag:<tagType>\n<codeContent>'
+  // The body (codeContent) starts at offset markerLen in the virtual file.
+  // Offsets within the body map directly to the original source at
+  // (tagOffset + openDelim.length).
+  const markerLen = '//@ejs-tag:'.length + block.tagType.length + 1; // +1 for '\n'
+
+  // Guard: only translate fixes that target the code body (not the marker line).
+  // Standard JS rules operate on the JS code, so fix.range[0] should always be
+  // >= markerLen, but we guard defensively to avoid producing negative offsets.
+  if (fix.range[0] < markerLen) {
+    return null;
   }
 
-  // no-multiline-tags: collapse/split multiline tag into single-line tag(s)
-  if (block.tagType.endsWith('-multiline')) {
-    return {
-      range: [block.tagOffset, block.tagOffset + block.tagLength],
-      text: buildCollapsedTag(block),
-    };
-  }
-
-  // ejs-indent: fix the whitespace before a standalone <%_ _%> tag
-  if (block.tagType === 'slurp-needs-indent') {
-    // Replace the line prefix (from line start to tag start) with the expected indent.
-    const indentStart = block.tagOffset - block.tagColumn;
-    return {
-      range: [indentStart, block.tagOffset],
-      text: block.expectedIndent,
-    };
-  }
-
-  return null;
+  const codeStartOffset = block.tagOffset + block.openDelim.length;
+  return {
+    range: [codeStartOffset + (fix.range[0] - markerLen), codeStartOffset + (fix.range[1] - markerLen)],
+    text: fix.text,
+  };
 }
 
 // ---------------------------------------------------------------------------
