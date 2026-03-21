@@ -8,7 +8,7 @@
 
 export { preferRaw } from './prefer-raw.js';
 export { preferSlurpingCodeonly } from './prefer-slurping-codeonly.js';
-export { preferSlurpMultiline } from './experimental-prefer-slurp-multiline.js';
+export { preferSlurpMultiline } from './prefer-slurp-multiline.js';
 export { noMultilineTags } from './no-multiline-tags.js';
 export { slurpNewline } from './slurp-newline.js';
 export { indent } from './indent.js';

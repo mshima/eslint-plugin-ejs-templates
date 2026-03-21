@@ -1,0 +1,2 @@
+- split test files by rules
+- rename no-multiline-tags to prefer-single-line-slurp and only apply to `<%_` tags
