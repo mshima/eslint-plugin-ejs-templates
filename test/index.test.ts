@@ -7,7 +7,6 @@
 //     http://www.apache.org/licenses/LICENSE-2.0
 
 import { describe, test, expect } from 'vitest';
-import { Linter } from 'eslint';
 import plugin from '../src/index.js';
 import { extractTagBlocks, canConvertToSlurping } from '../src/processor.js';
 import * as fixture1 from './fixtures/1.js';
@@ -15,47 +14,7 @@ import * as fixture2 from './fixtures/2.js';
 import * as fixture3 from './fixtures/3.js';
 import * as fixture4 from './fixtures/4.js';
 import * as fixture5 from './fixtures/5.js';
-import { Config } from 'eslint/config';
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/** Create a Linter pre-configured with the templates plugin and EJS processor. */
-function makeLinter(): Linter {
-  return new Linter({ configType: 'flat' });
-}
-
-/** The flat config used for all EJS linting in tests. */
-function makeConfig(rules: Record<string, Linter.RuleSeverityAndOptions | Linter.RuleSeverity> = {}): Config[] {
-  return [
-    {
-      files: ['**/*.ejs'],
-      plugins: { templates: plugin },
-      processor: 'templates/ejs',
-      rules,
-    },
-  ] as const satisfies Config[];
-}
-
-/** Lint an EJS string and return all messages. */
-function lint(
-  ejsText: string,
-  rules: Record<string, Linter.RuleSeverityAndOptions | Linter.RuleSeverity> = {},
-): Linter.LintMessage[] {
-  return makeLinter().verify(ejsText, makeConfig(rules), { filename: 'template.ejs' });
-}
-
-/**
- * Apply ESLint autofix to an EJS string and return the fixed text.
- * Uses `Linter.verifyAndFix` which iterates until no further fixes are possible.
- */
-function applyFix(
-  ejsText: string,
-  rules: Record<string, Linter.RuleSeverityAndOptions | Linter.RuleSeverity> = {},
-): string {
-  return makeLinter().verifyAndFix(ejsText, makeConfig(rules), { filename: 'template.ejs' }).output;
-}
+import { lint, applyFix } from './helpers.js';
 
 // ---------------------------------------------------------------------------
 // canConvertToSlurping
