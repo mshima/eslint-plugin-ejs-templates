@@ -183,37 +183,67 @@ describe('processor virtual code', () => {
     expect(line1).toBe('//@ejs-tag:escaped-output');
   });
 
-  test('virtual code lines 2+ contain the tag JS content', () => {
+  test('virtual code line 2 is the function wrapper open', () => {
     const blocks = extractTagBlocks('<% const x = 1; %>');
     const lines = blocks[0].virtualCode.split('\n');
-    expect(lines.slice(1).join('\n')).toBe(' const x = 1; ');
+    expect(lines[1]).toBe('(function() {');
   });
 
-  test('multiline tag with complete content gets -multiline suffix and preserves newlines in virtual code', () => {
-    // Multiline content → tag type gets `-multiline` suffix; body still included.
+  test('virtual code contains the tag JS content inside the function wrapper', () => {
+    const blocks = extractTagBlocks('<% const x = 1; %>');
+    const lines = blocks[0].virtualCode.split('\n');
+    // Line 3 (index 2) is the first (and only) code line; line 4 is always `})()`
+    expect(lines[2]).toBe(' const x = 1; ');
+    expect(lines[3]).toBe('})()');
+  });
+
+  test('virtual code last line is the function wrapper close', () => {
+    // For multiline content the wrapper close is always on its own last line.
+    const blocks = extractTagBlocks('<%_ const x = 1;\nconst y = 2; _%>');
+    const lines = blocks[0].virtualCode.split('\n');
+    expect(lines[lines.length - 1]).toBe('})()');
+  });
+
+  test('multiline tag with complete content gets -multiline suffix and code is wrapped in function', () => {
+    // Multiline content → tag type gets `-multiline` suffix; body included in wrapper.
     const blocks = extractTagBlocks('<%_ const x = 1;\nconst y = 2; _%>');
     const lines = blocks[0].virtualCode.split('\n');
     expect(lines[0]).toBe('//@ejs-tag:slurp-multiline');
-    expect(lines[1]).toBe(' const x = 1;');
-    expect(lines[2]).toBe('const y = 2; ');
+    expect(lines[1]).toBe('(function() {');
+    // First code line is at index 2 (no synthetic prefix for balanced content)
+    expect(lines[2]).toBe(' const x = 1;');
+    expect(lines[3]).toBe('const y = 2; ');
+    expect(lines[lines.length - 1]).toBe('})()');
   });
 
-  test('structural slurp tag (unbalanced braces) omits code body to prevent parse errors', () => {
-    // `if (x) {` is unbalanced → body must be omitted so ESLint can parse the virtual code.
+  test('structural slurp tag (unbalanced braces) includes code body inside function wrapper', () => {
+    // `if (x) {` has unbalanced braces; a synthetic `}` is added to balance,
+    // and the whole thing is wrapped in a function so ESLint can parse it.
     const blocks = extractTagBlocks('<%_ if (x) { _%>');
-    const lines = blocks[0].virtualCode.split('\n');
-    expect(lines[0]).toBe('//@ejs-tag:slurp');
-    // Body omitted – only the marker comment is present.
-    expect(lines.slice(1).join('\n').trim()).toBe('');
+    expect(blocks[0].virtualCode).toContain('if (x) {');
+    expect(blocks[0].virtualCode).toContain('(function() {');
+    expect(blocks[0].tagType).toBe('slurp');
+    // syntheticSuffix closes the `{`
+    expect(blocks[0].syntheticSuffix).toBe('}\n');
+    expect(blocks[0].syntheticPrefix).toBe('');
   });
 
-  test('code tag (unbalanced plain <% %>) omits code body to prevent parse errors', () => {
-    // `<% if (x) { %>` is classified as `code` (not `code-slurpable`) because the
-    // content ends with `{`.  Its body must be omitted to avoid ESLint parse errors.
+  test('code tag with closing brace includes body with synthetic opening prefix', () => {
+    // `<% } %>` needs a synthetic opening brace to balance the closing brace.
+    const blocks = extractTagBlocks('<% } %>');
+    expect(blocks[0].virtualCode).toContain('if (true) {');
+    expect(blocks[0].syntheticPrefix).toBe('if (true) {\n');
+    expect(blocks[0].syntheticPrefixLineCount).toBe(1);
+    expect(blocks[0].syntheticSuffix).toBe('');
+  });
+
+  test('code tag (plain <% %> with opening brace) includes body with synthetic closing suffix', () => {
+    // `<% if (x) { %>` ends with `{` → synthetic `}` suffix is added.
     const blocks = extractTagBlocks('<% if (x) { %>');
     const lines = blocks[0].virtualCode.split('\n');
     expect(lines[0]).toBe('//@ejs-tag:code');
-    expect(lines.slice(1).join('\n').trim()).toBe('');
+    expect(blocks[0].virtualCode).toContain('if (x) {');
+    expect(blocks[0].syntheticSuffix).toBe('}\n');
   });
 });
 
@@ -429,6 +459,22 @@ describe('standard JS rules via processor', () => {
   test('eqeqeq detects == in EJS output tag', () => {
     const msgs = lint('<% if (a == b) {} %>', { eqeqeq: 'error', 'no-undef': 'off' });
     expect(msgs.filter((m) => m.ruleId === 'eqeqeq').length).toBeGreaterThan(0);
+  });
+
+  test('no-undef detects undefined variable inside structural tag (function wrapper enables body linting)', () => {
+    // Previously the body was omitted for structural tags; now it is always
+    // included and wrapped in a function so ESLint can lint it.
+    const msgs = lint('<% if (undefinedVar) { %>', { 'no-undef': 'error' });
+    const undefMsg = msgs.find((m) => m.message.includes("'undefinedVar'"));
+    expect(undefMsg).toBeDefined();
+  });
+
+  test('no-undef detects undefined variable inside closing-brace tag', () => {
+    // `<% } else if (undefinedVar) { %>` — the synthetic `if (true) {` prefix
+    // makes the content parseable; `undefinedVar` should still be flagged.
+    const msgs = lint('<% } else if (undefinedCond) { %>', { 'no-undef': 'error' });
+    const undefMsg = msgs.find((m) => m.message.includes("'undefinedCond'"));
+    expect(undefMsg).toBeDefined();
   });
 });
 
@@ -738,9 +784,9 @@ describe('autofix: no-multiline-tags', () => {
     );
   });
 
-  test('splits multiline tag with 2 content lines into single joined tag', () => {
+  test('splits multiline tag with 2 content lines into two single-line tags', () => {
     expect(applyFix('<%_\n  const x = 1;\n  const y = 2;\n_%>', { 'templates/no-multiline-tags': 'error' })).toBe(
-      '<%_ const x = 1; const y = 2; _%>',
+      '<%_ const x = 1; _%>\n<%_ const y = 2; _%>',
     );
   });
 
@@ -766,9 +812,9 @@ describe('autofix: no-multiline-tags', () => {
     );
   });
 
-  test('joins multi-line tag into single tag regardless of indentation', () => {
+  test('splits multi-line tag into separate tags per logical phrase, preserving indentation', () => {
     expect(applyFix('  <%_\n  const a = 1;\n  const b = 2;\n  _%>', { 'templates/no-multiline-tags': 'error' })).toBe(
-      '  <%_ const a = 1; const b = 2; _%>',
+      '  <%_ const a = 1; _%>\n  <%_ const b = 2; _%>',
     );
   });
 
@@ -793,6 +839,14 @@ describe('autofix: no-multiline-tags', () => {
   test('joins chained method call across lines (problem-statement example)', () => {
     const input = "<%_\n  const arr = 'foo.bar'\n    .split();\n_%>";
     expect(applyFix(input, { 'templates/no-multiline-tags': 'error' })).toBe("<%_ const arr = 'foo.bar'.split(); _%>");
+  });
+
+  test('handles multiple phrases where some lines have dot-continuation', () => {
+    // Two independent statements, the second using a chained call.
+    const input = "<%_\n  const x = 1;\n  const arr = 'a.b'\n    .split();\n_%>";
+    expect(applyFix(input, { 'templates/no-multiline-tags': 'error' })).toBe(
+      "<%_ const x = 1; _%>\n<%_ const arr = 'a.b'.split(); _%>",
+    );
   });
 });
 

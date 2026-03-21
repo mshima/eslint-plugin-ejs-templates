@@ -64,30 +64,59 @@ function splitLines(raw: string): string[] {
     .filter((l) => l.length > 0);
 }
 
+// ---------------------------------------------------------------------------
+// Function-wrapper helpers
+// ---------------------------------------------------------------------------
+
+/** Opening line of the function wrapper injected into every virtual block. */
+const WRAPPER_OPEN = '(function() {\n';
+
 /**
- * Join trimmed content lines into a single expression.
+ * Compute the synthetic prefix/suffix strings needed to wrap `codeContent`
+ * inside `(function() { … })()` so that the result is parseable JavaScript
+ * regardless of brace imbalance in `codeContent`.
  *
- * Lines that start with `.` (chained method/property access) are appended
- * directly to the previous line without an intervening space, so that e.g.
+ * Algorithm:
+ *  1. Walk `codeContent` tracking brace depth and the minimum depth reached.
+ *  2. `prefixCount = -minDepth` (number of synthetic opening braces needed to
+ *     prevent the content from going below depth 0 inside the function body).
+ *  3. `suffixCount = depth + prefixCount` (closing braces needed to re-balance).
  *
- * ```
- * 'foo.bar'
- * .split()
- * ```
+ * **Why `if (true) {` for the first prefix brace?**
+ * A tag that starts with `}` (e.g. `} else {`) would produce a dangling
+ * `else` if we used plain `{` as the prefix: `{ } else { }` is a syntax
+ * error because `else` must directly follow an `if` statement's body.
+ * Using `if (true) {` makes the pattern `if (true) { } else { }` — valid JS.
+ * Subsequent prefix braces (needed for patterns like `} }`) use plain `{`
+ * because further `else` branches inside double-closes are not possible.
  *
- * becomes `'foo.bar'.split()` rather than `'foo.bar' .split()`.
- *
- * Only `.` is handled specially.  Other continuation patterns (`[`, `(`,
- * operators) are less common in EJS tags, and joining them with a space still
- * produces valid JavaScript.  A space-joined result is always syntactically
- * correct because JavaScript's automatic semicolon insertion (ASI) rules do
- * not insert a semicolon before `.`.
+ * @returns Strings to inject as prefix/suffix and the number of prefix lines.
  */
-function joinLines(lines: string[]): string {
-  return lines.reduce((acc, line, i) => {
-    if (i === 0) return line;
-    return line.startsWith('.') ? `${acc}${line}` : `${acc} ${line}`;
-  }, '');
+function buildFunctionWrapper(codeContent: string): {
+  syntheticPrefix: string;
+  syntheticPrefixLineCount: number;
+  syntheticSuffix: string;
+} {
+  let depth = 0;
+  let minDepth = 0;
+  for (const ch of codeContent) {
+    if (ch === '{') {
+      depth++;
+    } else if (ch === '}') {
+      depth--;
+      if (depth < minDepth) minDepth = depth;
+    }
+  }
+
+  const prefixCount = -minDepth; // synthetic opening braces
+  const suffixCount = depth + prefixCount; // synthetic closing braces
+
+  // First prefix uses `if (true) {` so that `} else {` remains valid JS.
+  // Additional prefixes (for `} }` etc.) use plain `{`.
+  const syntheticPrefix = prefixCount >= 1 ? 'if (true) {\n' + '{\n'.repeat(prefixCount - 1) : '';
+  const syntheticSuffix = '}\n'.repeat(suffixCount);
+
+  return { syntheticPrefix, syntheticPrefixLineCount: prefixCount, syntheticSuffix };
 }
 
 // ---------------------------------------------------------------------------
@@ -98,8 +127,19 @@ function joinLines(lines: string[]): string {
 export interface TagBlock {
   /**
    * Virtual JS code for this block.
-   * Line 1 is a single-line comment encoding the tag type (`//@ejs-tag:<type>`).
-   * Lines 2+ are the raw JS code content of the tag (when not omitted).
+   *
+   * Structure:
+   * ```
+   * Line 1:  //@ejs-tag:<type>               ← type marker comment
+   * Line 2:  (function() {                   ← function wrapper open
+   * Line 3+: [synthetic prefix lines]        ← brace-balancing prefix (0 or more)
+   * Line P+: <raw JS code from the tag>      ← block.originalLine  (col shifted)
+   * Line Q+: [synthetic suffix lines]        ← brace-balancing suffix (0 or more)
+   * Last:    })()                             ← function wrapper close
+   * ```
+   *
+   * The function wrapper makes every tag parseable by ESLint regardless of
+   * whether the tag content contains unmatched braces.
    */
   virtualCode: string;
   /** 1-based line in the original EJS file where the opening delimiter starts. */
@@ -142,17 +182,39 @@ export interface TagBlock {
    * Only meaningful for standalone `<%_ _%>` tags; empty string otherwise.
    */
   expectedIndent: string;
+  /**
+   * Synthetic code inserted before `codeContent` inside the function wrapper
+   * to balance leading `}` characters so the virtual code is parseable.
+   * Empty string when no balancing is needed.
+   */
+  syntheticPrefix: string;
+  /** Number of lines in `syntheticPrefix` (used for virtual-to-original line mapping). */
+  syntheticPrefixLineCount: number;
+  /**
+   * Synthetic code inserted after `codeContent` inside the function wrapper
+   * to balance trailing `{` characters so the virtual code is parseable.
+   * Empty string when no balancing is needed.
+   */
+  syntheticSuffix: string;
 }
 
 /**
  * Extract each non-comment EJS tag from `text` as a {@link TagBlock},
  * using tree-sitter-embedded-template for accurate parsing.
  *
- * The virtual code for each block is structured as:
+ * Each virtual block has the structure:
  * ```
  * //@ejs-tag:<tagType>
- * <raw JS code from the tag>   (omitted for structural / incomplete tags)
+ * (function() {
+ * [synthetic prefix — brace-balancing]
+ * <raw JS code from the tag>
+ * [synthetic suffix — brace-balancing]
+ * })()
  * ```
+ *
+ * Wrapping every block in `(function() { … })()` ensures that structural
+ * content such as `if (x) {` or `}` is parseable by ESLint.  Synthetic
+ * opening/closing braces are injected when the content itself is unbalanced.
  *
  * Tag types (base):
  * - `escaped-output`  – `<%= … %>`
@@ -241,21 +303,15 @@ export function extractTagBlocks(text: string): TagBlock[] {
       tagType = 'slurp-needs-indent';
     }
 
-    // ── Virtual code body ─────────────────────────────────────────────────
-    // Omit the body for structural (incomplete) tags to prevent ESLint parse
-    // errors.  A tag is structural when its JS content is not a
-    // syntactically self-contained statement.
-    // Use the BASE type (stripping any violation suffix) so that e.g. a
-    // `code-multiline` tag is still treated as structural/incomplete.
-    const typeForBodyOmissionCheck = isMultiline ? baseType : tagType;
-    const isIncomplete =
-      typeForBodyOmissionCheck === 'code' ||
-      typeForBodyOmissionCheck === 'code-multiline' ||
-      (baseType === 'slurp' && !canConvertToSlurping(codeContent));
-    const virtualCodeBody = isIncomplete ? '' : codeContent;
+    // ── Function wrapper (brace balancing) ───────────────────────────────
+    // Every virtual block is wrapped in `(function() { … })()` so that
+    // structural content (e.g. `if (x) {`, `}`, `} else {`) is parseable
+    // by ESLint.  Synthetic prefix/suffix braces balance any mismatch.
+    const { syntheticPrefix, syntheticPrefixLineCount, syntheticSuffix } = buildFunctionWrapper(codeContent);
+    const virtualCode = `//@ejs-tag:${tagType}\n${WRAPPER_OPEN}${syntheticPrefix}${codeContent}${syntheticSuffix}\n})()`;
 
     blocks.push({
-      virtualCode: `//@ejs-tag:${tagType}\n${virtualCodeBody}`,
+      virtualCode,
       tagLine,
       tagColumn,
       originalLine,
@@ -268,6 +324,9 @@ export function extractTagBlocks(text: string): TagBlock[] {
       closeDelim,
       lineIndent,
       expectedIndent,
+      syntheticPrefix,
+      syntheticPrefixLineCount,
+      syntheticSuffix,
     });
   }
 
@@ -283,24 +342,43 @@ export function extractTagBlocks(text: string): TagBlock[] {
  *
  * Virtual file structure:
  * ```
- * Line 1:  //@ejs-tag:<type>   ← type marker comment
- * Line 2:  <first line of JS>  ← block.originalLine  (col shifted by block.originalColumn)
- * Line 3:  <second line …>     ← block.originalLine + 1 (col unchanged)
- * …
+ * Line 1:  //@ejs-tag:<type>                ← type marker comment
+ * Line 2:  (function() {                    ← wrapper open
+ * Line 3…: [synthetic prefix lines]         ← 0 or more (syntheticPrefixLineCount)
+ * Line P:  <first line of JS>               ← block.originalLine  (col shifted)
+ * Line P+n:<further JS lines>               ← block.originalLine + n
+ * Line Q…: [synthetic suffix lines + `))()`]← filtered out
  * ```
+ * where P = 3 + syntheticPrefixLineCount.
  */
 function mapMessage(msg: Linter.LintMessage, block: TagBlock): Linter.LintMessage {
-  if (msg.line <= 1) {
+  // Lines 1 through (2 + syntheticPrefixLineCount) are the marker comment,
+  // wrapper-open line, and any synthetic prefix lines.  Map all of them to
+  // the tag's opening position.
+  const codeStartLine = 3 + block.syntheticPrefixLineCount;
+
+  if (msg.line < codeStartLine) {
     return { ...msg, line: block.tagLine, column: block.tagColumn };
   }
 
-  const codeLineIndex = msg.line - 2;
+  const codeLineIndex = msg.line - codeStartLine;
+
+  // How many lines does codeContent occupy?  A trailing '\n' does not add an
+  // extra logical line — it just means the next character (the wrapper close
+  // or synthetic suffix) starts on a new line.
+  const codeLineCount = block.codeContent.split('\n').length - (block.codeContent.endsWith('\n') ? 1 : 0);
+
+  if (codeLineIndex >= codeLineCount) {
+    // Message is on a synthetic suffix or wrapper-close line; map to tag position.
+    return { ...msg, line: block.tagLine, column: block.tagColumn };
+  }
+
   const originalLine = block.originalLine + codeLineIndex;
   const originalColumn = codeLineIndex === 0 ? msg.column + block.originalColumn : msg.column;
   const mapped: Linter.LintMessage = { ...msg, line: originalLine, column: originalColumn };
 
   if (msg.endLine !== undefined) {
-    const endCodeLineIndex = msg.endLine - 2;
+    const endCodeLineIndex = msg.endLine - codeStartLine;
     mapped.endLine = block.originalLine + endCodeLineIndex;
     mapped.endColumn = endCodeLineIndex === 0 ? (msg.endColumn ?? 0) + block.originalColumn : msg.endColumn;
   }
@@ -315,20 +393,42 @@ function mapMessage(msg: Linter.LintMessage, block: TagBlock): Linter.LintMessag
 /**
  * Build the collapsed replacement text for a multiline EJS tag.
  *
- * All non-empty trimmed content lines are joined into a single line.
- * Lines that start with `.` (chained method / property access) are joined
- * without a leading space so that `'foo.bar'\n.split()` collapses to
- * `'foo.bar'.split()` rather than `'foo.bar' .split()`.
+ * Algorithm:
+ * 1. Split content into trimmed non-empty lines.
+ * 2. Join continuation lines — a line that starts with `.` is appended to
+ *    the previous line without a space (handles chained method calls such as
+ *    `'foo.bar'\n.split()` → `'foo.bar'.split()`).
+ * 3. Each resulting logical phrase becomes its own single-line EJS tag.
  *
- * - 0 non-empty lines → `<open> <close>` (empty tag)
- * - 1+ non-empty lines → `<open> <joined content> <close>`
+ * Examples:
+ * - `if (generateSpringAuditor) {\n` → one phrase → `<%_ if (generateSpringAuditor) { _%>`
+ * - `const x = 1;\n  const y = 2;` → two phrases → two tags
+ * - `'foo.bar'\n.split();` → joined to one phrase → one tag
  */
 function buildCollapsedTag(block: TagBlock): string {
-  const lines = splitLines(block.codeContent);
-  if (lines.length === 0) {
+  const rawLines = splitLines(block.codeContent);
+  if (rawLines.length === 0) {
     return `${block.openDelim} ${block.closeDelim}`;
   }
-  return `${block.openDelim} ${joinLines(lines)} ${block.closeDelim}`;
+
+  // Join continuation lines (dot-prefix) into logical phrases.
+  const phrases: string[] = [];
+  for (const line of rawLines) {
+    if (phrases.length > 0 && line.startsWith('.')) {
+      phrases[phrases.length - 1] += line;
+    } else {
+      phrases.push(line);
+    }
+  }
+
+  if (phrases.length === 1) {
+    return `${block.openDelim} ${phrases[0]} ${block.closeDelim}`;
+  }
+
+  // Multiple phrases → one tag per phrase, indented like the original.
+  return phrases
+    .map((phrase, i) => `${i === 0 ? '' : block.lineIndent}${block.openDelim} ${phrase} ${block.closeDelim}`)
+    .join('\n');
 }
 
 /**
@@ -345,16 +445,15 @@ function buildCollapsedTag(block: TagBlock): string {
  *
  * **General JS fixes** (from standard ESLint rules such as `no-var`,
  * `prefer-const`, etc.): the fix offsets are positions within the virtual
- * code's body (after the marker comment line).  They are translated by mapping
- * the virtual code offsets back to the corresponding positions in the original
- * EJS source.  The virtual body begins right after the marker line, so:
+ * code's body (the `codeContent` portion, after the marker line, the wrapper
+ * open `(function() {\n`, and any synthetic prefix).  They are translated by
+ * mapping the virtual code offsets back to the corresponding positions in the
+ * original EJS source:
  *
  * ```
- * originalOffset = tagOffset + openDelim.length + (virtualOffset - markerLen)
+ * codeBodyStart = markerLen + wrapperOpenLen + syntheticPrefix.length
+ * originalOffset = tagOffset + openDelim.length + (virtualOffset - codeBodyStart)
  * ```
- *
- * where `markerLen = '//@ejs-tag:'.length + tagType.length + 1` (the `+1` is
- * for the `\n` that separates the marker from the body).
  */
 function translateFix(
   fix: { range: [number, number]; text: string },
@@ -380,7 +479,7 @@ function translateFix(
       };
     }
 
-    // no-multiline-tags: collapse multiline tag into a single-line tag
+    // no-multiline-tags: collapse multiline tag into single-line tag(s)
     if (block.tagType.endsWith('-multiline')) {
       return {
         range: [block.tagOffset, block.tagOffset + block.tagLength],
@@ -402,22 +501,28 @@ function translateFix(
   }
 
   // ── General JS fix ─────────────────────────────────────────────────────
-  // The virtual code is:  '//@ejs-tag:<tagType>\n<codeContent>'
-  // The body (codeContent) starts at offset markerLen in the virtual file.
-  // Offsets within the body map directly to the original source at
-  // (tagOffset + openDelim.length).
-  const markerLen = '//@ejs-tag:'.length + block.tagType.length + 1; // +1 for '\n'
+  // The virtual code is:
+  //   '//@ejs-tag:<tagType>\n(function() {\n<syntheticPrefix><codeContent><syntheticSuffix>})()'
+  //
+  // codeContent starts at offset:
+  //   markerLen + wrapperOpenLen + syntheticPrefix.length
+  //
+  // where:
+  //   markerLen    = '//@ejs-tag:'.length + tagType.length + 1  (the +1 is for '\n')
+  //   wrapperOpenLen = '(function() {\n'.length = 14
+  const markerLen = '//@ejs-tag:'.length + block.tagType.length + 1;
+  const wrapperOpenLen = WRAPPER_OPEN.length; // derived from the constant, not a magic number
+  const codeBodyStart = markerLen + wrapperOpenLen + block.syntheticPrefix.length;
+  const codeBodyEnd = codeBodyStart + block.codeContent.length;
 
-  // Guard: only translate fixes that target the code body (not the marker line).
-  // Standard JS rules operate on the JS code, so fix.range[0] should always be
-  // >= markerLen, but we guard defensively to avoid producing negative offsets.
-  if (fix.range[0] < markerLen) {
+  // Guard: only translate fixes that target the actual codeContent region.
+  if (fix.range[0] < codeBodyStart || fix.range[0] >= codeBodyEnd) {
     return null;
   }
 
   const codeStartOffset = block.tagOffset + block.openDelim.length;
   return {
-    range: [codeStartOffset + (fix.range[0] - markerLen), codeStartOffset + (fix.range[1] - markerLen)],
+    range: [codeStartOffset + (fix.range[0] - codeBodyStart), codeStartOffset + (fix.range[1] - codeBodyStart)],
     text: fix.text,
   };
 }
@@ -436,10 +541,11 @@ const fileBlocksMap = new Map<string, TagBlock[]>();
  * ESLint processor for `.ejs` files.
  *
  * Each non-comment EJS tag is extracted into its own virtual JavaScript block.
- * The first line of every block is a single-line comment (`//@ejs-tag:<type>`)
- * that encodes the tag type (and any violation suffixes) so that plugin rules
- * can detect EJS-specific patterns.  The remaining lines are the raw JS
- * content of the tag.
+ * Every block is wrapped in `(function() { … })()` with synthetic brace
+ * balancing injected around the content so that even structural tags
+ * (`if (x) {`, `}`, `} else {`) are parseable by ESLint.  The first line of
+ * every block is a single-line comment (`//@ejs-tag:<type>`) that encodes the
+ * tag type so that plugin rules can detect EJS-specific patterns.
  *
  * Parsing is backed by tree-sitter-embedded-template for accurate position
  * information and robust syntax handling.
@@ -460,22 +566,24 @@ export const processor: Linter.Processor = {
     return messages.flatMap((blockMessages, i) => {
       const block = blocks[i];
       if (!block) return blockMessages;
-      return blockMessages.map((msg) => {
-        const mapped = mapMessage(msg, block);
+      return blockMessages
+        .filter((msg) => !msg.fatal) // suppress parse errors from synthetic balancing code
+        .map((msg) => {
+          const mapped = mapMessage(msg, block);
 
-        if (mapped.fix) {
-          const translated = translateFix(mapped.fix, block);
-          if (translated) {
-            return { ...mapped, fix: translated };
+          if (mapped.fix) {
+            const translated = translateFix(mapped.fix, block);
+            if (translated) {
+              return { ...mapped, fix: translated };
+            }
+            // No translation available – drop the fix.
+            const result = { ...mapped };
+            delete result.fix;
+            return result;
           }
-          // No translation available – drop the fix.
-          const result = { ...mapped };
-          delete result.fix;
-          return result;
-        }
 
-        return mapped;
-      });
+          return mapped;
+        });
     });
   },
 
