@@ -19,7 +19,7 @@ import { SENTINEL_SLURP_NEWLINE } from '../processor.js';
  * before the tag.
  *
  * The processor marks such tags with the `slurp-not-standalone` type.
- * Apply this rule **after** `prefer-slurping-codeonly` / `prefer-slurp-multiline`
+ * Apply this rule **after** `prefer-slurping-codeonly` / `experimental-prefer-slurp-multiline`
  * and **before** `indent` in your ESLint config.
  *
  * ```ejs

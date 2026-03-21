@@ -10,7 +10,7 @@ EJS files are parsed by [tree-sitter-embedded-template](https://github.com/tree-
 - **Autofix support** – all plugin rules are fixable; run `eslint --fix` to automatically apply fixes
 - **`ejs-templates/prefer-raw`** – flags `<%= … %>` and suggests `<%- … %>`
 - **`ejs-templates/prefer-slurping-codeonly`** – flags `<% … %>` code tags that can be safely converted to `<%_ … _%>`
-- **`ejs-templates/prefer-slurp-multiline`** – converts multiline `<% … %>` to `<%_ … _%>`
+- **`ejs-templates/experimental-prefer-slurp-multiline`** – converts multiline `<% … %>` to `<%_ … _%>`
 - **`ejs-templates/no-multiline-tags`** – collapses multiline EJS tags to single-line tags
 - **`ejs-templates/slurp-newline`** – ensures `<%_ … _%>` tags are on their own line
 - **`ejs-templates/indent`** – enforces brace-depth–based indentation on standalone `<%_ … _%>` tags
@@ -46,7 +46,7 @@ export default defineConfig([
       'no-constant-condition': 'off', // synthetic brace-balancing introduces `if (true) {`
 
       // Enable EJS-specific rules (apply in this recommended order):
-      'ejs-templates/prefer-slurp-multiline': 'error',
+      'ejs-templates/experimental-prefer-slurp-multiline': 'error',
       'ejs-templates/prefer-slurping-codeonly': 'error',
       'ejs-templates/no-multiline-tags': 'error',
       'ejs-templates/slurp-newline': 'error',
@@ -98,7 +98,7 @@ npx eslint --fix "**/*.ejs"
 
 Apply rules in the following order for best results:
 
-1. `prefer-slurp-multiline` — convert multiline `<% %>` to `<%_ %>` first
+1. `experimental-prefer-slurp-multiline` — convert multiline `<% %>` to `<%_ %>` first
 2. `prefer-slurping-codeonly` — convert single-line `<% %>` to `<%_ %>`
 3. `no-multiline-tags` — collapse remaining multiline tags
 4. `slurp-newline` — ensure slurp tags are on their own line
@@ -145,7 +145,7 @@ Tags that open or close brace depth are left unchanged:
 <% } %>                 ← not flagged (closes a block)
 ```
 
-### `ejs-templates/prefer-slurp-multiline`
+### `ejs-templates/experimental-prefer-slurp-multiline`
 
 Converts multiline `<% … %>` tags to `<%_ … _%>`. Apply this rule **before**
 `no-multiline-tags` so that multiline `<% %>` tags get their delimiters changed

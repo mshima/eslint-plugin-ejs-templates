@@ -398,7 +398,7 @@ describe('plugin shape', () => {
     const config = plugin.configs.all[0];
     expect(config.rules?.['ejs-templates/prefer-raw']).toBe('error');
     expect(config.rules?.['ejs-templates/prefer-slurping-codeonly']).toBe('error');
-    expect(config.rules?.['ejs-templates/prefer-slurp-multiline']).toBe('error');
+    expect(config.rules?.['ejs-templates/experimental-prefer-slurp-multiline']).toBe('error');
     expect(config.rules?.['ejs-templates/no-multiline-tags']).toBe('error');
     expect(config.rules?.['ejs-templates/slurp-newline']).toBe('error');
     expect(config.rules?.['ejs-templates/indent']).toBe('error');
@@ -800,7 +800,9 @@ describe('autofix: no-multiline-tags', () => {
 
   test('splits multi-line tag into separate tags per logical phrase, preserving indentation', () => {
     expect(
-      applyFix('  <%_\n  const a = 1;\n  const b = 2;\n  _%>', { 'ejs-templates/no-multiline-tags': 'error' }),
+      applyFix('  <%_\n  const a = 1;\n  const b = 2;\n  _%>', {
+        'ejs-templates/no-multiline-tags': 'error',
+      }),
     ).toBe('  <%_ const a = 1; _%>\n  <%_ const b = 2; _%>');
   });
 
@@ -953,50 +955,54 @@ describe('formatting fixture tests', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Rule: prefer-slurp-multiline
+// Rule: experimental-prefer-slurp-multiline
 // ---------------------------------------------------------------------------
 
-describe('rule: ejs-templates/prefer-slurp-multiline', () => {
+describe('rule: ejs-templates/experimental-prefer-slurp-multiline', () => {
   test('flags a multiline <% %> code tag', () => {
-    const msgs = lint('<%\n  if (x) {\n%>', { 'ejs-templates/prefer-slurp-multiline': 'error' });
-    expect(msgs.filter((m) => m.ruleId === 'ejs-templates/prefer-slurp-multiline').length).toBeGreaterThan(0);
+    const msgs = lint('<%\n  if (x) {\n%>', { 'ejs-templates/experimental-prefer-slurp-multiline': 'error' });
+    expect(msgs.filter((m) => m.ruleId === 'ejs-templates/experimental-prefer-slurp-multiline').length).toBeGreaterThan(
+      0,
+    );
   });
 
   test('flags a multiline code-slurpable tag', () => {
-    const msgs = lint('<%\n  doWork();\n%>', { 'ejs-templates/prefer-slurp-multiline': 'error' });
-    expect(msgs.filter((m) => m.ruleId === 'ejs-templates/prefer-slurp-multiline').length).toBeGreaterThan(0);
+    const msgs = lint('<%\n  doWork();\n%>', { 'ejs-templates/experimental-prefer-slurp-multiline': 'error' });
+    expect(msgs.filter((m) => m.ruleId === 'ejs-templates/experimental-prefer-slurp-multiline').length).toBeGreaterThan(
+      0,
+    );
   });
 
   test('does not flag single-line <% %> tag', () => {
-    const msgs = lint('<% doWork(); %>', { 'ejs-templates/prefer-slurp-multiline': 'error' });
+    const msgs = lint('<% doWork(); %>', { 'ejs-templates/experimental-prefer-slurp-multiline': 'error' });
     expect(msgs).toHaveLength(0);
   });
 
   test('does not flag multiline <%_ _%> tag (already slurping)', () => {
-    const msgs = lint('<%_\n  if (x) {\n_%>', { 'ejs-templates/prefer-slurp-multiline': 'error' });
+    const msgs = lint('<%_\n  if (x) {\n_%>', { 'ejs-templates/experimental-prefer-slurp-multiline': 'error' });
     expect(msgs).toHaveLength(0);
   });
 });
 
 // ---------------------------------------------------------------------------
-// Autofix: prefer-slurp-multiline
+// Autofix: experimental-prefer-slurp-multiline
 // ---------------------------------------------------------------------------
 
-describe('autofix: prefer-slurp-multiline', () => {
+describe('autofix: experimental-prefer-slurp-multiline', () => {
   test('converts multiline <% %> to <%_ _%> (content unchanged)', () => {
-    expect(applyFix('<%\n  if (x) {\n%>', { 'ejs-templates/prefer-slurp-multiline': 'error' })).toBe(
+    expect(applyFix('<%\n  if (x) {\n%>', { 'ejs-templates/experimental-prefer-slurp-multiline': 'error' })).toBe(
       '<%_\n  if (x) {\n_%>',
     );
   });
 
   test('does not change multiline <%_ _%> (already slurping)', () => {
     const input = '<%_\n  if (x) {\n_%>';
-    expect(applyFix(input, { 'ejs-templates/prefer-slurp-multiline': 'error' })).toBe(input);
+    expect(applyFix(input, { 'ejs-templates/experimental-prefer-slurp-multiline': 'error' })).toBe(input);
   });
 
-  test('prefer-slurp-multiline then no-multiline-tags collapses correctly', () => {
+  test('experimental-prefer-slurp-multiline then no-multiline-tags collapses correctly', () => {
     const result = applyFix('<%\n  if (x) {\n%>', {
-      'ejs-templates/prefer-slurp-multiline': 'error',
+      'ejs-templates/experimental-prefer-slurp-multiline': 'error',
       'ejs-templates/no-multiline-tags': 'error',
     });
     expect(result).toBe('<%_ if (x) { _%>');

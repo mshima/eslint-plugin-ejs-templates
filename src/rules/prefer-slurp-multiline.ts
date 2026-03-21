@@ -42,7 +42,7 @@ export const preferSlurpMultiline: Rule.RuleModule = {
     fixable: 'code',
     docs: {
       description: 'Prefer `<%_ … _%>` over `<% … %>` for multiline code tags',
-      url: 'https://github.com/mshima/prettier-plugin-templates#prefer-slurp-multiline',
+      url: 'https://github.com/mshima/prettier-plugin-templates#experimental-prefer-slurp-multiline',
     },
     messages: {
       preferSlurpMultiline: 'Multiline `<% … %>` tag should use whitespace-slurping `<%_ … _%>` delimiters.',

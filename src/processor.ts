@@ -67,7 +67,7 @@ function splitLines(raw: string): string[] {
 // ---------------------------------------------------------------------------
 
 /**
- * Sentinel text written by the `prefer-slurp-multiline` fix.
+ * Sentinel text written by the `experimental-prefer-slurp-multiline` fix.
  * Using a non-empty distinct value lets `translateFix` tell this sentinel
  * apart from the generic `''` sentinel used by all other plugin rules.
  */
@@ -553,7 +553,7 @@ function buildCollapsedTag(block: TagBlock): string {
  *
  * - Generic sentinel (`text === ''`): used by `prefer-raw`, `prefer-slurping-codeonly`,
  *   `no-multiline-tags`, `indent`.
- * - `SENTINEL_PREFER_SLURP_MULTILINE`: used by `prefer-slurp-multiline` to avoid
+ * - `SENTINEL_PREFER_SLURP_MULTILINE`: used by `experimental-prefer-slurp-multiline` to avoid
  *   collision with `no-multiline-tags` for `code-multiline`/`code-slurpable-multiline`
  *   tag types.
  * - `SENTINEL_SLURP_NEWLINE`: used by `slurp-newline`.
@@ -577,7 +577,7 @@ function translateFix(
   if (fix.range[0] !== 0) {
     // Fall through to the general JS fix handler below.
   } else if (fix.text === SENTINEL_PREFER_SLURP_MULTILINE) {
-    // prefer-slurp-multiline: change multiline `<% … %>` → `<%_ … _%>` (content unchanged)
+    // experimental-prefer-slurp-multiline: change multiline `<% … %>` → `<%_ … _%>` (content unchanged)
     if (block.tagType === 'code-multiline' || block.tagType === 'code-slurpable-multiline') {
       return {
         range: [block.tagOffset, block.tagOffset + block.tagLength],

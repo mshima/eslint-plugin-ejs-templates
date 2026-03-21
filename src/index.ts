@@ -32,7 +32,7 @@ const pluginCore = {
   rules: {
     'prefer-raw': preferRaw,
     'prefer-slurping-codeonly': preferSlurpingCodeonly,
-    'prefer-slurp-multiline': preferSlurpMultiline,
+    'experimental-prefer-slurp-multiline': preferSlurpMultiline,
     'no-multiline-tags': noMultilineTags,
     'slurp-newline': slurpNewline,
     indent,
@@ -81,7 +81,7 @@ const all: Config[] = [
     plugins: { [pluginName]: pluginCore },
     processor: `${pluginName}/ejs`,
     rules: {
-      [`${pluginName}/prefer-slurp-multiline`]: 'error',
+      [`${pluginName}/experimental-prefer-slurp-multiline`]: 'error',
       [`${pluginName}/prefer-slurping-codeonly`]: 'error',
       [`${pluginName}/no-multiline-tags`]: 'error',
       [`${pluginName}/slurp-newline`]: 'error',
