@@ -53,8 +53,9 @@ export const indent: Rule.RuleModule = {
         const comments = sourceCode.getAllComments();
         for (const comment of comments) {
           if (comment.type === 'Line' && comment.value.trim() === '@ejs-tag:slurp-needs-indent') {
+            const { range = [0, 0] } = comment;
             context.report({
-              loc: comment.loc!,
+              loc: comment.loc ?? { line: 0, column: 0 },
               messageId: 'indent',
               data: {
                 // The exact indent values are not available in the virtual
@@ -66,7 +67,7 @@ export const indent: Rule.RuleModule = {
               fix(fixer) {
                 // Sentinel fix — the processor's postprocess translates this
                 // to replacing the line-prefix whitespace before the tag.
-                return fixer.replaceTextRange([comment.range![0], comment.range![1]], '');
+                return fixer.replaceTextRange([range[0], range[1]], '');
               },
             });
           }

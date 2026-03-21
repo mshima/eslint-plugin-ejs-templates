@@ -37,14 +37,15 @@ export const preferRaw: Rule.RuleModule = {
         const comments = sourceCode.getAllComments();
         for (const comment of comments) {
           if (comment.type === 'Line' && comment.value.trim() === '@ejs-tag:escaped-output') {
+            const { range = [0, 0] } = comment;
             context.report({
-              loc: comment.loc!,
+              loc: comment.loc ?? { line: 0, column: 0 },
               messageId: 'preferRaw',
               fix(fixer) {
                 // Provide a sentinel fix. The processor's postprocess replaces
                 // this with the correct range in the original EJS source
                 // (changing `=` to `-` in the `<%=` opening delimiter).
-                return fixer.replaceTextRange([comment.range![0], comment.range![1]], '');
+                return fixer.replaceTextRange([range[0], range[1]], '');
               },
             });
           }

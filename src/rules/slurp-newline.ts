@@ -40,8 +40,7 @@ export const slurpNewline: Rule.RuleModule = {
       url: 'https://github.com/mshima/prettier-plugin-templates#slurp-newline',
     },
     messages: {
-      slurpNewline:
-        '`<%_ … _%>` slurp tag must be on its own line; insert a newline before the tag.',
+      slurpNewline: '`<%_ … _%>` slurp tag must be on its own line; insert a newline before the tag.',
     },
     schema: [],
   },
@@ -53,17 +52,15 @@ export const slurpNewline: Rule.RuleModule = {
         const comments = sourceCode.getAllComments();
         for (const comment of comments) {
           if (comment.type === 'Line' && comment.value.trim() === '@ejs-tag:slurp-not-standalone') {
+            const { range = [0, 0] } = comment;
             context.report({
-              loc: comment.loc!,
+              loc: comment.loc ?? { line: 0, column: 0 },
               messageId: 'slurpNewline',
               fix(fixer) {
                 // Use a distinct sentinel text so that `translateFix` in the
                 // processor can identify this as a slurp-newline fix and insert
                 // a newline before the tag in the original EJS source.
-                return fixer.replaceTextRange(
-                  [comment.range![0], comment.range![1]],
-                  SENTINEL_SLURP_NEWLINE,
-                );
+                return fixer.replaceTextRange([range[0], range[1]], SENTINEL_SLURP_NEWLINE);
               },
             });
           }

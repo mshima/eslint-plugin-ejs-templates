@@ -16,14 +16,12 @@ export function makeLinter(): Linter {
 }
 
 /** The flat config used for all EJS linting in tests. */
-export function makeConfig(
-  rules: Record<string, Linter.RuleSeverityAndOptions | Linter.RuleSeverity> = {},
-): Config[] {
+export function makeConfig(rules: Record<string, Linter.RuleSeverityAndOptions | Linter.RuleSeverity> = {}): Config[] {
   return [
     {
       files: ['**/*.ejs'],
-      plugins: { templates: plugin },
-      processor: 'templates/ejs',
+      plugins: { 'ejs-templates': plugin },
+      processor: 'ejs-templates/ejs',
       rules,
     },
   ] as const satisfies Config[];

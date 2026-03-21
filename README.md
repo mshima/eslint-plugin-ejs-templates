@@ -8,12 +8,12 @@ EJS files are parsed by [tree-sitter-embedded-template](https://github.com/tree-
 
 - **EJS processor** – extracts each EJS tag into its own virtual JS block so standard ESLint rules can inspect the embedded JavaScript
 - **Autofix support** – all plugin rules are fixable; run `eslint --fix` to automatically apply fixes
-- **`templates/prefer-raw`** – flags `<%= … %>` and suggests `<%- … %>`
-- **`templates/prefer-slurping-codeonly`** – flags `<% … %>` code tags that can be safely converted to `<%_ … _%>`
-- **`templates/prefer-slurp-multiline`** – converts multiline `<% … %>` to `<%_ … _%>`
-- **`templates/no-multiline-tags`** – collapses multiline EJS tags to single-line tags
-- **`templates/slurp-newline`** – ensures `<%_ … _%>` tags are on their own line
-- **`templates/indent`** – enforces brace-depth–based indentation on standalone `<%_ … _%>` tags
+- **`ejs-templates/prefer-raw`** – flags `<%= … %>` and suggests `<%- … %>`
+- **`ejs-templates/prefer-slurping-codeonly`** – flags `<% … %>` code tags that can be safely converted to `<%_ … _%>`
+- **`ejs-templates/prefer-slurp-multiline`** – converts multiline `<% … %>` to `<%_ … _%>`
+- **`ejs-templates/no-multiline-tags`** – collapses multiline EJS tags to single-line tags
+- **`ejs-templates/slurp-newline`** – ensures `<%_ … _%>` tags are on their own line
+- **`ejs-templates/indent`** – enforces brace-depth–based indentation on standalone `<%_ … _%>` tags
 
 ## Installation
 
@@ -42,16 +42,16 @@ export default defineConfig([
     files: ['**/*.ejs'],
     rules: {
       // Disable rules that are not compatible with EJS virtual blocks:
-      'no-undef': 'off',             // cross-block variable references are unresolvable
+      'no-undef': 'off', // cross-block variable references are unresolvable
       'no-constant-condition': 'off', // synthetic brace-balancing introduces `if (true) {`
 
       // Enable EJS-specific rules (apply in this recommended order):
-      'templates/prefer-slurp-multiline': 'error',
-      'templates/prefer-slurping-codeonly': 'error',
-      'templates/no-multiline-tags': 'error',
-      'templates/slurp-newline': 'error',
-      'templates/indent': 'error',
-      'templates/prefer-raw': 'error',
+      'ejs-templates/prefer-slurp-multiline': 'error',
+      'ejs-templates/prefer-slurping-codeonly': 'error',
+      'ejs-templates/no-multiline-tags': 'error',
+      'ejs-templates/slurp-newline': 'error',
+      'ejs-templates/indent': 'error',
+      'ejs-templates/prefer-raw': 'error',
     },
   },
 ]);
@@ -89,9 +89,9 @@ npx eslint --fix "**/*.ejs"
 > Because of this isolation, certain standard ESLint rules produce false
 > positives and should be disabled for `*.ejs` files:
 >
-> | Rule | Reason |
-> |------|--------|
-> | `no-undef` | Variables defined in one tag cannot be seen by other tags |
+> | Rule                    | Reason                                                    |
+> | ----------------------- | --------------------------------------------------------- |
+> | `no-undef`              | Variables defined in one tag cannot be seen by other tags |
 > | `no-constant-condition` | Synthetic `if (true) {` prefixes used for brace-balancing |
 
 ## Rules
@@ -105,12 +105,12 @@ Apply rules in the following order for best results:
 5. `indent` — enforce brace-depth indentation
 6. `prefer-raw` — prefer `<%-` over `<%=`
 
-### `templates/prefer-raw`
+### `ejs-templates/prefer-raw`
 
 Prefers `<%-` (raw / unescaped output) over `<%=` (HTML-escaped output).
 
-| | |
-|---|---|
+|             |                                              |
+| ----------- | -------------------------------------------- |
 | **Fixable** | Yes — `eslint --fix` converts `<%=` to `<%-` |
 
 ```ejs
@@ -121,13 +121,13 @@ Prefers `<%-` (raw / unescaped output) over `<%=` (HTML-escaped output).
 <%- value %>
 ```
 
-### `templates/prefer-slurping-codeonly`
+### `ejs-templates/prefer-slurping-codeonly`
 
 Prefers `<%_ … _%>` (whitespace-slurping) over `<% … %>` for single-line code
 tags whose content has balanced braces and does not open or close a brace block.
 
-| | |
-|---|---|
+|             |                                                        |
+| ----------- | ------------------------------------------------------ |
 | **Fixable** | Yes — `eslint --fix` converts `<% … %>` to `<%_ … _%>` |
 
 ```ejs
@@ -145,14 +145,14 @@ Tags that open or close brace depth are left unchanged:
 <% } %>                 ← not flagged (closes a block)
 ```
 
-### `templates/prefer-slurp-multiline`
+### `ejs-templates/prefer-slurp-multiline`
 
 Converts multiline `<% … %>` tags to `<%_ … _%>`. Apply this rule **before**
 `no-multiline-tags` so that multiline `<% %>` tags get their delimiters changed
 before being collapsed.
 
-| | |
-|---|---|
+|             |                                                              |
+| ----------- | ------------------------------------------------------------ |
 | **Fixable** | Yes — `eslint --fix` changes `<%` to `<%_` and `%>` to `_%>` |
 
 ```ejs
@@ -167,14 +167,14 @@ before being collapsed.
 _%>
 ```
 
-### `templates/no-multiline-tags`
+### `ejs-templates/no-multiline-tags`
 
 Flags EJS tags whose content spans multiple lines. The autofix splits the content
 into separate single-line tags — one tag per statement boundary (`;`, `}`, `{`).
 Lines starting with `.` are joined to the preceding line (chained method calls).
 
-| | |
-|---|---|
+|             |                                        |
+| ----------- | -------------------------------------- |
 | **Fixable** | Yes — `eslint --fix` collapses the tag |
 
 ```ejs
@@ -213,14 +213,14 @@ _%>
 <%_ } _%>
 ```
 
-### `templates/slurp-newline`
+### `ejs-templates/slurp-newline`
 
 Ensures `<%_ … _%>` whitespace-slurping tags are on their own line. An inline
 slurp tag will not eat the preceding whitespace as intended. Apply this rule
 **after** `prefer-slurping-*` and **before** `indent`.
 
-| | |
-|---|---|
+|             |                                                       |
+| ----------- | ----------------------------------------------------- |
 | **Fixable** | Yes — `eslint --fix` inserts a newline before the tag |
 
 ```ejs
@@ -232,13 +232,13 @@ some text
 <%_ doWork(); _%>
 ```
 
-### `templates/indent`
+### `ejs-templates/indent`
 
 Enforces brace-depth–based indentation (two spaces per level) on standalone
 `<%_ … _%>` tags.
 
-| | |
-|---|---|
+|             |                                                     |
+| ----------- | --------------------------------------------------- |
 | **Fixable** | Yes — `eslint --fix` adjusts the leading whitespace |
 
 ```ejs
@@ -255,16 +255,16 @@ Enforces brace-depth–based indentation (two spaces per level) on standalone
 
 ## Supported EJS Delimiters
 
-| Delimiter | Meaning |
-|-----------|---------|
-| `<%` | Code (no output) |
-| `<%=` | Output (HTML-escaped) |
-| `<%-` | Output (raw / unescaped) |
-| `<%_` | Code, trims preceding whitespace |
-| `<%#` | Comment (no output) |
-| `%>` | Standard closing delimiter |
-| `-%>` | Closing delimiter, trims trailing `\n` |
-| `_%>` | Closing delimiter, trims whitespace |
+| Delimiter | Meaning                                |
+| --------- | -------------------------------------- |
+| `<%`      | Code (no output)                       |
+| `<%=`     | Output (HTML-escaped)                  |
+| `<%-`     | Output (raw / unescaped)               |
+| `<%_`     | Code, trims preceding whitespace       |
+| `<%#`     | Comment (no output)                    |
+| `%>`      | Standard closing delimiter             |
+| `-%>`     | Closing delimiter, trims trailing `\n` |
+| `_%>`     | Closing delimiter, trims whitespace    |
 
 ## License
 

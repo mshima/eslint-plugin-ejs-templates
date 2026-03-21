@@ -57,13 +57,14 @@ export const noMultilineTags: Rule.RuleModule = {
         const comments = sourceCode.getAllComments();
         for (const comment of comments) {
           if (comment.type === 'Line' && comment.value.trim().includes('-multiline')) {
+            const { range = [0, 0] } = comment;
             context.report({
-              loc: comment.loc!,
+              loc: comment.loc ?? { line: 0, column: 0 },
               messageId: 'noMultilineTags',
               fix(fixer) {
                 // Sentinel fix — the processor's postprocess translates this
                 // to a replacement of the entire original EJS tag.
-                return fixer.replaceTextRange([comment.range![0], comment.range![1]], '');
+                return fixer.replaceTextRange([range[0], range[1]], '');
               },
             });
           }

@@ -31,6 +31,6 @@ export const expected = `<%_ if (generateSpringAuditor) { _%>
 `;
 
 export const rules = {
-  'templates/no-multiline-tags': 'error' as const,
-  'templates/prefer-raw': 'error' as const,
+  'ejs-templates/no-multiline-tags': 'error' as const,
+  'ejs-templates/prefer-raw': 'error' as const,
 };

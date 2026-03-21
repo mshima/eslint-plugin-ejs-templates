@@ -19,7 +19,7 @@ import { type Config } from 'eslint/config';
 // Plugin definition (without configs, to avoid circular reference)
 // ---------------------------------------------------------------------------
 
-const pluginName = 'templates';
+const pluginName = 'ejs-templates';
 
 const pluginCore = {
   meta: {

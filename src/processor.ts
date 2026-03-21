@@ -78,8 +78,6 @@ export const SENTINEL_PREFER_SLURP_MULTILINE = 'PREFER_SLURP_MULTILINE';
  */
 export const SENTINEL_SLURP_NEWLINE = 'SLURP_NEWLINE';
 
-
-
 /** Opening line of the function wrapper injected into every virtual block. */
 const WRAPPER_OPEN = '(function() {\n';
 
@@ -445,8 +443,7 @@ function mapMessage(msg: Linter.LintMessage, block: TagBlock): Linter.LintMessag
   // How many lines does codeContent occupy?  A trailing '\n' does not add an
   // extra logical line — it just means the next character (the wrapper close
   // or synthetic suffix) starts on a new line.
-  const codeLineCount =
-    block.codeContent.split('\n').length - (block.codeContent.endsWith('\n') ? 1 : 0);
+  const codeLineCount = block.codeContent.split('\n').length - (block.codeContent.endsWith('\n') ? 1 : 0);
 
   if (codeLineIndex >= codeLineCount) {
     // Message is on a virtualBodyExtraLine, synthetic suffix, or wrapper-close
@@ -458,18 +455,14 @@ function mapMessage(msg: Linter.LintMessage, block: TagBlock): Linter.LintMessag
   // For the first code line, subtract virtualBodyPrefixLen so the column
   // points into codeContent rather than into e.g. `console.log(`.
   const originalColumn =
-    codeLineIndex === 0
-      ? msg.column - block.virtualBodyPrefixLen + block.originalColumn
-      : msg.column;
+    codeLineIndex === 0 ? msg.column - block.virtualBodyPrefixLen + block.originalColumn : msg.column;
   const mapped: Linter.LintMessage = { ...msg, line: originalLine, column: originalColumn };
 
   if (msg.endLine !== undefined) {
     const endCodeLineIndex = msg.endLine - codeStartLine;
     mapped.endLine = block.originalLine + endCodeLineIndex;
     mapped.endColumn =
-      endCodeLineIndex === 0
-        ? (msg.endColumn ?? 0) - block.virtualBodyPrefixLen + block.originalColumn
-        : msg.endColumn;
+      endCodeLineIndex === 0 ? (msg.endColumn ?? 0) - block.virtualBodyPrefixLen + block.originalColumn : msg.endColumn;
   }
 
   return mapped;
@@ -657,8 +650,7 @@ function translateFix(
   // where markerLen = '//@ejs-tag:'.length + tagType.length + 1  (+1 for '\n')
   const markerLen = '//@ejs-tag:'.length + block.tagType.length + 1;
   const wrapperOpenLen = WRAPPER_OPEN.length;
-  const codeContentStart =
-    markerLen + wrapperOpenLen + block.syntheticPrefix.length + block.virtualBodyPrefixLen;
+  const codeContentStart = markerLen + wrapperOpenLen + block.syntheticPrefix.length + block.virtualBodyPrefixLen;
   const codeContentEnd = codeContentStart + block.codeContent.length;
 
   // Guard: only translate fixes that target the actual codeContent region.
@@ -668,10 +660,7 @@ function translateFix(
 
   const codeStartOffset = block.tagOffset + block.openDelim.length;
   return {
-    range: [
-      codeStartOffset + (fix.range[0] - codeContentStart),
-      codeStartOffset + (fix.range[1] - codeContentStart),
-    ],
+    range: [codeStartOffset + (fix.range[0] - codeContentStart), codeStartOffset + (fix.range[1] - codeContentStart)],
     text: fix.text,
   };
 }
@@ -714,7 +703,6 @@ export const processor: Linter.Processor = {
 
     return messages.flatMap((blockMessages, i) => {
       const block = blocks[i];
-      if (!block) return blockMessages;
       return blockMessages
         .filter((msg) => !msg.fatal) // suppress parse errors from synthetic balancing code
         .map((msg) => {

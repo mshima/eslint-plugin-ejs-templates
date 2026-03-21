@@ -45,8 +45,7 @@ export const preferSlurpMultiline: Rule.RuleModule = {
       url: 'https://github.com/mshima/prettier-plugin-templates#prefer-slurp-multiline',
     },
     messages: {
-      preferSlurpMultiline:
-        'Multiline `<% … %>` tag should use whitespace-slurping `<%_ … _%>` delimiters.',
+      preferSlurpMultiline: 'Multiline `<% … %>` tag should use whitespace-slurping `<%_ … _%>` delimiters.',
     },
     schema: [],
   },
@@ -62,18 +61,16 @@ export const preferSlurpMultiline: Rule.RuleModule = {
             (comment.value.trim() === '@ejs-tag:code-multiline' ||
               comment.value.trim() === '@ejs-tag:code-slurpable-multiline')
           ) {
+            const { range = [0, 0] } = comment;
             context.report({
-              loc: comment.loc!,
+              loc: comment.loc ?? { line: 0, column: 0 },
               messageId: 'preferSlurpMultiline',
               fix(fixer) {
                 // Use a distinct sentinel text so that `translateFix` in the
                 // processor can tell this fix apart from the generic `''`
                 // sentinel used by `no-multiline-tags` (which fires on the
                 // same `code-multiline` / `code-slurpable-multiline` types).
-                return fixer.replaceTextRange(
-                  [comment.range![0], comment.range![1]],
-                  SENTINEL_PREFER_SLURP_MULTILINE,
-                );
+                return fixer.replaceTextRange([range[0], range[1]], SENTINEL_PREFER_SLURP_MULTILINE);
               },
             });
           }

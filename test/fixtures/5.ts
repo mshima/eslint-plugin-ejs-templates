@@ -26,5 +26,5 @@ export const expected = `<%_ if (skipServer) { _%>
 `;
 
 export const rules = {
-  'templates/indent': 'error' as const,
+  'ejs-templates/indent': 'error' as const,
 };

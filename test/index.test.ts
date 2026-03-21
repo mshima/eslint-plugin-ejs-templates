@@ -241,7 +241,7 @@ describe('processor position mapping', () => {
     const msgs = lint(ejsText, { 'no-undef': 'error' });
     const undefMsg = msgs.find((m) => m.message.includes("'undefinedVar'"));
     expect(undefMsg).toBeDefined();
-    expect(undefMsg!.line).toBe(2);
+    expect(undefMsg?.line).toBe(2);
   });
 
   test('no messages when there are no EJS tags', () => {
@@ -259,36 +259,36 @@ describe('processor position mapping', () => {
 // Rule: prefer-raw
 // ---------------------------------------------------------------------------
 
-describe('rule: templates/prefer-raw', () => {
+describe('rule: ejs-templates/prefer-raw', () => {
   test('flags <%= %> tags', () => {
-    const msgs = lint('<%= name %>', { 'templates/prefer-raw': 'error' });
+    const msgs = lint('<%= name %>', { 'ejs-templates/prefer-raw': 'error' });
     expect(msgs).toHaveLength(1);
-    expect(msgs[0].ruleId).toBe('templates/prefer-raw');
+    expect(msgs[0].ruleId).toBe('ejs-templates/prefer-raw');
   });
 
   test('does not flag <%- %> tags', () => {
-    const msgs = lint('<%- name %>', { 'templates/prefer-raw': 'error' });
+    const msgs = lint('<%- name %>', { 'ejs-templates/prefer-raw': 'error' });
     expect(msgs).toHaveLength(0);
   });
 
   test('does not flag <% %> code tags', () => {
-    const msgs = lint('<% const x = 1; %>', { 'templates/prefer-raw': 'error' });
+    const msgs = lint('<% const x = 1; %>', { 'ejs-templates/prefer-raw': 'error' });
     expect(msgs).toHaveLength(0);
   });
 
   test('flags all <%= %> tags in a file', () => {
-    const msgs = lint('<%= a %> text <%= b %>', { 'templates/prefer-raw': 'error' });
+    const msgs = lint('<%= a %> text <%= b %>', { 'ejs-templates/prefer-raw': 'error' });
     expect(msgs).toHaveLength(2);
   });
 
   test('error is reported at the tag position', () => {
     // Tag is at line 2
-    const msgs = lint('text\n<%= value %>', { 'templates/prefer-raw': 'error' });
+    const msgs = lint('text\n<%= value %>', { 'ejs-templates/prefer-raw': 'error' });
     expect(msgs[0].line).toBe(2);
   });
 
   test('reports correct message', () => {
-    const msgs = lint('<%= x %>', { 'templates/prefer-raw': 'error' });
+    const msgs = lint('<%= x %>', { 'ejs-templates/prefer-raw': 'error' });
     expect(msgs[0].message).toContain('<%-');
     expect(msgs[0].message).toContain('<%=');
   });
@@ -298,55 +298,55 @@ describe('rule: templates/prefer-raw', () => {
 // Rule: prefer-slurping
 // ---------------------------------------------------------------------------
 
-describe('rule: templates/prefer-slurping-codeonly', () => {
+describe('rule: ejs-templates/prefer-slurping-codeonly', () => {
   test('flags <% %> tags with balanced braces', () => {
-    const msgs = lint('<% const x = 1; %>', { 'templates/prefer-slurping-codeonly': 'error' });
+    const msgs = lint('<% const x = 1; %>', { 'ejs-templates/prefer-slurping-codeonly': 'error' });
     expect(msgs).toHaveLength(1);
-    expect(msgs[0].ruleId).toBe('templates/prefer-slurping-codeonly');
+    expect(msgs[0].ruleId).toBe('ejs-templates/prefer-slurping-codeonly');
   });
 
   test('does not flag <%_ _%> tags (already slurping)', () => {
-    const msgs = lint('<%_ const x = 1; _%>', { 'templates/prefer-slurping-codeonly': 'error' });
+    const msgs = lint('<%_ const x = 1; _%>', { 'ejs-templates/prefer-slurping-codeonly': 'error' });
     expect(msgs).toHaveLength(0);
   });
 
   test('does not flag <% if (x) { %> (trailing open brace)', () => {
-    const msgs = lint('<% if (x) { %>', { 'templates/prefer-slurping-codeonly': 'error' });
+    const msgs = lint('<% if (x) { %>', { 'ejs-templates/prefer-slurping-codeonly': 'error' });
     expect(msgs).toHaveLength(0);
   });
 
   test('does not flag <% } %> (leading close brace)', () => {
-    const msgs = lint('<% } %>', { 'templates/prefer-slurping-codeonly': 'error' });
+    const msgs = lint('<% } %>', { 'ejs-templates/prefer-slurping-codeonly': 'error' });
     expect(msgs).toHaveLength(0);
   });
 
   test('does not flag <% } else { %> (both braces)', () => {
-    const msgs = lint('<% } else { %>', { 'templates/prefer-slurping-codeonly': 'error' });
+    const msgs = lint('<% } else { %>', { 'ejs-templates/prefer-slurping-codeonly': 'error' });
     expect(msgs).toHaveLength(0);
   });
 
   test('does not flag <%= %> output tags', () => {
-    const msgs = lint('<%= val %>', { 'templates/prefer-slurping-codeonly': 'error' });
+    const msgs = lint('<%= val %>', { 'ejs-templates/prefer-slurping-codeonly': 'error' });
     expect(msgs).toHaveLength(0);
   });
 
   test('does not flag <%- %> raw-output tags', () => {
-    const msgs = lint('<%- val %>', { 'templates/prefer-slurping-codeonly': 'error' });
+    const msgs = lint('<%- val %>', { 'ejs-templates/prefer-slurping-codeonly': 'error' });
     expect(msgs).toHaveLength(0);
   });
 
   test('does not flag <% code -%> trim-newline tags', () => {
-    const msgs = lint('<% doWork(); -%>', { 'templates/prefer-slurping-codeonly': 'error' });
+    const msgs = lint('<% doWork(); -%>', { 'ejs-templates/prefer-slurping-codeonly': 'error' });
     expect(msgs).toHaveLength(0);
   });
 
   test('flags inline balanced-brace tag with inline object literal', () => {
-    const msgs = lint('<% const obj = { a: 1 }; %>', { 'templates/prefer-slurping-codeonly': 'error' });
+    const msgs = lint('<% const obj = { a: 1 }; %>', { 'ejs-templates/prefer-slurping-codeonly': 'error' });
     expect(msgs).toHaveLength(1);
   });
 
   test('reports correct message', () => {
-    const msgs = lint('<% doWork(); %>', { 'templates/prefer-slurping-codeonly': 'error' });
+    const msgs = lint('<% doWork(); %>', { 'ejs-templates/prefer-slurping-codeonly': 'error' });
     expect(msgs[0].message).toContain('<%_');
   });
 });
@@ -396,12 +396,12 @@ describe('plugin shape', () => {
 
   test('all config enables all rules as error', () => {
     const config = plugin.configs.all[0];
-    expect(config.rules?.['templates/prefer-raw']).toBe('error');
-    expect(config.rules?.['templates/prefer-slurping-codeonly']).toBe('error');
-    expect(config.rules?.['templates/prefer-slurp-multiline']).toBe('error');
-    expect(config.rules?.['templates/no-multiline-tags']).toBe('error');
-    expect(config.rules?.['templates/slurp-newline']).toBe('error');
-    expect(config.rules?.['templates/indent']).toBe('error');
+    expect(config.rules?.['ejs-templates/prefer-raw']).toBe('error');
+    expect(config.rules?.['ejs-templates/prefer-slurping-codeonly']).toBe('error');
+    expect(config.rules?.['ejs-templates/prefer-slurp-multiline']).toBe('error');
+    expect(config.rules?.['ejs-templates/no-multiline-tags']).toBe('error');
+    expect(config.rules?.['ejs-templates/slurp-newline']).toBe('error');
+    expect(config.rules?.['ejs-templates/indent']).toBe('error');
   });
 });
 
@@ -450,36 +450,36 @@ describe('standard JS rules via processor', () => {
 
 describe('autofix: prefer-raw', () => {
   test('fixes <%= %> to <%- %>', () => {
-    expect(applyFix('<%= name %>', { 'templates/prefer-raw': 'error' })).toBe('<%- name %>');
+    expect(applyFix('<%= name %>', { 'ejs-templates/prefer-raw': 'error' })).toBe('<%- name %>');
   });
 
   test('fixes all <%= %> tags in a file', () => {
-    expect(applyFix('<%= a %> and <%= b %>', { 'templates/prefer-raw': 'error' })).toBe('<%- a %> and <%- b %>');
+    expect(applyFix('<%= a %> and <%= b %>', { 'ejs-templates/prefer-raw': 'error' })).toBe('<%- a %> and <%- b %>');
   });
 
   test('does not change <%- %> tags (already fixed)', () => {
     const input = '<%- name %>';
-    expect(applyFix(input, { 'templates/prefer-raw': 'error' })).toBe(input);
+    expect(applyFix(input, { 'ejs-templates/prefer-raw': 'error' })).toBe(input);
   });
 
   test('does not change <% %> code tags', () => {
     const input = '<% const x = 1; %>';
-    expect(applyFix(input, { 'templates/prefer-raw': 'error' })).toBe(input);
+    expect(applyFix(input, { 'ejs-templates/prefer-raw': 'error' })).toBe(input);
   });
 
   test('fixes a tag in the middle of surrounding text', () => {
-    expect(applyFix('Hello, <%= name %>!', { 'templates/prefer-raw': 'error' })).toBe('Hello, <%- name %>!');
+    expect(applyFix('Hello, <%= name %>!', { 'ejs-templates/prefer-raw': 'error' })).toBe('Hello, <%- name %>!');
   });
 
   test('fixes a tag on a non-first line', () => {
-    expect(applyFix('line1\n<%= value %>\nline3', { 'templates/prefer-raw': 'error' })).toBe(
+    expect(applyFix('line1\n<%= value %>\nline3', { 'ejs-templates/prefer-raw': 'error' })).toBe(
       'line1\n<%- value %>\nline3',
     );
   });
 
   test('fix is idempotent (re-applying produces no further change)', () => {
-    const fixed = applyFix('<%= x %>', { 'templates/prefer-raw': 'error' });
-    expect(applyFix(fixed, { 'templates/prefer-raw': 'error' })).toBe(fixed);
+    const fixed = applyFix('<%= x %>', { 'ejs-templates/prefer-raw': 'error' });
+    expect(applyFix(fixed, { 'ejs-templates/prefer-raw': 'error' })).toBe(fixed);
   });
 });
 
@@ -489,39 +489,41 @@ describe('autofix: prefer-raw', () => {
 
 describe('autofix: prefer-slurping-codeonly', () => {
   test('fixes <% code %> to <%_ code _%>', () => {
-    expect(applyFix('<% doWork(); %>', { 'templates/prefer-slurping-codeonly': 'error' })).toBe('<%_ doWork(); _%>');
+    expect(applyFix('<% doWork(); %>', { 'ejs-templates/prefer-slurping-codeonly': 'error' })).toBe(
+      '<%_ doWork(); _%>',
+    );
   });
 
   test('fixes a slurpable tag with inline object literal', () => {
-    expect(applyFix('<% const x = { a: 1 }; %>', { 'templates/prefer-slurping-codeonly': 'error' })).toBe(
+    expect(applyFix('<% const x = { a: 1 }; %>', { 'ejs-templates/prefer-slurping-codeonly': 'error' })).toBe(
       '<%_ const x = { a: 1 }; _%>',
     );
   });
 
   test('does not change <%_ _%> tags (already slurping)', () => {
     const input = '<%_ code _%>';
-    expect(applyFix(input, { 'templates/prefer-slurping-codeonly': 'error' })).toBe(input);
+    expect(applyFix(input, { 'ejs-templates/prefer-slurping-codeonly': 'error' })).toBe(input);
   });
 
   test('does not change <% if (x) { %> (trailing open brace)', () => {
     const input = '<% if (x) { %>';
-    expect(applyFix(input, { 'templates/prefer-slurping-codeonly': 'error' })).toBe(input);
+    expect(applyFix(input, { 'ejs-templates/prefer-slurping-codeonly': 'error' })).toBe(input);
   });
 
   test('does not change <% } %> (leading close brace)', () => {
     const input = '<% } %>';
-    expect(applyFix(input, { 'templates/prefer-slurping-codeonly': 'error' })).toBe(input);
+    expect(applyFix(input, { 'ejs-templates/prefer-slurping-codeonly': 'error' })).toBe(input);
   });
 
   test('preserves surrounding text when fixing', () => {
-    expect(applyFix('before\n<% doWork(); %>\nafter', { 'templates/prefer-slurping-codeonly': 'error' })).toBe(
+    expect(applyFix('before\n<% doWork(); %>\nafter', { 'ejs-templates/prefer-slurping-codeonly': 'error' })).toBe(
       'before\n<%_ doWork(); _%>\nafter',
     );
   });
 
   test('fix is idempotent (re-applying produces no further change)', () => {
-    const fixed = applyFix('<% doWork(); %>', { 'templates/prefer-slurping-codeonly': 'error' });
-    expect(applyFix(fixed, { 'templates/prefer-slurping-codeonly': 'error' })).toBe(fixed);
+    const fixed = applyFix('<% doWork(); %>', { 'ejs-templates/prefer-slurping-codeonly': 'error' });
+    expect(applyFix(fixed, { 'ejs-templates/prefer-slurping-codeonly': 'error' })).toBe(fixed);
   });
 });
 
@@ -532,7 +534,10 @@ describe('autofix: prefer-slurping-codeonly', () => {
 describe('autofix: prefer-raw and prefer-slurping-codeonly together', () => {
   test('fixes both types of violations in a single pass', () => {
     const input = '<%= a %>\n<% doWork(); %>';
-    const fixed = applyFix(input, { 'templates/prefer-raw': 'error', 'templates/prefer-slurping-codeonly': 'error' });
+    const fixed = applyFix(input, {
+      'ejs-templates/prefer-raw': 'error',
+      'ejs-templates/prefer-slurping-codeonly': 'error',
+    });
     expect(fixed).toBe('<%- a %>\n<%_ doWork(); _%>');
   });
 });
@@ -567,7 +572,10 @@ describe('autofix: general JS rules via processor', () => {
     // no-var should fire on `var` in a code-slurpable block.
     // prefer-slurping should also fire on the same block.
     // verifyAndFix iterates until stable – both fixes must be applied.
-    const result = applyFix('<% var x = 1; %>', { 'no-var': 'error', 'templates/prefer-slurping-codeonly': 'error' });
+    const result = applyFix('<% var x = 1; %>', {
+      'no-var': 'error',
+      'ejs-templates/prefer-slurping-codeonly': 'error',
+    });
     expect(result).not.toContain('var');
     expect(result.startsWith('<%_')).toBe(true);
     expect(result.endsWith('_%>')).toBe(true);
@@ -581,16 +589,16 @@ describe('autofix: general JS rules via processor', () => {
 describe('fixture tests', () => {
   test('fixture 1 (real-world EJS) produces no violations with both rules enabled', () => {
     const msgs = lint(fixture1.input, {
-      'templates/prefer-raw': 'error',
-      'templates/prefer-slurping-codeonly': 'error',
+      'ejs-templates/prefer-raw': 'error',
+      'ejs-templates/prefer-slurping-codeonly': 'error',
     });
     expect(msgs).toHaveLength(0);
   });
 
   test('fixture 2 (real-world EJS) produces no violations with both rules enabled', () => {
     const msgs = lint(fixture2.input, {
-      'templates/prefer-raw': 'error',
-      'templates/prefer-slurping-codeonly': 'error',
+      'ejs-templates/prefer-raw': 'error',
+      'ejs-templates/prefer-slurping-codeonly': 'error',
     });
     expect(msgs).toHaveLength(0);
   });
@@ -601,17 +609,17 @@ describe('fixture tests', () => {
 
   test('fixture 3 input has violations (needs prefer-raw and prefer-slurping fixes)', () => {
     const msgs = lint(fixture3.input, {
-      'templates/prefer-raw': 'error',
-      'templates/prefer-slurping-codeonly': 'error',
+      'ejs-templates/prefer-raw': 'error',
+      'ejs-templates/prefer-slurping-codeonly': 'error',
     });
-    expect(msgs.filter((m) => m.ruleId === 'templates/prefer-raw').length).toBeGreaterThan(0);
-    expect(msgs.filter((m) => m.ruleId === 'templates/prefer-slurping-codeonly').length).toBeGreaterThan(0);
+    expect(msgs.filter((m) => m.ruleId === 'ejs-templates/prefer-raw').length).toBeGreaterThan(0);
+    expect(msgs.filter((m) => m.ruleId === 'ejs-templates/prefer-slurping-codeonly').length).toBeGreaterThan(0);
   });
 
   test('fixture 3 autofix produces the expected output', () => {
     const fixed = applyFix(fixture3.input, {
-      'templates/prefer-raw': 'error',
-      'templates/prefer-slurping-codeonly': 'error',
+      'ejs-templates/prefer-raw': 'error',
+      'ejs-templates/prefer-slurping-codeonly': 'error',
     });
     expect(fixed).toBe(fixture3.expected);
   });
@@ -734,20 +742,20 @@ describe('brace-depth tracking (indent foundation)', () => {
 // Rule: no-multiline-tags – violations
 // ---------------------------------------------------------------------------
 
-describe('rule: templates/no-multiline-tags', () => {
+describe('rule: ejs-templates/no-multiline-tags', () => {
   test('flags a multiline <%_ _%> tag', () => {
-    const msgs = lint('<%_\nif (x) {\n_%>', { 'templates/no-multiline-tags': 'error' });
-    expect(msgs.filter((m) => m.ruleId === 'templates/no-multiline-tags').length).toBeGreaterThan(0);
+    const msgs = lint('<%_\nif (x) {\n_%>', { 'ejs-templates/no-multiline-tags': 'error' });
+    expect(msgs.filter((m) => m.ruleId === 'ejs-templates/no-multiline-tags').length).toBeGreaterThan(0);
   });
 
   test('flags a multiline <%= %> output tag', () => {
-    const msgs = lint('<%=\n  value\n%>', { 'templates/no-multiline-tags': 'error' });
-    expect(msgs.filter((m) => m.ruleId === 'templates/no-multiline-tags').length).toBeGreaterThan(0);
+    const msgs = lint('<%=\n  value\n%>', { 'ejs-templates/no-multiline-tags': 'error' });
+    expect(msgs.filter((m) => m.ruleId === 'ejs-templates/no-multiline-tags').length).toBeGreaterThan(0);
   });
 
   test('does not flag a single-line tag', () => {
-    const msgs = lint('<%_ if (x) { _%>', { 'templates/no-multiline-tags': 'error' });
-    expect(msgs.filter((m) => m.ruleId === 'templates/no-multiline-tags')).toHaveLength(0);
+    const msgs = lint('<%_ if (x) { _%>', { 'ejs-templates/no-multiline-tags': 'error' });
+    expect(msgs.filter((m) => m.ruleId === 'ejs-templates/no-multiline-tags')).toHaveLength(0);
   });
 });
 
@@ -757,79 +765,81 @@ describe('rule: templates/no-multiline-tags', () => {
 
 describe('autofix: no-multiline-tags', () => {
   test('collapses single-non-empty-line multiline tag (problem-statement example)', () => {
-    expect(applyFix('<%_\nif (generateSpringAuditor) {\n_%>', { 'templates/no-multiline-tags': 'error' })).toBe(
+    expect(applyFix('<%_\nif (generateSpringAuditor) {\n_%>', { 'ejs-templates/no-multiline-tags': 'error' })).toBe(
       '<%_ if (generateSpringAuditor) { _%>',
     );
   });
 
   test('splits multiline tag with 2 content lines into two single-line tags', () => {
-    expect(applyFix('<%_\n  const x = 1;\n  const y = 2;\n_%>', { 'templates/no-multiline-tags': 'error' })).toBe(
+    expect(applyFix('<%_\n  const x = 1;\n  const y = 2;\n_%>', { 'ejs-templates/no-multiline-tags': 'error' })).toBe(
       '<%_ const x = 1; _%>\n<%_ const y = 2; _%>',
     );
   });
 
   test('ignores blank-only lines inside the tag', () => {
     // blank-only lines are stripped; remaining single line keeps original delimiters
-    expect(applyFix('<%\n\n  doSomething();\n\n%>', { 'templates/no-multiline-tags': 'error' })).toBe(
+    expect(applyFix('<%\n\n  doSomething();\n\n%>', { 'ejs-templates/no-multiline-tags': 'error' })).toBe(
       '<% doSomething(); %>',
     );
   });
 
   test('collapses multiline <%= %> output tag (keeps delimiter unchanged)', () => {
     // no-multiline-tags only collapses; prefer-raw is a separate rule
-    expect(applyFix('<%=\n  value\n%>', { 'templates/no-multiline-tags': 'error' })).toBe('<%= value %>');
+    expect(applyFix('<%=\n  value\n%>', { 'ejs-templates/no-multiline-tags': 'error' })).toBe('<%= value %>');
   });
 
   test('collapses multiline <%- %> raw-output tag', () => {
-    expect(applyFix('<%-\n  value\n%>', { 'templates/no-multiline-tags': 'error' })).toBe('<%- value %>');
+    expect(applyFix('<%-\n  value\n%>', { 'ejs-templates/no-multiline-tags': 'error' })).toBe('<%- value %>');
   });
 
   test('preserves surrounding text', () => {
-    expect(applyFix('before\n<%_\n  code;\n_%>\nafter', { 'templates/no-multiline-tags': 'error' })).toBe(
+    expect(applyFix('before\n<%_\n  code;\n_%>\nafter', { 'ejs-templates/no-multiline-tags': 'error' })).toBe(
       'before\n<%_ code; _%>\nafter',
     );
   });
 
   test('splits multi-line tag into separate tags per logical phrase, preserving indentation', () => {
-    expect(applyFix('  <%_\n  const a = 1;\n  const b = 2;\n  _%>', { 'templates/no-multiline-tags': 'error' })).toBe(
-      '  <%_ const a = 1; _%>\n  <%_ const b = 2; _%>',
-    );
+    expect(
+      applyFix('  <%_\n  const a = 1;\n  const b = 2;\n  _%>', { 'ejs-templates/no-multiline-tags': 'error' }),
+    ).toBe('  <%_ const a = 1; _%>\n  <%_ const b = 2; _%>');
   });
 
   test('fix is idempotent', () => {
-    const fixed = applyFix('<%_\n  code;\n_%>', { 'templates/no-multiline-tags': 'error' });
-    expect(applyFix(fixed, { 'templates/no-multiline-tags': 'error' })).toBe(fixed);
+    const fixed = applyFix('<%_\n  code;\n_%>', { 'ejs-templates/no-multiline-tags': 'error' });
+    expect(applyFix(fixed, { 'ejs-templates/no-multiline-tags': 'error' })).toBe(fixed);
   });
 
   test('no-multiline-tags does not change already-single-line tags', () => {
     const input = '<%_ code; _%>';
-    expect(applyFix(input, { 'templates/no-multiline-tags': 'error' })).toBe(input);
+    expect(applyFix(input, { 'ejs-templates/no-multiline-tags': 'error' })).toBe(input);
   });
 
   test('combined with prefer-raw: multiline <%= %> is both collapsed and converted', () => {
     const result = applyFix('<%=\n  value\n%>', {
-      'templates/no-multiline-tags': 'error',
-      'templates/prefer-raw': 'error',
+      'ejs-templates/no-multiline-tags': 'error',
+      'ejs-templates/prefer-raw': 'error',
     });
     expect(result).toBe('<%- value %>');
   });
 
   test('joins chained method call across lines (problem-statement example)', () => {
     const input = "<%_\n  const arr = 'foo.bar'\n    .split();\n_%>";
-    expect(applyFix(input, { 'templates/no-multiline-tags': 'error' })).toBe("<%_ const arr = 'foo.bar'.split(); _%>");
+    expect(applyFix(input, { 'ejs-templates/no-multiline-tags': 'error' })).toBe(
+      "<%_ const arr = 'foo.bar'.split(); _%>",
+    );
   });
 
   test('handles multiple phrases where some lines have dot-continuation', () => {
     // Two independent statements, the second using a chained call.
     const input = "<%_\n  const x = 1;\n  const arr = 'a.b'\n    .split();\n_%>";
-    expect(applyFix(input, { 'templates/no-multiline-tags': 'error' })).toBe(
+    expect(applyFix(input, { 'ejs-templates/no-multiline-tags': 'error' })).toBe(
       "<%_ const x = 1; _%>\n<%_ const arr = 'a.b'.split(); _%>",
     );
   });
 
   test('splits content with brace boundaries (if/body/close each get own tag)', () => {
     const input = '<%_\n  if (x) {\n  doWork();\n  }\n_%>';
-    expect(applyFix(input, { 'templates/no-multiline-tags': 'error' })).toBe(
+    expect(applyFix(input, { 'ejs-templates/no-multiline-tags': 'error' })).toBe(
       '<%_ if (x) { _%>\n<%_ doWork(); _%>\n<%_ } _%>',
     );
   });
@@ -839,27 +849,27 @@ describe('autofix: no-multiline-tags', () => {
 // Rule: ejs-indent – violations
 // ---------------------------------------------------------------------------
 
-describe('rule: templates/indent', () => {
+describe('rule: ejs-templates/indent', () => {
   test('flags a standalone <%_ _%> tag with wrong indentation', () => {
     const input = '<%_ if (x) { _%>\n    <%_ doWork(); _%>\n<%_ } _%>';
-    const msgs = lint(input, { 'templates/indent': 'error' });
-    expect(msgs.filter((m) => m.ruleId === 'templates/indent').length).toBeGreaterThan(0);
+    const msgs = lint(input, { 'ejs-templates/indent': 'error' });
+    expect(msgs.filter((m) => m.ruleId === 'ejs-templates/indent').length).toBeGreaterThan(0);
   });
 
   test('does not flag tags with correct brace-depth indentation', () => {
     const input = '<%_ if (x) { _%>\n  <%_ doWork(); _%>\n<%_ } _%>';
-    const msgs = lint(input, { 'templates/indent': 'error' });
-    expect(msgs.filter((m) => m.ruleId === 'templates/indent')).toHaveLength(0);
+    const msgs = lint(input, { 'ejs-templates/indent': 'error' });
+    expect(msgs.filter((m) => m.ruleId === 'ejs-templates/indent')).toHaveLength(0);
   });
 
   test('does not flag inline (non-standalone) tags', () => {
-    const msgs = lint('Hello <%_ name _%>!', { 'templates/indent': 'error' });
-    expect(msgs.filter((m) => m.ruleId === 'templates/indent')).toHaveLength(0);
+    const msgs = lint('Hello <%_ name _%>!', { 'ejs-templates/indent': 'error' });
+    expect(msgs.filter((m) => m.ruleId === 'ejs-templates/indent')).toHaveLength(0);
   });
 
   test('does not flag non-slurp tags', () => {
-    const msgs = lint('<% if (x) { %>\n    <% doWork(); %>\n<% } %>', { 'templates/indent': 'error' });
-    expect(msgs.filter((m) => m.ruleId === 'templates/indent')).toHaveLength(0);
+    const msgs = lint('<% if (x) { %>\n    <% doWork(); %>\n<% } %>', { 'ejs-templates/indent': 'error' });
+    expect(msgs.filter((m) => m.ruleId === 'ejs-templates/indent')).toHaveLength(0);
   });
 });
 
@@ -870,49 +880,49 @@ describe('rule: templates/indent', () => {
 describe('autofix: indent', () => {
   test('strips over-indentation from a depth-1 tag', () => {
     const input = '<%_ if (x) { _%>\n    <%_ doWork(); _%>\n<%_ } _%>';
-    expect(applyFix(input, { 'templates/indent': 'error' })).toBe(
+    expect(applyFix(input, { 'ejs-templates/indent': 'error' })).toBe(
       '<%_ if (x) { _%>\n  <%_ doWork(); _%>\n<%_ } _%>',
     );
   });
 
   test('adds indentation to an under-indented depth-1 tag', () => {
     const input = '<%_ if (x) { _%>\n<%_ doWork(); _%>\n<%_ } _%>';
-    expect(applyFix(input, { 'templates/indent': 'error' })).toBe(
+    expect(applyFix(input, { 'ejs-templates/indent': 'error' })).toBe(
       '<%_ if (x) { _%>\n  <%_ doWork(); _%>\n<%_ } _%>',
     );
   });
 
   test('correctly indents closing tag (depth goes back to 0)', () => {
     const input = '<%_ if (x) { _%>\n  <%_ doWork(); _%>\n  <%_ } _%>';
-    expect(applyFix(input, { 'templates/indent': 'error' })).toBe(
+    expect(applyFix(input, { 'ejs-templates/indent': 'error' })).toBe(
       '<%_ if (x) { _%>\n  <%_ doWork(); _%>\n<%_ } _%>',
     );
   });
 
   test('handles two-level nesting', () => {
     const input = '<%_ if (a) { _%>\n<%_ if (b) { _%>\n<%_ doWork(); _%>\n<%_ } _%>\n<%_ } _%>';
-    expect(applyFix(input, { 'templates/indent': 'error' })).toBe(
+    expect(applyFix(input, { 'ejs-templates/indent': 'error' })).toBe(
       '<%_ if (a) { _%>\n  <%_ if (b) { _%>\n    <%_ doWork(); _%>\n  <%_ } _%>\n<%_ } _%>',
     );
   });
 
   test('fix is idempotent', () => {
     const input = '<%_ if (x) { _%>\n<%_ doWork(); _%>\n<%_ } _%>';
-    const first = applyFix(input, { 'templates/indent': 'error' });
-    const second = applyFix(first, { 'templates/indent': 'error' });
+    const first = applyFix(input, { 'ejs-templates/indent': 'error' });
+    const second = applyFix(first, { 'ejs-templates/indent': 'error' });
     expect(second).toBe(first);
   });
 
   test('does not move inline tags', () => {
     const input = 'Hello <%_ name _%>!';
-    expect(applyFix(input, { 'templates/indent': 'error' })).toBe(input);
+    expect(applyFix(input, { 'ejs-templates/indent': 'error' })).toBe(input);
   });
 
   test('brace depth tracks <% %> structural tags too', () => {
     // A structural `<% if (x) { %>` (code type) increments brace depth,
     // so the following <%_ %>  slurp tag should be indented.
     const input = '<% if (x) { %>\n<%_ doWork(); _%>\n<% } %>';
-    expect(applyFix(input, { 'templates/indent': 'error' })).toBe('<% if (x) { %>\n  <%_ doWork(); _%>\n<% } %>');
+    expect(applyFix(input, { 'ejs-templates/indent': 'error' })).toBe('<% if (x) { %>\n  <%_ doWork(); _%>\n<% } %>');
   });
 });
 
@@ -946,24 +956,24 @@ describe('formatting fixture tests', () => {
 // Rule: prefer-slurp-multiline
 // ---------------------------------------------------------------------------
 
-describe('rule: templates/prefer-slurp-multiline', () => {
+describe('rule: ejs-templates/prefer-slurp-multiline', () => {
   test('flags a multiline <% %> code tag', () => {
-    const msgs = lint('<%\n  if (x) {\n%>', { 'templates/prefer-slurp-multiline': 'error' });
-    expect(msgs.filter((m) => m.ruleId === 'templates/prefer-slurp-multiline').length).toBeGreaterThan(0);
+    const msgs = lint('<%\n  if (x) {\n%>', { 'ejs-templates/prefer-slurp-multiline': 'error' });
+    expect(msgs.filter((m) => m.ruleId === 'ejs-templates/prefer-slurp-multiline').length).toBeGreaterThan(0);
   });
 
   test('flags a multiline code-slurpable tag', () => {
-    const msgs = lint('<%\n  doWork();\n%>', { 'templates/prefer-slurp-multiline': 'error' });
-    expect(msgs.filter((m) => m.ruleId === 'templates/prefer-slurp-multiline').length).toBeGreaterThan(0);
+    const msgs = lint('<%\n  doWork();\n%>', { 'ejs-templates/prefer-slurp-multiline': 'error' });
+    expect(msgs.filter((m) => m.ruleId === 'ejs-templates/prefer-slurp-multiline').length).toBeGreaterThan(0);
   });
 
   test('does not flag single-line <% %> tag', () => {
-    const msgs = lint('<% doWork(); %>', { 'templates/prefer-slurp-multiline': 'error' });
+    const msgs = lint('<% doWork(); %>', { 'ejs-templates/prefer-slurp-multiline': 'error' });
     expect(msgs).toHaveLength(0);
   });
 
   test('does not flag multiline <%_ _%> tag (already slurping)', () => {
-    const msgs = lint('<%_\n  if (x) {\n_%>', { 'templates/prefer-slurp-multiline': 'error' });
+    const msgs = lint('<%_\n  if (x) {\n_%>', { 'ejs-templates/prefer-slurp-multiline': 'error' });
     expect(msgs).toHaveLength(0);
   });
 });
@@ -974,20 +984,20 @@ describe('rule: templates/prefer-slurp-multiline', () => {
 
 describe('autofix: prefer-slurp-multiline', () => {
   test('converts multiline <% %> to <%_ _%> (content unchanged)', () => {
-    expect(applyFix('<%\n  if (x) {\n%>', { 'templates/prefer-slurp-multiline': 'error' })).toBe(
+    expect(applyFix('<%\n  if (x) {\n%>', { 'ejs-templates/prefer-slurp-multiline': 'error' })).toBe(
       '<%_\n  if (x) {\n_%>',
     );
   });
 
   test('does not change multiline <%_ _%> (already slurping)', () => {
     const input = '<%_\n  if (x) {\n_%>';
-    expect(applyFix(input, { 'templates/prefer-slurp-multiline': 'error' })).toBe(input);
+    expect(applyFix(input, { 'ejs-templates/prefer-slurp-multiline': 'error' })).toBe(input);
   });
 
   test('prefer-slurp-multiline then no-multiline-tags collapses correctly', () => {
     const result = applyFix('<%\n  if (x) {\n%>', {
-      'templates/prefer-slurp-multiline': 'error',
-      'templates/no-multiline-tags': 'error',
+      'ejs-templates/prefer-slurp-multiline': 'error',
+      'ejs-templates/no-multiline-tags': 'error',
     });
     expect(result).toBe('<%_ if (x) { _%>');
   });
@@ -997,19 +1007,19 @@ describe('autofix: prefer-slurp-multiline', () => {
 // Rule: slurp-newline
 // ---------------------------------------------------------------------------
 
-describe('rule: templates/slurp-newline', () => {
+describe('rule: ejs-templates/slurp-newline', () => {
   test('flags an inline <%_ _%> tag (not standalone)', () => {
-    const msgs = lint('text<%_ doWork(); _%>', { 'templates/slurp-newline': 'error' });
-    expect(msgs.filter((m) => m.ruleId === 'templates/slurp-newline').length).toBeGreaterThan(0);
+    const msgs = lint('text<%_ doWork(); _%>', { 'ejs-templates/slurp-newline': 'error' });
+    expect(msgs.filter((m) => m.ruleId === 'ejs-templates/slurp-newline').length).toBeGreaterThan(0);
   });
 
   test('does not flag a standalone <%_ _%> tag', () => {
-    const msgs = lint('<%_ doWork(); _%>', { 'templates/slurp-newline': 'error' });
+    const msgs = lint('<%_ doWork(); _%>', { 'ejs-templates/slurp-newline': 'error' });
     expect(msgs).toHaveLength(0);
   });
 
   test('does not flag a standalone indented <%_ _%> tag', () => {
-    const msgs = lint('  <%_ doWork(); _%>', { 'templates/slurp-newline': 'error' });
+    const msgs = lint('  <%_ doWork(); _%>', { 'ejs-templates/slurp-newline': 'error' });
     expect(msgs).toHaveLength(0);
   });
 });
@@ -1020,14 +1030,14 @@ describe('rule: templates/slurp-newline', () => {
 
 describe('autofix: slurp-newline', () => {
   test('inserts newline before inline slurp tag', () => {
-    expect(applyFix('text<%_ doWork(); _%>', { 'templates/slurp-newline': 'error' })).toBe(
+    expect(applyFix('text<%_ doWork(); _%>', { 'ejs-templates/slurp-newline': 'error' })).toBe(
       'text\n<%_ doWork(); _%>',
     );
   });
 
   test('does not change standalone slurp tag', () => {
     const input = '<%_ doWork(); _%>';
-    expect(applyFix(input, { 'templates/slurp-newline': 'error' })).toBe(input);
+    expect(applyFix(input, { 'ejs-templates/slurp-newline': 'error' })).toBe(input);
   });
 });
 
