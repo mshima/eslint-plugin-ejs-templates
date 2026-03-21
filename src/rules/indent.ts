@@ -38,7 +38,7 @@ export const indent: Rule.RuleModule = {
     fixable: 'whitespace',
     docs: {
       description: 'Enforce brace-depth indentation on standalone <%_ _%> tags',
-      url: 'https://github.com/mshima/prettier-plugin-templates#indent',
+      url: 'https://github.com/mshima/eslint-plugin-ejs-templates#indent',
     },
     messages: {
       indent: 'Incorrect indentation for EJS tag; expected {{expected}} spaces, got {{actual}} spaces.',

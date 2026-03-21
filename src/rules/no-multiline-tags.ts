@@ -42,7 +42,7 @@ export const noMultilineTags: Rule.RuleModule = {
     fixable: 'code',
     docs: {
       description: 'Collapse multiline EJS tags onto a single line (ports ejsCollapseMultiline)',
-      url: 'https://github.com/mshima/prettier-plugin-templates#no-multiline-tags',
+      url: 'https://github.com/mshima/eslint-plugin-ejs-templates#no-multiline-tags',
     },
     messages: {
       noMultilineTags: 'EJS tag content spans multiple lines; collapse to a single line.',

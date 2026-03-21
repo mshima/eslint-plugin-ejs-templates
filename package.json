@@ -9,13 +9,13 @@
     "template",
     "processor"
   ],
-  "homepage": "https://github.com/mshima/prettier-plugin-templates#readme",
+  "homepage": "https://github.com/mshima/eslint-plugin-ejs-templates#readme",
   "bugs": {
-    "url": "https://github.com/mshima/prettier-plugin-templates/issues"
+    "url": "https://github.com/mshima/eslint-plugin-ejs-templates/issues"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/mshima/prettier-plugin-templates.git"
+    "url": "git+https://github.com/mshima/eslint-plugin-ejs-templates.git"
   },
   "license": "Apache-2.0",
   "author": "",

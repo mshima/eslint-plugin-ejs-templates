@@ -22,7 +22,7 @@ export const preferRaw: Rule.RuleModule = {
     fixable: 'code',
     docs: {
       description: 'Prefer `<%-` (raw output) over `<%=` (HTML-escaped output)',
-      url: 'https://github.com/mshima/prettier-plugin-templates#prefer-raw',
+      url: 'https://github.com/mshima/eslint-plugin-ejs-templates#prefer-raw',
     },
     messages: {
       preferRaw: 'Prefer `<%-` (raw / unescaped output) over `<%=` (HTML-escaped output).',
