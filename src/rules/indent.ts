@@ -1,4 +1,4 @@
-// Copyright 2024 The eslint-plugin-templates Authors
+// Copyright 2024 The eslint-plugin-ejs-templates Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -32,16 +32,16 @@ import type { Rule } from 'eslint';
  * <%_ } _%>
  * ```
  */
-export const ejsIndent: Rule.RuleModule = {
+export const indent: Rule.RuleModule = {
   meta: {
     type: 'layout',
     fixable: 'whitespace',
     docs: {
-      description: 'Enforce brace-depth indentation on standalone <%_ _%> tags (ports ejsIndent)',
-      url: 'https://github.com/mshima/prettier-plugin-templates#ejs-indent',
+      description: 'Enforce brace-depth indentation on standalone <%_ _%> tags',
+      url: 'https://github.com/mshima/prettier-plugin-templates#indent',
     },
     messages: {
-      ejsIndent: 'Incorrect indentation for EJS tag; expected {{expected}} spaces, got {{actual}} spaces.',
+      indent: 'Incorrect indentation for EJS tag; expected {{expected}} spaces, got {{actual}} spaces.',
     },
     schema: [],
   },
@@ -55,7 +55,7 @@ export const ejsIndent: Rule.RuleModule = {
           if (comment.type === 'Line' && comment.value.trim() === '@ejs-tag:slurp-needs-indent') {
             context.report({
               loc: comment.loc!,
-              messageId: 'ejsIndent',
+              messageId: 'indent',
               data: {
                 // The exact indent values are not available in the virtual
                 // code; use generic placeholders so the message is still

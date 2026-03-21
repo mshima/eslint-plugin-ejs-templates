@@ -66,6 +66,20 @@ function splitLines(raw: string): string[] {
 // Function-wrapper helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * Sentinel text written by the `prefer-slurp-multiline` fix.
+ * Using a non-empty distinct value lets `translateFix` tell this sentinel
+ * apart from the generic `''` sentinel used by all other plugin rules.
+ */
+export const SENTINEL_PREFER_SLURP_MULTILINE = 'PREFER_SLURP_MULTILINE';
+
+/**
+ * Sentinel text written by the `slurp-newline` fix.
+ */
+export const SENTINEL_SLURP_NEWLINE = 'SLURP_NEWLINE';
+
+
+
 /** Opening line of the function wrapper injected into every virtual block. */
 const WRAPPER_OPEN = '(function() {\n';
 
@@ -128,12 +142,15 @@ export interface TagBlock {
    *
    * Structure:
    * ```
-   * Line 1:  //@ejs-tag:<type>               ← type marker comment
-   * Line 2:  (function() {                   ← function wrapper open
-   * Line 3+: [synthetic prefix lines]        ← brace-balancing prefix (0 or more)
-   * Line P+: <raw JS code from the tag>      ← block.originalLine  (col shifted)
-   * Line Q+: [synthetic suffix lines]        ← brace-balancing suffix (0 or more)
-   * Last:    })()                             ← function wrapper close
+   * Line 1:   //@ejs-tag:<type>               ← type marker comment
+   * Line 2:   (function() {                   ← function wrapper open
+   * Line 3+:  [synthetic prefix lines]        ← brace-balancing prefix (0 or more)
+   * Line P:   [virtualBodyPrefix]<codeContent>[virtualBodyInlineSuffix]
+   *           ← block.originalLine  (col shifted by originalColumn + virtualBodyPrefixLen)
+   * Line P+n: <further JS lines>              ← block.originalLine + n
+   * Line Q:   [virtualBodyExtraLine]           ← optional extra line (e.g. `console.log();`)
+   * Line Q+:  [synthetic suffix lines]        ← brace-balancing suffix (0 or more)
+   * Last:     })()                             ← function wrapper close
    * ```
    *
    * The function wrapper makes every tag parseable by ESLint regardless of
@@ -158,9 +175,10 @@ export interface TagBlock {
    * Base types: `escaped-output` | `raw-output` | `slurp` | `code` | `code-slurpable`
    *
    * Suffixes added for violations:
-   * - `-multiline`     → content contains `\n` (triggers `no-multiline-tags` rule)
-   * - `-needs-indent`  → standalone `<%_ _%>` tag whose indentation does not match
-   *                      the brace-depth expected indent (triggers `ejs-indent` rule)
+   * - `-multiline`         → content contains `\n` (triggers `no-multiline-tags` rule)
+   * - `-needs-indent`      → standalone `<%_ _%>` tag whose indentation does not match
+   *                          the brace-depth expected indent (triggers `indent` rule)
+   * - `-not-standalone`    → slurp tag that is inline (triggers `slurp-newline` rule)
    */
   tagType: string;
   /** Raw JS content captured between the delimiters. */
@@ -194,6 +212,35 @@ export interface TagBlock {
    * Empty string when no balancing is needed.
    */
   syntheticSuffix: string;
+  /**
+   * Text prepended to `codeContent` in the virtual body (same line, before the code).
+   * Used for output tags: `'console.log('` so that `<%- foo %>` becomes
+   * `console.log( foo );` in the virtual file, preventing `no-unused-vars` errors.
+   * Empty string for non-output tags.
+   */
+  virtualBodyPrefix: string;
+  /**
+   * Number of characters in `virtualBodyPrefix`.
+   * Used to correct column offsets when mapping virtual-file positions back to
+   * the original EJS source (subtract this from the virtual column before adding
+   * `originalColumn`).
+   */
+  virtualBodyPrefixLen: number;
+  /**
+   * Text appended to `codeContent` in the virtual body (same line, after the code).
+   * Used to close the `console.log(` call for output tags: `');'`.
+   * Empty string for other tags.
+   */
+  virtualBodyInlineSuffix: string;
+  /**
+   * Optional extra line injected into the virtual body AFTER `codeContent` and
+   * BEFORE `syntheticSuffix`.  Used for code/slurp tags whose trimmed content
+   * ends with `{`: appends `console.log();` to suppress ESLint `no-empty` errors
+   * on the opened block.  Empty string when not needed.
+   */
+  virtualBodyExtraLine: string;
+  /** Whether the tag is standalone (only whitespace before it on the same line). */
+  isStandalone: boolean;
 }
 
 /**
@@ -205,14 +252,11 @@ export interface TagBlock {
  * //@ejs-tag:<tagType>
  * (function() {
  * [synthetic prefix — brace-balancing]
- * <raw JS code from the tag>
+ * [virtualBodyPrefix]<raw JS code from the tag>[virtualBodyInlineSuffix]
+ * [virtualBodyExtraLine — e.g. console.log();]
  * [synthetic suffix — brace-balancing]
  * })()
  * ```
- *
- * Wrapping every block in `(function() { … })()` ensures that structural
- * content such as `if (x) {` or `}` is parseable by ESLint.  Synthetic
- * opening/closing braces are injected when the content itself is unbalanced.
  *
  * Tag types (base):
  * - `escaped-output`  – `<%= … %>`
@@ -222,8 +266,9 @@ export interface TagBlock {
  * - `code-slurpable`  – `<% … %>` that can be safely promoted to `<%_ … _%>`
  *
  * Violation suffixes (appended to the base type):
- * - `-multiline`       – content contains newlines (fixable by `no-multiline-tags`)
- * - `-needs-indent`    – wrong brace-depth indentation (fixable by `ejs-indent`)
+ * - `-multiline`         – content contains newlines (fixable by `no-multiline-tags`)
+ * - `-needs-indent`      – wrong brace-depth indentation (fixable by `indent`)
+ * - `-not-standalone`    – slurp tag is inline (fixable by `slurp-newline`)
  */
 export function extractTagBlocks(text: string): TagBlock[] {
   const blocks: TagBlock[] = [];
@@ -277,7 +322,7 @@ export function extractTagBlocks(text: string): TagBlock[] {
       baseType = canConvertToSlurping(codeContent) ? 'code-slurpable' : 'code';
     }
 
-    // ── Brace-depth tracking (for ejs-indent) ─────────────────────────────
+    // ── Brace-depth tracking (for indent) ─────────────────────────────────
     // Updated for EVERY non-comment tag so structural `<% if %>` / `<% } %>`
     // tags are included in the depth count even though we won't indent them.
     const oldBraceDepth = braceDepth;
@@ -295,10 +340,37 @@ export function extractTagBlocks(text: string): TagBlock[] {
     let tagType = baseType;
     if (isMultiline) {
       tagType += '-multiline';
+    } else if (isSlurpTag && !isStandalone) {
+      // Slurp tag that is inline (not at the start of its own line).
+      // The `slurp-newline` rule will move it to its own line.
+      tagType = 'slurp-not-standalone';
     } else if (isStandalone && isSlurpTag && lineIndent !== expectedIndent) {
       // Only add needs-indent for single-line slurp tags (multiline ones get
       // fixed by no-multiline-tags first, then re-checked for indent).
       tagType = 'slurp-needs-indent';
+    }
+
+    // ── Virtual body extras (void-expression wrapping) ────────────────────
+    // For output tags: wrap in `void (…);` so the referenced variable counts
+    // as "used" and standard `no-unused-vars` rules don't fire.  We use `void`
+    // (not `console.log`) to avoid introducing new `no-undef` errors for the
+    // `console` global.
+    // For code/slurp tags ending with `{`: append `void 0;` to suppress
+    // `no-empty` errors on the opened block.
+    const isOutputTag = baseType === 'escaped-output' || baseType === 'raw-output';
+    const endsWithOpenBrace = !isMultiline && codeContent.trim().endsWith('{');
+
+    let virtualBodyPrefix = '';
+    let virtualBodyPrefixLen = 0;
+    let virtualBodyInlineSuffix = '';
+    let virtualBodyExtraLine = '';
+
+    if (!isMultiline && isOutputTag) {
+      virtualBodyPrefix = 'void (';
+      virtualBodyPrefixLen = virtualBodyPrefix.length;
+      virtualBodyInlineSuffix = ');';
+    } else if (endsWithOpenBrace) {
+      virtualBodyExtraLine = '\nvoid 0;';
     }
 
     // ── Function wrapper (brace balancing) ───────────────────────────────
@@ -306,7 +378,9 @@ export function extractTagBlocks(text: string): TagBlock[] {
     // structural content (e.g. `if (x) {`, `}`, `} else {`) is parseable
     // by ESLint.  Synthetic prefix/suffix braces balance any mismatch.
     const { syntheticPrefix, syntheticPrefixLineCount, syntheticSuffix } = buildFunctionWrapper(codeContent);
-    const virtualCode = `//@ejs-tag:${tagType}\n${WRAPPER_OPEN}${syntheticPrefix}${codeContent}${syntheticSuffix}\n})()`;
+    const virtualCode =
+      `//@ejs-tag:${tagType}\n${WRAPPER_OPEN}${syntheticPrefix}` +
+      `${virtualBodyPrefix}${codeContent}${virtualBodyInlineSuffix}${virtualBodyExtraLine}${syntheticSuffix}\n})()`;
 
     blocks.push({
       virtualCode,
@@ -325,6 +399,11 @@ export function extractTagBlocks(text: string): TagBlock[] {
       syntheticPrefix,
       syntheticPrefixLineCount,
       syntheticSuffix,
+      virtualBodyPrefix,
+      virtualBodyPrefixLen,
+      virtualBodyInlineSuffix,
+      virtualBodyExtraLine,
+      isStandalone,
     });
   }
 
@@ -340,12 +419,14 @@ export function extractTagBlocks(text: string): TagBlock[] {
  *
  * Virtual file structure:
  * ```
- * Line 1:  //@ejs-tag:<type>                ← type marker comment
- * Line 2:  (function() {                    ← wrapper open
- * Line 3…: [synthetic prefix lines]         ← 0 or more (syntheticPrefixLineCount)
- * Line P:  <first line of JS>               ← block.originalLine  (col shifted)
- * Line P+n:<further JS lines>               ← block.originalLine + n
- * Line Q…: [synthetic suffix lines + `))()`]← filtered out
+ * Line 1:   //@ejs-tag:<type>                ← type marker comment
+ * Line 2:   (function() {                    ← wrapper open
+ * Line 3…:  [synthetic prefix lines]         ← 0 or more (syntheticPrefixLineCount)
+ * Line P:   [virtualBodyPrefix]<first JS>[virtualBodyInlineSuffix]
+ *           ← block.originalLine  (col adjusted by virtualBodyPrefixLen)
+ * Line P+n: <further JS lines>               ← block.originalLine + n
+ * Line Q:   [virtualBodyExtraLine]            ← filtered out (maps to tag position)
+ * Line Q+:  [synthetic suffix lines + `))()`]← filtered out
  * ```
  * where P = 3 + syntheticPrefixLineCount.
  */
@@ -364,21 +445,31 @@ function mapMessage(msg: Linter.LintMessage, block: TagBlock): Linter.LintMessag
   // How many lines does codeContent occupy?  A trailing '\n' does not add an
   // extra logical line — it just means the next character (the wrapper close
   // or synthetic suffix) starts on a new line.
-  const codeLineCount = block.codeContent.split('\n').length - (block.codeContent.endsWith('\n') ? 1 : 0);
+  const codeLineCount =
+    block.codeContent.split('\n').length - (block.codeContent.endsWith('\n') ? 1 : 0);
 
   if (codeLineIndex >= codeLineCount) {
-    // Message is on a synthetic suffix or wrapper-close line; map to tag position.
+    // Message is on a virtualBodyExtraLine, synthetic suffix, or wrapper-close
+    // line; map to tag position.
     return { ...msg, line: block.tagLine, column: block.tagColumn };
   }
 
   const originalLine = block.originalLine + codeLineIndex;
-  const originalColumn = codeLineIndex === 0 ? msg.column + block.originalColumn : msg.column;
+  // For the first code line, subtract virtualBodyPrefixLen so the column
+  // points into codeContent rather than into e.g. `console.log(`.
+  const originalColumn =
+    codeLineIndex === 0
+      ? msg.column - block.virtualBodyPrefixLen + block.originalColumn
+      : msg.column;
   const mapped: Linter.LintMessage = { ...msg, line: originalLine, column: originalColumn };
 
   if (msg.endLine !== undefined) {
     const endCodeLineIndex = msg.endLine - codeStartLine;
     mapped.endLine = block.originalLine + endCodeLineIndex;
-    mapped.endColumn = endCodeLineIndex === 0 ? (msg.endColumn ?? 0) + block.originalColumn : msg.endColumn;
+    mapped.endColumn =
+      endCodeLineIndex === 0
+        ? (msg.endColumn ?? 0) - block.virtualBodyPrefixLen + block.originalColumn
+        : msg.endColumn;
   }
 
   return mapped;
@@ -393,15 +484,22 @@ function mapMessage(msg: Linter.LintMessage, block: TagBlock): Linter.LintMessag
  *
  * Algorithm:
  * 1. Split content into trimmed non-empty lines.
- * 2. Join continuation lines — a line that starts with `.` is appended to
- *    the previous line without a space (handles chained method calls such as
- *    `'foo.bar'\n.split()` → `'foo.bar'.split()`).
- * 3. Each resulting logical phrase becomes its own single-line EJS tag.
+ * 2. Accumulate lines, joining them with a space (or no space for `.` continuation).
+ * 3. Emit a new tag whenever the accumulated content ends with `;`, `}` or `{`.
+ *    Lines that do NOT end with one of those characters are folded into the next
+ *    line (continuation).  Any remaining accumulated content after the last
+ *    statement-terminator is emitted as a final tag.
  *
  * Examples:
- * - `if (generateSpringAuditor) {\n` → one phrase → `<%_ if (generateSpringAuditor) { _%>`
- * - `const x = 1;\n  const y = 2;` → two phrases → two tags
- * - `'foo.bar'\n.split();` → joined to one phrase → one tag
+ * ```
+ * if (x) {\n  doWork();\n}
+ * ```
+ * → `<%_ if (x) { _%>`, `<%_ doWork(); _%>`, `<%_ } _%>`
+ *
+ * ```
+ * const arr = 'foo'\n  .split();\n const y = 2;
+ * ```
+ * → `<%_ const arr = 'foo'.split(); _%>`, `<%_ const y = 2; _%>`  (dot-continuation joined)
  */
 function buildCollapsedTag(block: TagBlock): string {
   const rawLines = splitLines(block.codeContent);
@@ -409,23 +507,42 @@ function buildCollapsedTag(block: TagBlock): string {
     return `${block.openDelim} ${block.closeDelim}`;
   }
 
-  // Join continuation lines (dot-prefix) into logical phrases.
-  const phrases: string[] = [];
+  const tags: string[] = [];
+  let accumulated = '';
+
   for (const line of rawLines) {
-    if (phrases.length > 0 && line.startsWith('.')) {
-      phrases[phrases.length - 1] += line;
+    if (accumulated.length === 0) {
+      accumulated = line;
+    } else if (line.startsWith('.')) {
+      // Dot-continuation: join without space (chained method / property access).
+      accumulated += line;
     } else {
-      phrases.push(line);
+      accumulated += ` ${line}`;
+    }
+
+    // Emit a tag whenever the accumulated content ends with a statement boundary.
+    if (accumulated.endsWith(';') || accumulated.endsWith('}') || accumulated.endsWith('{')) {
+      tags.push(accumulated);
+      accumulated = '';
     }
   }
 
-  if (phrases.length === 1) {
-    return `${block.openDelim} ${phrases[0]} ${block.closeDelim}`;
+  // Flush any remaining content (lines that don't end with a boundary char).
+  if (accumulated.length > 0) {
+    tags.push(accumulated);
   }
 
-  // Multiple phrases → one tag per phrase, indented like the original.
-  return phrases
-    .map((phrase, i) => `${i === 0 ? '' : block.lineIndent}${block.openDelim} ${phrase} ${block.closeDelim}`)
+  if (tags.length === 0) {
+    return `${block.openDelim} ${block.closeDelim}`;
+  }
+
+  if (tags.length === 1) {
+    return `${block.openDelim} ${tags[0]} ${block.closeDelim}`;
+  }
+
+  // Multiple tags → one per statement, indented like the original tag.
+  return tags
+    .map((tag, i) => `${i === 0 ? '' : block.lineIndent}${block.openDelim} ${tag} ${block.closeDelim}`)
     .join('\n');
 }
 
@@ -433,24 +550,29 @@ function buildCollapsedTag(block: TagBlock): string {
  * Translate an ESLint fix object from the virtual JS code space back to the
  * original EJS source space.
  *
- * Two fix kinds are supported:
+ * Three fix kinds are supported:
  *
  * **Sentinel fixes** (from plugin rules): the plugin rules report a fix that
- * replaces the virtual marker comment (`//@ejs-tag:<type>`) with an empty
- * string.  Those fixes always start at offset 0 and have `text === ''`.  They
- * are translated using the `TagBlock` metadata to produce a meaningful
- * replacement in the original EJS source.
+ * replaces the virtual marker comment (`//@ejs-tag:<type>`) with either an
+ * empty string or a rule-specific sentinel text.  Those fixes always start at
+ * offset 0.  They are translated using the `TagBlock` metadata to produce a
+ * meaningful replacement in the original EJS source.
+ *
+ * - Generic sentinel (`text === ''`): used by `prefer-raw`, `prefer-slurping-codeonly`,
+ *   `no-multiline-tags`, `indent`.
+ * - `SENTINEL_PREFER_SLURP_MULTILINE`: used by `prefer-slurp-multiline` to avoid
+ *   collision with `no-multiline-tags` for `code-multiline`/`code-slurpable-multiline`
+ *   tag types.
+ * - `SENTINEL_SLURP_NEWLINE`: used by `slurp-newline`.
  *
  * **General JS fixes** (from standard ESLint rules such as `no-var`,
  * `prefer-const`, etc.): the fix offsets are positions within the virtual
- * code's body (the `codeContent` portion, after the marker line, the wrapper
- * open `(function() {\n`, and any synthetic prefix).  They are translated by
- * mapping the virtual code offsets back to the corresponding positions in the
- * original EJS source:
+ * code's `codeContent` portion.  They are translated by mapping the virtual
+ * code offsets back to the corresponding positions in the original EJS source:
  *
  * ```
- * codeBodyStart = markerLen + wrapperOpenLen + syntheticPrefix.length
- * originalOffset = tagOffset + openDelim.length + (virtualOffset - codeBodyStart)
+ * codeContentStart = markerLen + wrapperOpenLen + syntheticPrefix.length + virtualBodyPrefixLen
+ * originalOffset   = tagOffset + openDelim.length + (virtualOffset - codeContentStart)
  * ```
  */
 function translateFix(
@@ -458,18 +580,36 @@ function translateFix(
   block: TagBlock,
 ): { range: [number, number]; text: string } | null {
   // ── Sentinel fix detection ─────────────────────────────────────────────
-  // Plugin rules use fixer.replaceTextRange([comment.range![0], comment.range![1]], '')
-  // which always starts at 0 (the marker comment is at the top of the virtual
-  // file) and replaces with empty text.
-  const isSentinelFix = fix.range[0] === 0 && fix.text === '';
+  // All plugin-rule sentinels start at offset 0 in the virtual file.
+  if (fix.range[0] !== 0) {
+    // Fall through to the general JS fix handler below.
+  } else if (fix.text === SENTINEL_PREFER_SLURP_MULTILINE) {
+    // prefer-slurp-multiline: change multiline `<% … %>` → `<%_ … _%>` (content unchanged)
+    if (block.tagType === 'code-multiline' || block.tagType === 'code-slurpable-multiline') {
+      return {
+        range: [block.tagOffset, block.tagOffset + block.tagLength],
+        text: `<%_${block.codeContent}_%>`,
+      };
+    }
+    return null;
+  } else if (fix.text === SENTINEL_SLURP_NEWLINE) {
+    // slurp-newline: insert a newline before a non-standalone slurp tag
+    if (block.tagType === 'slurp-not-standalone') {
+      return {
+        range: [block.tagOffset, block.tagOffset],
+        text: '\n',
+      };
+    }
+    return null;
+  } else if (fix.text === '') {
+    // ── Generic sentinel (fix.text === '') ────────────────────────────────
 
-  if (isSentinelFix) {
     // prefer-raw: change `<%=` → `<%-`
     if (block.tagType === 'escaped-output') {
       return { range: [block.tagOffset + 2, block.tagOffset + 3], text: '-' };
     }
 
-    // prefer-slurping: change `<% … %>` → `<%_ … _%>` (content unchanged)
+    // prefer-slurping-codeonly: change `<% … %>` → `<%_ … _%>` (content unchanged)
     if (block.tagType === 'code-slurpable') {
       return {
         range: [block.tagOffset, block.tagOffset + block.tagLength],
@@ -485,7 +625,7 @@ function translateFix(
       };
     }
 
-    // ejs-indent: fix the whitespace before a standalone <%_ _%> tag
+    // indent: fix the whitespace before a standalone <%_ _%> tag
     if (block.tagType === 'slurp-needs-indent') {
       // Replace the line prefix (from line start to tag start) with the expected indent.
       const indentStart = block.tagOffset - block.tagColumn;
@@ -496,31 +636,42 @@ function translateFix(
     }
 
     return null;
+  } else {
+    // Not a recognised sentinel; fall through to general JS fix handler.
+  }
+
+  if (fix.range[0] === 0 && fix.text !== '') {
+    // Non-empty text at range[0]=0 that is not a recognised sentinel – skip.
+    return null;
   }
 
   // ── General JS fix ─────────────────────────────────────────────────────
-  // The virtual code is:
-  //   '//@ejs-tag:<tagType>\n(function() {\n<syntheticPrefix><codeContent><syntheticSuffix>})()'
+  // The virtual code body is:
+  //   <syntheticPrefix><virtualBodyPrefix><codeContent><virtualBodyInlineSuffix>
+  //                                                    <virtualBodyExtraLine>
+  //                                                    <syntheticSuffix>
   //
-  // codeContent starts at offset:
-  //   markerLen + wrapperOpenLen + syntheticPrefix.length
+  // codeContent starts at byte offset:
+  //   codeContentStart = markerLen + WRAPPER_OPEN.length + syntheticPrefix.length + virtualBodyPrefixLen
   //
-  // where:
-  //   markerLen    = '//@ejs-tag:'.length + tagType.length + 1  (the +1 is for '\n')
-  //   wrapperOpenLen = '(function() {\n'.length = 14
+  // where markerLen = '//@ejs-tag:'.length + tagType.length + 1  (+1 for '\n')
   const markerLen = '//@ejs-tag:'.length + block.tagType.length + 1;
-  const wrapperOpenLen = WRAPPER_OPEN.length; // derived from the constant, not a magic number
-  const codeBodyStart = markerLen + wrapperOpenLen + block.syntheticPrefix.length;
-  const codeBodyEnd = codeBodyStart + block.codeContent.length;
+  const wrapperOpenLen = WRAPPER_OPEN.length;
+  const codeContentStart =
+    markerLen + wrapperOpenLen + block.syntheticPrefix.length + block.virtualBodyPrefixLen;
+  const codeContentEnd = codeContentStart + block.codeContent.length;
 
   // Guard: only translate fixes that target the actual codeContent region.
-  if (fix.range[0] < codeBodyStart || fix.range[0] >= codeBodyEnd) {
+  if (fix.range[0] < codeContentStart || fix.range[0] >= codeContentEnd) {
     return null;
   }
 
   const codeStartOffset = block.tagOffset + block.openDelim.length;
   return {
-    range: [codeStartOffset + (fix.range[0] - codeBodyStart), codeStartOffset + (fix.range[1] - codeBodyStart)],
+    range: [
+      codeStartOffset + (fix.range[0] - codeContentStart),
+      codeStartOffset + (fix.range[1] - codeContentStart),
+    ],
     text: fix.text,
   };
 }

@@ -1,4 +1,4 @@
-// Copyright 2024 The eslint-plugin-templates Authors
+// Copyright 2024 The eslint-plugin-ejs-templates Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -8,10 +8,12 @@
 
 import { processor } from './processor.js';
 import { preferRaw } from './rules/prefer-raw.js';
-import { preferSlurping } from './rules/prefer-slurping.js';
+import { preferSlurpingCodeonly } from './rules/prefer-slurping-codeonly.js';
+import { preferSlurpMultiline } from './rules/prefer-slurp-multiline.js';
 import { noMultilineTags } from './rules/no-multiline-tags.js';
-import { ejsIndent } from './rules/ejs-indent.js';
-import { Config } from 'eslint/config';
+import { slurpNewline } from './rules/slurp-newline.js';
+import { indent } from './rules/indent.js';
+import { type Config } from 'eslint/config';
 
 // ---------------------------------------------------------------------------
 // Plugin definition (without configs, to avoid circular reference)
@@ -21,7 +23,7 @@ const pluginName = 'templates';
 
 const pluginCore = {
   meta: {
-    name: 'eslint-plugin-templates',
+    name: 'eslint-plugin-ejs-templates',
     version: '0.0.1',
   },
   processors: {
@@ -29,9 +31,11 @@ const pluginCore = {
   },
   rules: {
     'prefer-raw': preferRaw,
-    'prefer-slurping': preferSlurping,
+    'prefer-slurping-codeonly': preferSlurpingCodeonly,
+    'prefer-slurp-multiline': preferSlurpMultiline,
     'no-multiline-tags': noMultilineTags,
-    'ejs-indent': ejsIndent,
+    'slurp-newline': slurpNewline,
+    indent,
   },
 };
 
@@ -40,19 +44,19 @@ const pluginCore = {
 // ---------------------------------------------------------------------------
 
 /**
- * Recommended config: applies the EJS processor to all `*.ejs` files.
+ * Base config: applies the EJS processor to all `*.ejs` files.
  * No rules are enabled by default – opt in to individual rules as needed.
  *
  * @example
  * ```js
  * // eslint.config.js
- * import templates from 'eslint-plugin-templates';
+ * import templates from 'eslint-plugin-ejs-templates';
  * export default [
- *   ...templates.configs.recommended,
+ *   ...templates.configs.base,
  * ];
  * ```
  */
-const recommended: Config[] = [
+const base: Config[] = [
   {
     files: ['**/*.ejs'],
     plugins: { [pluginName]: pluginCore },
@@ -62,15 +66,13 @@ const recommended: Config[] = [
 
 /**
  * All config: applies the EJS processor to all `*.ejs` files and enables
- * every plugin rule as `'error'`.
+ * every plugin rule as `'error'`.  Rules are listed in recommended order.
  *
  * @example
  * ```js
  * // eslint.config.js
- * import templates from 'eslint-plugin-templates';
- * export default [
- *   ...templates.configs.all,
- * ];
+ * import templates from 'eslint-plugin-ejs-templates';
+ * export default [...templates.configs.all];
  * ```
  */
 const all: Config[] = [
@@ -79,10 +81,12 @@ const all: Config[] = [
     plugins: { [pluginName]: pluginCore },
     processor: `${pluginName}/ejs`,
     rules: {
-      [`${pluginName}/prefer-raw`]: 'error',
-      [`${pluginName}/prefer-slurping`]: 'error',
+      [`${pluginName}/prefer-slurp-multiline`]: 'error',
+      [`${pluginName}/prefer-slurping-codeonly`]: 'error',
       [`${pluginName}/no-multiline-tags`]: 'error',
-      [`${pluginName}/ejs-indent`]: 'error',
+      [`${pluginName}/slurp-newline`]: 'error',
+      [`${pluginName}/indent`]: 'error',
+      [`${pluginName}/prefer-raw`]: 'error',
     },
   },
 ] as const satisfies Config[];
@@ -93,9 +97,9 @@ const all: Config[] = [
 
 const plugin = {
   ...pluginCore,
-  configs: { recommended, all },
+  configs: { base, all },
 };
 
 export default plugin;
 export { processor };
-export { preferRaw, preferSlurping, noMultilineTags, ejsIndent };
+export { preferRaw, preferSlurpingCodeonly, preferSlurpMultiline, noMultilineTags, slurpNewline, indent };

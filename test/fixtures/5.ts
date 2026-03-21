@@ -1,5 +1,5 @@
 /**
- * Fixture 5 – ejs-indent (porting ejsIndent).
+ * Fixture 5 – indent rule (porting ejsIndent).
  *
  * Input has standalone <%_ _%> tags with incorrect (or absent) brace-depth
  * indentation.  Expected output has each tag indented by `brace-depth × 2` spaces.
@@ -26,5 +26,5 @@ export const expected = `<%_ if (skipServer) { _%>
 `;
 
 export const rules = {
-  'templates/ejs-indent': 'error' as const,
+  'templates/indent': 'error' as const,
 };

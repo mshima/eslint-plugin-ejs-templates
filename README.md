@@ -1,4 +1,4 @@
-# eslint-plugin-templates
+# eslint-plugin-ejs-templates
 
 An [ESLint](https://eslint.org/) plugin for [EJS](https://ejs.co/) (Embedded JavaScript) templates.
 
@@ -6,17 +6,19 @@ EJS files are parsed by [tree-sitter-embedded-template](https://github.com/tree-
 
 ## Features
 
-- **EJS processor** – extracts each EJS tag into its own virtual JS block so standard ESLint rules (`no-undef`, `eqeqeq`, …) can inspect the embedded JavaScript
-- **Autofix support** – all four plugin rules are fixable; run `eslint --fix` (or configure your editor) to automatically apply the fixes
-- **`templates/prefer-raw`** – flags `<%= … %>` (HTML-escaped output) and suggests `<%- … %>` (raw output)
-- **`templates/prefer-slurping`** – flags `<% … %>` code tags that can be safely converted to `<%_ … _%>` (whitespace-slurping)
-- **`templates/no-multiline-tags`** – flags EJS tags whose content spans multiple lines and collapses them to a single joined line
-- **`templates/ejs-indent`** – enforces brace-depth–based indentation on standalone `<%_ … _%>` tags
+- **EJS processor** – extracts each EJS tag into its own virtual JS block so standard ESLint rules can inspect the embedded JavaScript
+- **Autofix support** – all plugin rules are fixable; run `eslint --fix` to automatically apply fixes
+- **`templates/prefer-raw`** – flags `<%= … %>` and suggests `<%- … %>`
+- **`templates/prefer-slurping-codeonly`** – flags `<% … %>` code tags that can be safely converted to `<%_ … _%>`
+- **`templates/prefer-slurp-multiline`** – converts multiline `<% … %>` to `<%_ … _%>`
+- **`templates/no-multiline-tags`** – collapses multiline EJS tags to single-line tags
+- **`templates/slurp-newline`** – ensures `<%_ … _%>` tags are on their own line
+- **`templates/indent`** – enforces brace-depth–based indentation on standalone `<%_ … _%>` tags
 
 ## Installation
 
 ```sh
-npm install --save-dev eslint eslint-plugin-templates
+npm install --save-dev eslint eslint-plugin-ejs-templates
 ```
 
 ## Usage
@@ -24,29 +26,53 @@ npm install --save-dev eslint eslint-plugin-templates
 Add the plugin to your ESLint flat config (`eslint.config.js`):
 
 ```js
-import templates from 'eslint-plugin-templates';
+import { defineConfig } from 'eslint/config';
+import templates from 'eslint-plugin-ejs-templates';
+import eslint from '@eslint/js';
 
-export default [
-  // Apply the EJS processor to all *.ejs files and opt in to rules:
-  ...templates.configs.recommended,
+export default defineConfig([
+  // Standard JS rules — note: some rules are incompatible with EJS templates
+  // and must be disabled for *.ejs files.
+  eslint.configs.recommended,
+
+  // Apply the EJS processor to all *.ejs files with no rules (opt-in below):
+  ...templates.configs.base,
+
   {
     files: ['**/*.ejs'],
     rules: {
-      'templates/prefer-raw': 'error',
-      'templates/prefer-slurping': 'error',
+      // Disable rules that are not compatible with EJS virtual blocks:
+      'no-undef': 'off',             // cross-block variable references are unresolvable
+      'no-constant-condition': 'off', // synthetic brace-balancing introduces `if (true) {`
+
+      // Enable EJS-specific rules (apply in this recommended order):
+      'templates/prefer-slurp-multiline': 'error',
+      'templates/prefer-slurping-codeonly': 'error',
       'templates/no-multiline-tags': 'error',
-      'templates/ejs-indent': 'error',
+      'templates/slurp-newline': 'error',
+      'templates/indent': 'error',
+      'templates/prefer-raw': 'error',
     },
   },
-];
+]);
 ```
 
 Or use `configs.all` to enable every rule in one step:
 
 ```js
-import templates from 'eslint-plugin-templates';
+import { defineConfig } from 'eslint/config';
+import templates from 'eslint-plugin-ejs-templates';
 
-export default [...templates.configs.all];
+export default defineConfig([
+  ...templates.configs.all,
+  {
+    files: ['**/*.ejs'],
+    rules: {
+      'no-undef': 'off',
+      'no-constant-condition': 'off',
+    },
+  },
+]);
 ```
 
 Then run ESLint as usual:
@@ -57,14 +83,34 @@ npx eslint "**/*.ejs"
 npx eslint --fix "**/*.ejs"
 ```
 
+> **Note on incompatible rules**
+>
+> The EJS processor lints each tag as a separate virtual JavaScript block.
+> Because of this isolation, certain standard ESLint rules produce false
+> positives and should be disabled for `*.ejs` files:
+>
+> | Rule | Reason |
+> |------|--------|
+> | `no-undef` | Variables defined in one tag cannot be seen by other tags |
+> | `no-constant-condition` | Synthetic `if (true) {` prefixes used for brace-balancing |
+
 ## Rules
+
+Apply rules in the following order for best results:
+
+1. `prefer-slurp-multiline` — convert multiline `<% %>` to `<%_ %>` first
+2. `prefer-slurping-codeonly` — convert single-line `<% %>` to `<%_ %>`
+3. `no-multiline-tags` — collapse remaining multiline tags
+4. `slurp-newline` — ensure slurp tags are on their own line
+5. `indent` — enforce brace-depth indentation
+6. `prefer-raw` — prefer `<%-` over `<%=`
 
 ### `templates/prefer-raw`
 
 Prefers `<%-` (raw / unescaped output) over `<%=` (HTML-escaped output).
 
-|             |                                              |
-| ----------- | -------------------------------------------- |
+| | |
+|---|---|
 | **Fixable** | Yes — `eslint --fix` converts `<%=` to `<%-` |
 
 ```ejs
@@ -75,12 +121,13 @@ Prefers `<%-` (raw / unescaped output) over `<%=` (HTML-escaped output).
 <%- value %>
 ```
 
-### `templates/prefer-slurping`
+### `templates/prefer-slurping-codeonly`
 
-Prefers `<%_ … _%>` (whitespace-slurping) over `<% … %>` for code tags whose content has balanced braces and does not open or close a brace block by itself.
+Prefers `<%_ … _%>` (whitespace-slurping) over `<% … %>` for single-line code
+tags whose content has balanced braces and does not open or close a brace block.
 
-|             |                                                        |
-| ----------- | ------------------------------------------------------ |
+| | |
+|---|---|
 | **Fixable** | Yes — `eslint --fix` converts `<% … %>` to `<%_ … _%>` |
 
 ```ejs
@@ -98,19 +145,40 @@ Tags that open or close brace depth are left unchanged:
 <% } %>                 ← not flagged (closes a block)
 ```
 
+### `templates/prefer-slurp-multiline`
+
+Converts multiline `<% … %>` tags to `<%_ … _%>`. Apply this rule **before**
+`no-multiline-tags` so that multiline `<% %>` tags get their delimiters changed
+before being collapsed.
+
+| | |
+|---|---|
+| **Fixable** | Yes — `eslint --fix` changes `<%` to `<%_` and `%>` to `_%>` |
+
+```ejs
+<!-- ✗ violation -->
+<%
+  if (condition) {
+%>
+
+<!-- ✓ fixed -->
+<%_
+  if (condition) {
+_%>
+```
+
 ### `templates/no-multiline-tags`
 
-Flags EJS tags whose content spans multiple lines. The autofix joins all
-non-empty content lines into a single line. Lines that start with `.` (chained
-method / property access) are joined without a preceding space so that
-`'foo.bar'\n.split()` collapses cleanly to `'foo.bar'.split()`.
+Flags EJS tags whose content spans multiple lines. The autofix splits the content
+into separate single-line tags — one tag per statement boundary (`;`, `}`, `{`).
+Lines starting with `.` are joined to the preceding line (chained method calls).
 
-|             |                                        |
-| ----------- | -------------------------------------- |
+| | |
+|---|---|
 | **Fixable** | Yes — `eslint --fix` collapses the tag |
 
 ```ejs
-<!-- ✗ violation: single content line split across newlines -->
+<!-- ✗ violation: single phrase split across lines -->
 <%_
 if (generateSpringAuditor) {
 _%>
@@ -120,33 +188,57 @@ _%>
 ```
 
 ```ejs
-<!-- ✗ violation: multiple content lines -->
+<!-- ✗ violation: multiple statements -->
 <%_
   const x = 1;
   const y = 2;
 _%>
 
-<!-- ✓ fixed: joined into a single tag -->
-<%_ const x = 1; const y = 2; _%>
+<!-- ✓ fixed: one tag per statement -->
+<%_ const x = 1; _%>
+<%_ const y = 2; _%>
 ```
 
 ```ejs
-<!-- ✗ violation: chained method split across lines -->
+<!-- ✗ violation: block with body and close -->
 <%_
-  const arr = 'foo.bar'
-    .split();
+  if (x) {
+  doWork();
+  }
 _%>
 
-<!-- ✓ fixed: dot-continuation joined without space -->
-<%_ const arr = 'foo.bar'.split(); _%>
+<!-- ✓ fixed: one tag per boundary -->
+<%_ if (x) { _%>
+<%_ doWork(); _%>
+<%_ } _%>
 ```
 
-### `templates/ejs-indent`
+### `templates/slurp-newline`
 
-Enforces brace-depth–based indentation on standalone `<%_ … _%>` tags (two spaces per brace-depth level).
+Ensures `<%_ … _%>` whitespace-slurping tags are on their own line. An inline
+slurp tag will not eat the preceding whitespace as intended. Apply this rule
+**after** `prefer-slurping-*` and **before** `indent`.
 
-|             |                                                     |
-| ----------- | --------------------------------------------------- |
+| | |
+|---|---|
+| **Fixable** | Yes — `eslint --fix` inserts a newline before the tag |
+
+```ejs
+<!-- ✗ violation: slurp tag is inline after other content -->
+some text<%_ doWork(); _%>
+
+<!-- ✓ fixed -->
+some text
+<%_ doWork(); _%>
+```
+
+### `templates/indent`
+
+Enforces brace-depth–based indentation (two spaces per level) on standalone
+`<%_ … _%>` tags.
+
+| | |
+|---|---|
 | **Fixable** | Yes — `eslint --fix` adjusts the leading whitespace |
 
 ```ejs
@@ -161,18 +253,18 @@ Enforces brace-depth–based indentation on standalone `<%_ … _%>` tags (two s
 <%_ } _%>
 ```
 
-## All Supported Delimiters
+## Supported EJS Delimiters
 
-| Delimiter | Meaning                                |
-| --------- | -------------------------------------- |
-| `<%`      | Code (no output)                       |
-| `<%=`     | Output (HTML-escaped)                  |
-| `<%-`     | Output (raw / unescaped)               |
-| `<%_`     | Code, trims preceding whitespace       |
-| `<%#`     | Comment (no output)                    |
-| `%>`      | Standard closing delimiter             |
-| `-%>`     | Closing delimiter, trims trailing `\n` |
-| `_%>`     | Closing delimiter, trims whitespace    |
+| Delimiter | Meaning |
+|-----------|---------|
+| `<%` | Code (no output) |
+| `<%=` | Output (HTML-escaped) |
+| `<%-` | Output (raw / unescaped) |
+| `<%_` | Code, trims preceding whitespace |
+| `<%#` | Comment (no output) |
+| `%>` | Standard closing delimiter |
+| `-%>` | Closing delimiter, trims trailing `\n` |
+| `_%>` | Closing delimiter, trims whitespace |
 
 ## License
 
