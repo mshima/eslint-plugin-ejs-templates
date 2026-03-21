@@ -40,7 +40,8 @@
     "prepublishOnly": "npm run build",
     "pretest": "prettier . --check && eslint .",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "posttest": "npm run typecheck",
+    "typecheck": "tsc -p tsconfig.spec.json --noEmit"
   },
   "dependencies": {
     "tree-sitter-embedded-template": "^0.25.0",

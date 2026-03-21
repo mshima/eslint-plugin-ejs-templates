@@ -78,56 +78,10 @@ export const SENTINEL_PREFER_SLURP_MULTILINE = 'PREFER_SLURP_MULTILINE';
  */
 export const SENTINEL_SLURP_NEWLINE = 'SLURP_NEWLINE';
 
-/** Opening line of the function wrapper injected into every virtual block. */
-const WRAPPER_OPEN = '(function() {\n';
-
-/**
- * Compute the synthetic prefix/suffix strings needed to wrap `codeContent`
- * inside `(function() { … })()` so that the result is parseable JavaScript
- * regardless of brace imbalance in `codeContent`.
- *
- * Algorithm:
- *  1. Walk `codeContent` tracking brace depth and the minimum depth reached.
- *  2. `prefixCount = -minDepth` (number of synthetic opening braces needed to
- *     prevent the content from going below depth 0 inside the function body).
- *  3. `suffixCount = depth + prefixCount` (closing braces needed to re-balance).
- *
- * **Why `if (true) {` for the first prefix brace?**
- * A tag that starts with `}` (e.g. `} else {`) would produce a dangling
- * `else` if we used plain `{` as the prefix: `{ } else { }` is a syntax
- * error because `else` must directly follow an `if` statement's body.
- * Using `if (true) {` makes the pattern `if (true) { } else { }` — valid JS.
- * Subsequent prefix braces (needed for patterns like `} }`) use plain `{`
- * because further `else` branches inside double-closes are not possible.
- *
- * @returns Strings to inject as prefix/suffix and the number of prefix lines.
- */
-function buildFunctionWrapper(codeContent: string): {
-  syntheticPrefix: string;
-  syntheticPrefixLineCount: number;
-  syntheticSuffix: string;
-} {
-  let depth = 0;
-  let minDepth = 0;
-  for (const ch of codeContent) {
-    if (ch === '{') {
-      depth++;
-    } else if (ch === '}') {
-      depth--;
-      if (depth < minDepth) minDepth = depth;
-    }
-  }
-
-  const prefixCount = -minDepth; // synthetic opening braces
-  const suffixCount = depth + prefixCount; // synthetic closing braces
-
-  // First prefix uses `if (true) {` so that `} else {` remains valid JS.
-  // Additional prefixes (for `} }` etc.) use plain `{`.
-  const syntheticPrefix = prefixCount >= 1 ? 'if (true) {\n' + '{\n'.repeat(prefixCount - 1) : '';
-  const syntheticSuffix = '}\n'.repeat(suffixCount);
-
-  return { syntheticPrefix, syntheticPrefixLineCount: prefixCount, syntheticSuffix };
-}
+/** Opening line of the function wrapper injected around the full virtual file. */
+const GLOBAL_VIRTUAL_OPEN = '(function() {\n';
+/** Closing line of the function wrapper injected around the full virtual file. */
+const GLOBAL_VIRTUAL_CLOSE = '\n})();';
 
 // ---------------------------------------------------------------------------
 // Tag-block extraction
@@ -136,23 +90,19 @@ function buildFunctionWrapper(codeContent: string): {
 /** A single extracted EJS tag together with its position in the original file. */
 export interface TagBlock {
   /**
-   * Virtual JS code for this block.
+   * Virtual JS code for this block (original content only — no synthetic braces).
    *
    * Structure:
    * ```
    * Line 1:   //@ejs-tag:<type>               ← type marker comment
-   * Line 2:   (function() {                   ← function wrapper open
-   * Line 3+:  [synthetic prefix lines]        ← brace-balancing prefix (0 or more)
-   * Line P:   [virtualBodyPrefix]<codeContent>[virtualBodyInlineSuffix]
-   *           ← block.originalLine  (col shifted by originalColumn + virtualBodyPrefixLen)
-   * Line P+n: <further JS lines>              ← block.originalLine + n
-   * Line Q:   [virtualBodyExtraLine]           ← optional extra line (e.g. `console.log();`)
-   * Line Q+:  [synthetic suffix lines]        ← brace-balancing suffix (0 or more)
-   * Last:     })()                             ← function wrapper close
+   * Line 2:   [virtualBodyPrefix]<codeContent>[virtualBodyInlineSuffix]
+   *           ← block.originalLine (col adjusted by virtualBodyPrefixLen)
+   * Line 2+n: <further JS lines>              ← block.originalLine + n
+   * Line 2+m: [virtualBodyExtraLine]          ← optional extra line (e.g. `void 0;`)
    * ```
    *
-   * The function wrapper makes every tag parseable by ESLint regardless of
-   * whether the tag content contains unmatched braces.
+   * Brace balancing is done at the **global** level in `preprocess` (not per-block),
+   * so that cross-tag constructs like `forEach(x => { ... })` work correctly.
    */
   virtualCode: string;
   /** 1-based line in the original EJS file where the opening delimiter starts. */
@@ -197,20 +147,6 @@ export interface TagBlock {
    */
   expectedIndent: string;
   /**
-   * Synthetic code inserted before `codeContent` inside the function wrapper
-   * to balance leading `}` characters so the virtual code is parseable.
-   * Empty string when no balancing is needed.
-   */
-  syntheticPrefix: string;
-  /** Number of lines in `syntheticPrefix` (used for virtual-to-original line mapping). */
-  syntheticPrefixLineCount: number;
-  /**
-   * Synthetic code inserted after `codeContent` inside the function wrapper
-   * to balance trailing `{` characters so the virtual code is parseable.
-   * Empty string when no balancing is needed.
-   */
-  syntheticSuffix: string;
-  /**
    * Text prepended to `codeContent` in the virtual body (same line, before the code).
    * Used for output tags: `'console.log('` so that `<%- foo %>` becomes
    * `console.log( foo );` in the virtual file, preventing `no-unused-vars` errors.
@@ -245,15 +181,13 @@ export interface TagBlock {
  * Extract each non-comment EJS tag from `text` as a {@link TagBlock},
  * using tree-sitter-embedded-template for accurate parsing.
  *
- * Each virtual block has the structure:
+ * Each per-tag virtual block has the structure:
  * ```
  * //@ejs-tag:<tagType>
- * (function() {
  * [synthetic prefix — brace-balancing]
  * [virtualBodyPrefix]<raw JS code from the tag>[virtualBodyInlineSuffix]
  * [virtualBodyExtraLine — e.g. console.log();]
  * [synthetic suffix — brace-balancing]
- * })()
  * ```
  *
  * Tag types (base):
@@ -364,21 +298,21 @@ export function extractTagBlocks(text: string): TagBlock[] {
     let virtualBodyExtraLine = '';
 
     if (!isMultiline && isOutputTag) {
-      virtualBodyPrefix = 'void (';
+      virtualBodyPrefix = '';
       virtualBodyPrefixLen = virtualBodyPrefix.length;
-      virtualBodyInlineSuffix = ');';
+      virtualBodyInlineSuffix = ';';
     } else if (endsWithOpenBrace) {
       virtualBodyExtraLine = '\nvoid 0;';
     }
 
-    // ── Function wrapper (brace balancing) ───────────────────────────────
-    // Every virtual block is wrapped in `(function() { … })()` so that
-    // structural content (e.g. `if (x) {`, `}`, `} else {`) is parseable
-    // by ESLint.  Synthetic prefix/suffix braces balance any mismatch.
-    const { syntheticPrefix, syntheticPrefixLineCount, syntheticSuffix } = buildFunctionWrapper(codeContent);
+    // ── Virtual code generation ────────────────────────────────────────────
+    // Original content only — no per-block synthetic braces.  The current
+    // `buildFunctionWrapper` only balances `{`/`}` and ignores `(`/`)` and
+    // `[`/`]`, so it would BREAK cross-tag constructs like
+    // `forEach(x => { ... })`.  Global brace balancing is applied in
+    // `preprocess` instead.
     const virtualCode =
-      `//@ejs-tag:${tagType}\n${WRAPPER_OPEN}${syntheticPrefix}` +
-      `${virtualBodyPrefix}${codeContent}${virtualBodyInlineSuffix}${virtualBodyExtraLine}${syntheticSuffix}\n})()`;
+      `//@ejs-tag:${tagType}\n` + `${virtualBodyPrefix}${codeContent}${virtualBodyInlineSuffix}${virtualBodyExtraLine}`;
 
     blocks.push({
       virtualCode,
@@ -394,9 +328,6 @@ export function extractTagBlocks(text: string): TagBlock[] {
       closeDelim,
       lineIndent,
       expectedIndent,
-      syntheticPrefix,
-      syntheticPrefixLineCount,
-      syntheticSuffix,
       virtualBodyPrefix,
       virtualBodyPrefixLen,
       virtualBodyInlineSuffix,
@@ -415,24 +346,18 @@ export function extractTagBlocks(text: string): TagBlock[] {
 /**
  * Map an ESLint message from the virtual JS file back to the original EJS file.
  *
- * Virtual file structure:
+ * Virtual file structure per block:
  * ```
  * Line 1:   //@ejs-tag:<type>                ← type marker comment
- * Line 2:   (function() {                    ← wrapper open
- * Line 3…:  [synthetic prefix lines]         ← 0 or more (syntheticPrefixLineCount)
- * Line P:   [virtualBodyPrefix]<first JS>[virtualBodyInlineSuffix]
- *           ← block.originalLine  (col adjusted by virtualBodyPrefixLen)
- * Line P+n: <further JS lines>               ← block.originalLine + n
- * Line Q:   [virtualBodyExtraLine]            ← filtered out (maps to tag position)
- * Line Q+:  [synthetic suffix lines + `))()`]← filtered out
+ * Line 2:   [virtualBodyPrefix]<first JS>[virtualBodyInlineSuffix]
+ *           ← block.originalLine (col adjusted by virtualBodyPrefixLen)
+ * Line 2+n: <further JS lines>               ← block.originalLine + n
+ * Line 2+m: [virtualBodyExtraLine]            ← filtered out (maps to tag position)
  * ```
- * where P = 3 + syntheticPrefixLineCount.
  */
 function mapMessage(msg: Linter.LintMessage, block: TagBlock): Linter.LintMessage {
-  // Lines 1 through (2 + syntheticPrefixLineCount) are the marker comment,
-  // wrapper-open line, and any synthetic prefix lines.  Map all of them to
-  // the tag's opening position.
-  const codeStartLine = 3 + block.syntheticPrefixLineCount;
+  // Line 1 is the marker comment; code starts on line 2.
+  const codeStartLine = 2;
 
   if (msg.line < codeStartLine) {
     return { ...msg, line: block.tagLine, column: block.tagColumn };
@@ -564,7 +489,7 @@ function buildCollapsedTag(block: TagBlock): string {
  * code offsets back to the corresponding positions in the original EJS source:
  *
  * ```
- * codeContentStart = markerLen + wrapperOpenLen + syntheticPrefix.length + virtualBodyPrefixLen
+ * codeContentStart = markerLen + virtualBodyPrefixLen
  * originalOffset   = tagOffset + openDelim.length + (virtualOffset - codeContentStart)
  * ```
  */
@@ -640,17 +565,14 @@ function translateFix(
 
   // ── General JS fix ─────────────────────────────────────────────────────
   // The virtual code body is:
-  //   <syntheticPrefix><virtualBodyPrefix><codeContent><virtualBodyInlineSuffix>
-  //                                                    <virtualBodyExtraLine>
-  //                                                    <syntheticSuffix>
+  //   <virtualBodyPrefix><codeContent><virtualBodyInlineSuffix><virtualBodyExtraLine>
   //
   // codeContent starts at byte offset:
-  //   codeContentStart = markerLen + WRAPPER_OPEN.length + syntheticPrefix.length + virtualBodyPrefixLen
+  //   codeContentStart = markerLen + virtualBodyPrefixLen
   //
   // where markerLen = '//@ejs-tag:'.length + tagType.length + 1  (+1 for '\n')
   const markerLen = '//@ejs-tag:'.length + block.tagType.length + 1;
-  const wrapperOpenLen = WRAPPER_OPEN.length;
-  const codeContentStart = markerLen + wrapperOpenLen + block.syntheticPrefix.length + block.virtualBodyPrefixLen;
+  const codeContentStart = markerLen + block.virtualBodyPrefixLen;
   const codeContentEnd = codeContentStart + block.codeContent.length;
 
   // Guard: only translate fixes that target the actual codeContent region.
@@ -669,7 +591,40 @@ function translateFix(
 // Per-file block map
 // ---------------------------------------------------------------------------
 
-const fileBlocksMap = new Map<string, TagBlock[]>();
+interface VirtualBlockSegment {
+  block: TagBlock;
+  /** 1-based start line of this block inside the combined virtual file. */
+  startLine: number;
+  /** 1-based end line of this block inside the combined virtual file. */
+  endLine: number;
+  /** 0-based start offset of this block inside the combined virtual file. */
+  startOffset: number;
+  /** 0-based end offset (exclusive) of this block inside the combined virtual file. */
+  endOffset: number;
+}
+
+const fileBlocksMap = new Map<string, { segments: VirtualBlockSegment[]; globalBraceSuffix: string }>();
+
+function logVirtualCodeOnFatal(
+  filename: string,
+  virtualMessages: Linter.LintMessage[],
+  segments: VirtualBlockSegment[],
+  globalBraceSuffix: string,
+): void {
+  const fatalMessages = virtualMessages.filter((msg) => msg.fatal);
+  if (fatalMessages.length === 0) return;
+
+  const renderedErrors = fatalMessages
+    .map(
+      (msg) =>
+        `- line ${String(msg.line)}, col ${String(msg.column)}: ${msg.message}${msg.ruleId ? ` [${msg.ruleId}]` : ''}`,
+    )
+    .join('\n');
+  const virtualCode = `${GLOBAL_VIRTUAL_OPEN}${segments.map((s) => s.block.virtualCode).join('\n')}${globalBraceSuffix}${GLOBAL_VIRTUAL_CLOSE}`;
+  console.error(
+    `[ejs-templates] ESLint fatal error while processing ${filename}:\n${renderedErrors}\nVirtual code:\n${virtualCode}`,
+  );
+}
 
 // ---------------------------------------------------------------------------
 // ESLint processor
@@ -678,12 +633,18 @@ const fileBlocksMap = new Map<string, TagBlock[]>();
 /**
  * ESLint processor for `.ejs` files.
  *
- * Each non-comment EJS tag is extracted into its own virtual JavaScript block.
- * Every block is wrapped in `(function() { … })()` with synthetic brace
- * balancing injected around the content so that even structural tags
- * (`if (x) {`, `}`, `} else {`) are parseable by ESLint.  The first line of
- * every block is a single-line comment (`//@ejs-tag:<type>`) that encodes the
- * tag type so that plugin rules can detect EJS-specific patterns.
+ * Each non-comment EJS tag is transformed into a virtual JavaScript block and
+ * all blocks are concatenated, in source order, into a single incremental
+ * virtual file for ESLint.
+ *
+ * Every per-tag block contains the original tag content (no synthetic
+ * per-block braces).  The first line of every per-tag block is a single-line
+ * comment (`//@ejs-tag:<type>`) that encodes the tag type so plugin rules can
+ * detect EJS-specific patterns.  Global brace balancing (synthetic `}`
+ * characters) is appended before the IIFE close when the cumulative net brace
+ * delta across all tags is positive, keeping isolated unbalanced fragments
+ * parseable while still handling cross-tag constructs like `forEach(x => { … })`
+ * correctly.
  *
  * Parsing is backed by tree-sitter-embedded-template for accurate position
  * information and robust syntax handling.
@@ -693,35 +654,118 @@ export const processor: Linter.Processor = {
 
   preprocess(text: string, filename: string): Array<string | { text: string; filename: string }> {
     const blocks = extractTagBlocks(text);
-    fileBlocksMap.set(filename, blocks);
-    return blocks.map((b) => b.virtualCode);
+    if (blocks.length === 0) {
+      fileBlocksMap.set(filename, { segments: [], globalBraceSuffix: '' });
+      return [];
+    }
+
+    const segments: VirtualBlockSegment[] = [];
+    let lineCursor = 2;
+    let offsetCursor = GLOBAL_VIRTUAL_OPEN.length;
+
+    for (const block of blocks) {
+      const lineCount = block.virtualCode.split('\n').length;
+      const startLine = lineCursor;
+      const endLine = startLine + lineCount - 1;
+      const startOffset = offsetCursor;
+      const endOffset = startOffset + block.virtualCode.length;
+
+      segments.push({ block, startLine, endLine, startOffset, endOffset });
+
+      // Combined virtual file joins each block with a single newline.
+      lineCursor += lineCount;
+      offsetCursor += block.virtualCode.length + 1;
+    }
+
+    // Global brace balancing: count the cumulative net `{`/`}` delta across
+    // ALL blocks' code content.  For well-formed EJS templates the delta is 0
+    // (every `if (x) {` has a matching `}` in a later tag).  For isolated
+    // test fragments (e.g. a single `if (x) {` tag with no close), a positive
+    // delta means we need synthetic `}` characters before the IIFE close so
+    // that the global virtual file parses without errors.
+    //
+    // Using `bracesDelta` on the combined content also correctly handles
+    // cross-tag constructs like `forEach(x => { … })` where the `(` and `)` of
+    // the call straddle two separate tags — the brace delta across both tags is
+    // zero, so no synthetic suffix is injected and the file remains valid.
+    let globalBraceDelta = 0;
+    for (const block of blocks) {
+      globalBraceDelta += bracesDelta(block.codeContent);
+    }
+    const globalBraceSuffix = globalBraceDelta > 0 ? '\n' + '}'.repeat(globalBraceDelta) : '';
+
+    fileBlocksMap.set(filename, { segments, globalBraceSuffix });
+
+    const virtualCode = `${GLOBAL_VIRTUAL_OPEN}${blocks.map((b) => b.virtualCode).join('\n')}${globalBraceSuffix}${GLOBAL_VIRTUAL_CLOSE}`;
+    return [virtualCode];
   },
 
   postprocess(messages: Linter.LintMessage[][], filename: string): Linter.LintMessage[] {
-    const blocks = fileBlocksMap.get(filename) ?? [];
+    const { segments = [], globalBraceSuffix = '' } = fileBlocksMap.get(filename) ?? {};
     fileBlocksMap.delete(filename);
 
-    return messages.flatMap((blockMessages, i) => {
-      const block = blocks[i];
-      return blockMessages
-        .filter((msg) => !msg.fatal) // suppress parse errors from synthetic balancing code
-        .map((msg) => {
-          const mapped = mapMessage(msg, block);
+    if (segments.length === 0) {
+      return [];
+    }
+
+    // Even in a single incremental virtual file, each tag is still wrapped in
+    // its own function block for parseability/fix mapping.  This can trigger
+    // false positives for rules that require cross-tag flow/scope.
+    const suppressedRuleIds = new Set(['no-undef']);
+
+    const virtualMessages = messages[0] ?? [];
+    logVirtualCodeOnFatal(filename, virtualMessages, segments, globalBraceSuffix);
+
+    return (
+      virtualMessages
+        .filter((msg) => !msg.fatal && !suppressedRuleIds.has(msg.ruleId ?? ''))
+        // suppress parse errors and known per-tag wrapper false positives
+        .flatMap((msg) => {
+          const segment = segments.find((s) => msg.line >= s.startLine && msg.line <= s.endLine);
+          if (!segment) {
+            return [];
+          }
+
+          // Convert global (combined-file) positions to per-block positions.
+          const localMsg: Linter.LintMessage = {
+            ...msg,
+            line: msg.line - segment.startLine + 1,
+            column: msg.column,
+          };
+
+          if (msg.endLine !== undefined) {
+            localMsg.endLine = msg.endLine - segment.startLine + 1;
+            localMsg.endColumn = msg.endColumn;
+          }
+
+          if (msg.fix) {
+            const [start, end] = msg.fix.range;
+            if (start >= segment.startOffset && end <= segment.endOffset) {
+              localMsg.fix = {
+                range: [start - segment.startOffset, end - segment.startOffset],
+                text: msg.fix.text,
+              };
+            } else {
+              delete localMsg.fix;
+            }
+          }
+
+          const mapped = mapMessage(localMsg, segment.block);
 
           if (mapped.fix) {
-            const translated = translateFix(mapped.fix, block);
+            const translated = translateFix(mapped.fix, segment.block);
             if (translated) {
-              return { ...mapped, fix: translated };
+              return [{ ...mapped, fix: translated }];
             }
             // No translation available – drop the fix.
             const result = { ...mapped };
             delete result.fix;
-            return result;
+            return [result];
           }
 
-          return mapped;
-        });
-    });
+          return [mapped];
+        })
+    );
   },
 
   supportsAutofix: true,
