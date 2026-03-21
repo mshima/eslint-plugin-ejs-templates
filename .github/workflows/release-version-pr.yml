@@ -45,7 +45,7 @@ jobs:
           echo "new_version=$new_version" >> "$GITHUB_OUTPUT"
 
       - name: Create pull request
-        uses: peter-evans/create-pull-request@v7
+        uses: peter-evans/create-pull-request@v8
         with:
           branch: chore/release-v${{ steps.bump.outputs.new_version }}
           commit-message: 'chore(release): bump version to v${{ steps.bump.outputs.new_version }}'
