@@ -42,8 +42,8 @@ export default defineConfig([
     files: ['**/*.ejs'],
     rules: {
       // Disable rules that are not compatible with EJS virtual blocks:
-      'no-undef': 'off', // cross-block variable references are unresolvable
-      'no-constant-condition': 'off', // synthetic brace-balancing introduces `if (true) {`
+      'no-undef': 'off', // variable references are related to context which is only available in runtime
+      'no-constant-condition': 'off', // same as above `if (variable) {` reports no-constant-condition since variable is not a known constant
 
       // Enable EJS-specific rules (apply in this recommended order):
       'ejs-templates/experimental-prefer-slurp-multiline': 'error',
@@ -89,10 +89,10 @@ npx eslint --fix "**/*.ejs"
 > Because of this isolation, certain standard ESLint rules produce false
 > positives and should be disabled for `*.ejs` files:
 >
-> | Rule                    | Reason                                                    |
-> | ----------------------- | --------------------------------------------------------- |
-> | `no-undef`              | Variables defined in one tag cannot be seen by other tags |
-> | `no-constant-condition` | Synthetic `if (true) {` prefixes used for brace-balancing |
+> | Rule                    | Reason                                                                                 |
+> | ----------------------- | -------------------------------------------------------------------------------------- |
+> | `no-undef`              | variable references are related to context which is only available in runtime          |
+> | `no-constant-condition` | `if (variable) {` reports no-constant-condition since variable is not a known variable |
 
 ## Rules
 
