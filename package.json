@@ -1,0 +1,65 @@
+{
+  "name": "eslint-plugin-ejs-templates",
+  "version": "0.0.1",
+  "description": "ESLint plugin for EJS (Embedded JavaScript) templates — processor and rules",
+  "keywords": [
+    "eslint",
+    "eslint-plugin",
+    "ejs",
+    "template",
+    "processor"
+  ],
+  "homepage": "https://github.com/mshima/prettier-plugin-templates#readme",
+  "bugs": {
+    "url": "https://github.com/mshima/prettier-plugin-templates/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mshima/prettier-plugin-templates.git"
+  },
+  "license": "Apache-2.0",
+  "author": "",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "fix": "prettier . --write && eslint . --fix",
+    "lint": "eslint .",
+    "prepublishOnly": "npm run build",
+    "pretest": "prettier . --check && eslint .",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "tree-sitter-embedded-template": "^0.25.0",
+    "web-tree-sitter": "^0.26.7"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^24.0.0",
+    "eslint": "^10.0.0",
+    "eslint-config-prettier": "^10.0.0",
+    "jiti": "^2.6.1",
+    "prettier": "^3.8.1",
+    "prettier-plugin-packagejson": "^3.0.2",
+    "tsup": "^8.0.0",
+    "typescript": "^5.0.0",
+    "typescript-eslint": "^8.0.0",
+    "vitest": "^3.0.0"
+  },
+  "peerDependencies": {
+    "eslint": ">=9.0.0"
+  }
+}
