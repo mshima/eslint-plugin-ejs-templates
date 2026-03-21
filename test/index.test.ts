@@ -15,6 +15,7 @@ import * as fixture2 from './fixtures/2.js';
 import * as fixture3 from './fixtures/3.js';
 import * as fixture4 from './fixtures/4.js';
 import * as fixture5 from './fixtures/5.js';
+import { Config } from 'eslint/config';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -26,9 +27,7 @@ function makeLinter(): Linter {
 }
 
 /** The flat config used for all EJS linting in tests. */
-function makeConfig(
-  rules: Record<string, Linter.RuleSeverityAndOptions | Linter.RuleSeverity> = {},
-): Linter.FlatConfig[] {
+function makeConfig(rules: Record<string, Linter.RuleSeverityAndOptions | Linter.RuleSeverity> = {}): Config[] {
   return [
     {
       files: ['**/*.ejs'],
@@ -36,7 +35,7 @@ function makeConfig(
       processor: 'templates/ejs',
       rules,
     },
-  ];
+  ] as const satisfies Config[];
 }
 
 /** Lint an EJS string and return all messages. */

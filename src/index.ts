@@ -6,12 +6,12 @@
 //
 //     http://www.apache.org/licenses/LICENSE-2.0
 
-import type { Linter } from 'eslint';
 import { processor } from './processor.js';
 import { preferRaw } from './rules/prefer-raw.js';
 import { preferSlurping } from './rules/prefer-slurping.js';
 import { noMultilineTags } from './rules/no-multiline-tags.js';
 import { ejsIndent } from './rules/ejs-indent.js';
+import { Config } from 'eslint/config';
 
 // ---------------------------------------------------------------------------
 // Plugin definition (without configs, to avoid circular reference)
@@ -52,13 +52,13 @@ const pluginCore = {
  * ];
  * ```
  */
-const recommended: Linter.FlatConfig[] = [
+const recommended: Config[] = [
   {
     files: ['**/*.ejs'],
     plugins: { [pluginName]: pluginCore },
     processor: `${pluginName}/ejs`,
   },
-];
+] as const satisfies Config[];
 
 /**
  * All config: applies the EJS processor to all `*.ejs` files and enables
@@ -73,7 +73,7 @@ const recommended: Linter.FlatConfig[] = [
  * ];
  * ```
  */
-const all: Linter.FlatConfig[] = [
+const all: Config[] = [
   {
     files: ['**/*.ejs'],
     plugins: { [pluginName]: pluginCore },
@@ -85,7 +85,7 @@ const all: Linter.FlatConfig[] = [
       [`${pluginName}/ejs-indent`]: 'error',
     },
   },
-];
+] as const satisfies Config[];
 
 // ---------------------------------------------------------------------------
 // Final plugin export

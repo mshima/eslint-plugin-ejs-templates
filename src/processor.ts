@@ -30,9 +30,7 @@ const INDENT_UNIT = '  ';
 export function canConvertToSlurping(content: string): boolean {
   const trimmed = content.trim();
   if (trimmed.startsWith('}') || trimmed.endsWith('{')) return false;
-  const open = (trimmed.match(/{/g) ?? []).length;
-  const close = (trimmed.match(/}/g) ?? []).length;
-  return open === close;
+  return bracesDelta(trimmed) === 0;
 }
 
 // ---------------------------------------------------------------------------
