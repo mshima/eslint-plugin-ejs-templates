@@ -141,45 +141,45 @@ describe('processor virtual code', () => {
     expect(line1).toBe('//@ejs-tag:escaped-output');
   });
 
-  test('virtual code line 2 is the function wrapper open', () => {
+  test('virtual code line 2 is the tag code (no per-tag function wrapper)', () => {
     const blocks = extractTagBlocks('<% const x = 1; %>');
     const lines = blocks[0].virtualCode.split('\n');
-    expect(lines[1]).toBe('(function() {');
+    expect(lines[1]).toBe(' const x = 1; ');
   });
 
-  test('virtual code contains the tag JS content inside the function wrapper', () => {
+  test('virtual code contains tag JS content directly after marker', () => {
     const blocks = extractTagBlocks('<% const x = 1; %>');
     const lines = blocks[0].virtualCode.split('\n');
-    expect(lines[2]).toBe(' const x = 1; ');
-    expect(lines[3]).toBe('})()');
+    expect(lines[1]).toBe(' const x = 1; ');
+    expect(lines).not.toContain('})()');
   });
 
-  test('virtual code last line is the function wrapper close', () => {
+  test('virtual code has no per-tag wrapper close', () => {
     const blocks = extractTagBlocks('<%_ const x = 1;\nconst y = 2; _%>');
     const lines = blocks[0].virtualCode.split('\n');
-    expect(lines[lines.length - 1]).toBe('})()');
+    expect(lines[lines.length - 1]).not.toBe('})()');
   });
 
   test('multiline tag gets -multiline suffix and code is wrapped in function', () => {
     const blocks = extractTagBlocks('<%_ const x = 1;\nconst y = 2; _%>');
     const lines = blocks[0].virtualCode.split('\n');
     expect(lines[0]).toBe('//@ejs-tag:slurp-multiline');
-    expect(lines[1]).toBe('(function() {');
-    expect(lines[lines.length - 1]).toBe('})()');
+    expect(lines[1]).toBe(' const x = 1;');
+    expect(lines[lines.length - 1]).toBe('const y = 2; ');
   });
 
   test('output tag virtual code wraps content in void()', () => {
     // Single-line output tags are wrapped as `void (...);` to prevent no-unused-vars.
     const blocks = extractTagBlocks('<%= name %>');
-    expect(blocks[0].virtualCode).toContain('void ( name )');
-    expect(blocks[0].virtualBodyPrefix).toBe('void (');
-    expect(blocks[0].virtualBodyPrefixLen).toBe(6);
-    expect(blocks[0].virtualBodyInlineSuffix).toBe(');');
+    expect(blocks[0].virtualCode).toContain('name ;');
+    expect(blocks[0].virtualBodyPrefix).toBe('');
+    expect(blocks[0].virtualBodyPrefixLen).toBe(0);
+    expect(blocks[0].virtualBodyInlineSuffix).toBe(';');
   });
 
   test('raw output tag virtual code wraps content in void()', () => {
     const blocks = extractTagBlocks('<%- name %>');
-    expect(blocks[0].virtualCode).toContain('void ( name )');
+    expect(blocks[0].virtualCode).toContain('name ;');
   });
 
   test('code tag ending with { gets void 0 appended', () => {
@@ -193,21 +193,54 @@ describe('processor virtual code', () => {
     expect(blocks[0].virtualCode).not.toContain('void 0;');
   });
 
-  test('structural slurp tag includes code body inside function wrapper', () => {
+  test('structural slurp tag keeps code body in virtual block', () => {
     const blocks = extractTagBlocks('<%_ if (x) { _%>');
     expect(blocks[0].virtualCode).toContain('if (x) {');
-    expect(blocks[0].virtualCode).toContain('(function() {');
     expect(blocks[0].tagType).toBe('slurp');
-    expect(blocks[0].syntheticSuffix).toBe('}\n');
-    expect(blocks[0].syntheticPrefix).toBe('');
   });
 
-  test('code tag with closing brace includes synthetic opening prefix', () => {
-    const blocks = extractTagBlocks('<% } %>');
-    expect(blocks[0].virtualCode).toContain('if (true) {');
-    expect(blocks[0].syntheticPrefix).toBe('if (true) {\n');
-    expect(blocks[0].syntheticPrefixLineCount).toBe(1);
-    expect(blocks[0].syntheticSuffix).toBe('');
+  test('preprocess outputs one incremental virtual block with all tags in order', () => {
+    const parts = plugin.processors.ejs.preprocess?.('<% const x = 1; %>\n<%= x %>', 'template.ejs');
+    expect(parts).toBeDefined();
+    if (!parts) {
+      throw new Error('Expected ejs.preprocess to be defined');
+    }
+
+    expect(parts).toHaveLength(1);
+
+    const virtual = parts[0];
+    expect(typeof virtual).toBe('string');
+    if (typeof virtual !== 'string') {
+      throw new Error('Expected preprocess to return a string virtual block');
+    }
+
+    expect(virtual.startsWith('(function() {\n')).toBe(true);
+    expect(virtual.endsWith('\n})();')).toBe(true);
+    expect(virtual).toContain('//@ejs-tag:code-slurpable');
+    expect(virtual).toContain('//@ejs-tag:escaped-output');
+    expect(virtual.indexOf('//@ejs-tag:code-slurpable')).toBeLessThan(virtual.indexOf('//@ejs-tag:escaped-output'));
+  });
+});
+
+describe('processor virtual code link', () => {
+  test('no no-var errors for muntiple tags virtual code', () => {
+    // Line 2 has the EJS tag; the undefined var is inside it.
+    const msgs = lint('line1\n<% const x = 1; const y = 2; %>\nline3\n<%- x %>\n<%= x %>', {
+      'no-var': 'error',
+    });
+    expect(msgs).toHaveLength(0);
+  });
+  test('no no-var errors for muntiple tags virtual code and braces', () => {
+    // Line 2 has the EJS tag; the undefined var is inside it.
+    const msgs = lint('line1\n<% [1, 2, 3].forEach(x => { %>\nline3\n<%- x %>\n<% }) %>', {
+      'no-var': 'error',
+    });
+    expect(msgs).toHaveLength(0);
+  });
+  test('no no-empty errors for muntiple tags virtual code', () => {
+    // Line 2 has the EJS tag; the undefined var is inside it.
+    const msgs = lint('line1\n<% if (true) { %>\nline3\n<% } %>', { 'no-empty': 'error' });
+    expect(msgs).toHaveLength(0);
   });
 });
 
@@ -217,40 +250,39 @@ describe('processor virtual code', () => {
 
 describe('processor position mapping', () => {
   test('error in single-line tag maps to correct line', () => {
-    // Line 2 has the EJS tag; the undefined var is inside it.
-    const msgs = lint('line1\n<% undefinedVar; %>\nline3', { 'no-undef': 'error' });
+    // Line 2 has the EJS tag; a `var` declaration inside it should be reported.
+    const msgs = lint('line1\n<% var value = 1; %>\nline3', { 'no-var': 'error' });
     expect(msgs.length).toBeGreaterThan(0);
     expect(msgs[0].line).toBe(2);
   });
 
   test('error column accounts for opening delimiter length', () => {
-    // Code starts right after '<%=' (3 chars), so the mapped column is
-    // virtual_column + 3.  See mapMessage() in processor.ts for details.
-    const msgs = lint('<%= undefinedVar %>', { 'no-undef': 'error' });
+    // Code starts right after '<%_' (3 chars), so the mapped column is
+    // virtual_column + 3. See mapMessage() in processor.ts for details.
+    const msgs = lint('<%_ var value = 1; _%>', { 'no-var': 'error' });
     expect(msgs.length).toBeGreaterThan(0);
     expect(msgs[0].line).toBe(1);
-    // Column is within the tag on line 1 (≥ 3 because code starts after '<%=')
+    // Column is within the tag on line 1 (>= 3 because code starts after '<%_')
     expect(msgs[0].column).toBeGreaterThanOrEqual(3);
   });
 
   test('error in second line of multiline tag maps to correct line', () => {
     // The tag starts on file line 1 (`<%_`), the code with the error is on
-    // file line 2 (` undefinedVar;`), and the closing delimiter is on line 3 (`_%>`).
+    // file line 2 (` var value = 1;`), and the closing delimiter is on line 3 (`_%>`).
     // The mapped error must report file line 2.
-    const ejsText = '<%_\n undefinedVar;\n_%>';
-    const msgs = lint(ejsText, { 'no-undef': 'error' });
-    const undefMsg = msgs.find((m) => m.message.includes("'undefinedVar'"));
-    expect(undefMsg).toBeDefined();
-    expect(undefMsg?.line).toBe(2);
+    const ejsText = '<%_\n var value = 1;\n_%>';
+    const msgs = lint(ejsText, { 'no-var': 'error' });
+    expect(msgs.length).toBeGreaterThan(0);
+    expect(msgs[0].line).toBe(2);
   });
 
   test('no messages when there are no EJS tags', () => {
-    const msgs = lint('Just plain HTML with no tags.', { 'no-undef': 'error' });
+    const msgs = lint('Just plain HTML with no tags.', { 'no-var': 'error' });
     expect(msgs).toHaveLength(0);
   });
 
   test('comment tags produce no virtual blocks (no lint errors)', () => {
-    const msgs = lint('<%# this is a comment %>', { 'no-undef': 'error' });
+    const msgs = lint('<%# this is a comment %>', { 'no-var': 'error' });
     expect(msgs).toHaveLength(0);
   });
 });
@@ -410,37 +442,20 @@ describe('plugin shape', () => {
 // ---------------------------------------------------------------------------
 
 describe('standard JS rules via processor', () => {
-  test('no-undef detects undefined variable in EJS code tag', () => {
-    const msgs = lint('<% undefinedVar; %>', { 'no-undef': 'error' });
+  test('no-var detects var declaration in EJS code tag', () => {
+    const msgs = lint('<% var value = 1; %>', { 'no-var': 'error' });
     expect(msgs.length).toBeGreaterThan(0);
-    expect(msgs[0].message).toContain('undefinedVar');
+    expect(msgs[0].message).toContain('Unexpected var');
   });
 
-  test('no-undef is silent when variable is defined within same tag', () => {
-    const msgs = lint('<% const x = 1; x; %>', { 'no-undef': 'error' });
-    // 'x' is defined in the same block so no undef error
-    expect(msgs.filter((m) => m.message.includes("'x'"))).toHaveLength(0);
+  test('no-var is silent when using const in same tag', () => {
+    const msgs = lint('<% const x = 1; x; %>', { 'no-var': 'error' });
+    expect(msgs).toHaveLength(0);
   });
 
   test('eqeqeq detects == in EJS output tag', () => {
-    const msgs = lint('<% if (a == b) {} %>', { eqeqeq: 'error', 'no-undef': 'off' });
+    const msgs = lint('<% if (a == b) {} %>', { eqeqeq: 'error' });
     expect(msgs.filter((m) => m.ruleId === 'eqeqeq').length).toBeGreaterThan(0);
-  });
-
-  test('no-undef detects undefined variable inside structural tag (function wrapper enables body linting)', () => {
-    // Previously the body was omitted for structural tags; now it is always
-    // included and wrapped in a function so ESLint can lint it.
-    const msgs = lint('<% if (undefinedVar) { %>', { 'no-undef': 'error' });
-    const undefMsg = msgs.find((m) => m.message.includes("'undefinedVar'"));
-    expect(undefMsg).toBeDefined();
-  });
-
-  test('no-undef detects undefined variable inside closing-brace tag', () => {
-    // `<% } else if (undefinedVar) { %>` — the synthetic `if (true) {` prefix
-    // makes the content parseable; `undefinedVar` should still be flagged.
-    const msgs = lint('<% } else if (undefinedCond) { %>', { 'no-undef': 'error' });
-    const undefMsg = msgs.find((m) => m.message.includes("'undefinedCond'"));
-    expect(undefMsg).toBeDefined();
   });
 });
 
@@ -1056,7 +1071,7 @@ describe('void() wrapping for output tags', () => {
     // The void() wrapper ensures the expression is syntactically valid as a statement
     // and does not introduce new `no-undef` errors for `console`.
     const blocks = extractTagBlocks('<%- foo %>');
-    expect(blocks[0].virtualCode).toContain('void ( foo )');
+    expect(blocks[0].virtualCode).toContain('foo ;');
   });
 
   test('void() wrapping does not introduce console-related no-undef errors', () => {
