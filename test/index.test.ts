@@ -1069,16 +1069,16 @@ describe('autofix: slurp-newline', () => {
 describe('void() wrapping for output tags', () => {
   test('output tag virtual code wraps expression in void()', () => {
     // The void() wrapper ensures the expression is syntactically valid as a statement
-    // and does not introduce new `no-undef` errors for `console`.
+    // and does not introduce new `no-undef` errors for `debug`.
     const blocks = extractTagBlocks('<%- foo %>');
     expect(blocks[0].virtualCode).toContain('foo ;');
   });
 
-  test('void() wrapping does not introduce console-related no-undef errors', () => {
-    // Previously `console.log(foo)` was used; now `void (foo)` avoids console globals.
+  test('void() wrapping does not introduce debug-related no-undef errors', () => {
+    // Previously `debug(foo)` was used; now `void (foo)` avoids debug globals.
     const msgs = lint('<%- foo %>', { 'no-undef': 'error' });
-    // Only `foo` should be flagged as undef, not `console`
-    const consoleErrors = msgs.filter((m) => m.message.includes("'console'"));
-    expect(consoleErrors).toHaveLength(0);
+    // Only `foo` should be flagged as undef, not `debug`
+    const debugErrors = msgs.filter((m) => m.message.includes("'debug'"));
+    expect(debugErrors).toHaveLength(0);
   });
 });

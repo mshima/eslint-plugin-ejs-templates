@@ -7,6 +7,7 @@
 //     http://www.apache.org/licenses/LICENSE-2.0
 
 import type { Linter } from 'eslint';
+import createDebug from 'debug';
 import { parseEjs } from './ts-parser.js';
 
 // ---------------------------------------------------------------------------
@@ -15,6 +16,7 @@ import { parseEjs } from './ts-parser.js';
 
 /** Indentation unit used by the ejsIndent brace-depth algorithm (2 spaces). */
 const INDENT_UNIT = '  ';
+const debug = createDebug('ejs-templates:processor');
 
 // ---------------------------------------------------------------------------
 // Slurping eligibility check
@@ -148,8 +150,8 @@ export interface TagBlock {
   expectedIndent: string;
   /**
    * Text prepended to `codeContent` in the virtual body (same line, before the code).
-   * Used for output tags: `'console.log('` so that `<%- foo %>` becomes
-   * `console.log( foo );` in the virtual file, preventing `no-unused-vars` errors.
+   * Reserved for wrappers that need to prepend text before the original content.
+   * Empty string for current output-tag handling.
    * Empty string for non-output tags.
    */
   virtualBodyPrefix: string;
@@ -162,14 +164,15 @@ export interface TagBlock {
   virtualBodyPrefixLen: number;
   /**
    * Text appended to `codeContent` in the virtual body (same line, after the code).
-   * Used to close the `console.log(` call for output tags: `');'`.
+   * For current output-tag handling this is `';'`, turning an expression into
+   * a valid statement in virtual JS.
    * Empty string for other tags.
    */
   virtualBodyInlineSuffix: string;
   /**
    * Optional extra line injected into the virtual body AFTER `codeContent` and
    * BEFORE `syntheticSuffix`.  Used for code/slurp tags whose trimmed content
-   * ends with `{`: appends `console.log();` to suppress ESLint `no-empty` errors
+   * ends with `{`: appends `void 0;` to suppress ESLint `no-empty` errors
    * on the opened block.  Empty string when not needed.
    */
   virtualBodyExtraLine: string;
@@ -186,7 +189,7 @@ export interface TagBlock {
  * //@ejs-tag:<tagType>
  * [synthetic prefix — brace-balancing]
  * [virtualBodyPrefix]<raw JS code from the tag>[virtualBodyInlineSuffix]
- * [virtualBodyExtraLine — e.g. console.log();]
+ * [virtualBodyExtraLine — e.g. void 0;]
  * [synthetic suffix — brace-balancing]
  * ```
  *
@@ -283,10 +286,8 @@ export function extractTagBlocks(text: string): TagBlock[] {
     }
 
     // ── Virtual body extras (void-expression wrapping) ────────────────────
-    // For output tags: wrap in `void (…);` so the referenced variable counts
-    // as "used" and standard `no-unused-vars` rules don't fire.  We use `void`
-    // (not `console.log`) to avoid introducing new `no-undef` errors for the
-    // `console` global.
+    // For output tags: append `;` so the expression is a valid statement in
+    // virtual JS (without introducing global references like `debug`).
     // For code/slurp tags ending with `{`: append `void 0;` to suppress
     // `no-empty` errors on the opened block.
     const isOutputTag = baseType === 'escaped-output' || baseType === 'raw-output';
@@ -378,7 +379,7 @@ function mapMessage(msg: Linter.LintMessage, block: TagBlock): Linter.LintMessag
 
   const originalLine = block.originalLine + codeLineIndex;
   // For the first code line, subtract virtualBodyPrefixLen so the column
-  // points into codeContent rather than into e.g. `console.log(`.
+  // points into codeContent rather than into any synthetic prefix.
   const originalColumn =
     codeLineIndex === 0 ? msg.column - block.virtualBodyPrefixLen + block.originalColumn : msg.column;
   const mapped: Linter.LintMessage = { ...msg, line: originalLine, column: originalColumn };
@@ -621,7 +622,7 @@ function logVirtualCodeOnFatal(
     )
     .join('\n');
   const virtualCode = `${GLOBAL_VIRTUAL_OPEN}${segments.map((s) => s.block.virtualCode).join('\n')}${globalBraceSuffix}${GLOBAL_VIRTUAL_CLOSE}`;
-  console.error(
+  debug(
     `[ejs-templates] ESLint fatal error while processing ${filename}:\n${renderedErrors}\nVirtual code:\n${virtualCode}`,
   );
 }
