@@ -460,8 +460,17 @@ function buildCollapsedTag(block: TagBlock): string {
   }
 
   // Multiple tags → one per statement, indented like the original tag.
+  // - First tag: uses original open delimiter, slurp close
+  // - Middle tags: both slurp delimiters
+  // - Last tag: slurp open, uses original close delimiter
   return tags
-    .map((tag, i) => `${i === 0 ? '' : block.lineIndent}${block.openDelim} ${tag} ${block.closeDelim}`)
+    .map((tag, i) => {
+      const isFirst = i === 0;
+      const isLast = i === tags.length - 1;
+      const openDelim = isFirst ? block.openDelim : '<%_';
+      const closeDelim = isLast ? block.closeDelim : '_%>';
+      return `${i === 0 ? '' : block.lineIndent}${openDelim} ${tag} ${closeDelim}`;
+    })
     .join('\n');
 }
 
