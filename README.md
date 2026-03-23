@@ -31,8 +31,7 @@ import templates from 'eslint-plugin-ejs-templates';
 import eslint from '@eslint/js';
 
 export default defineConfig([
-  // Standard JS rules — note: some rules are incompatible with EJS templates
-  // and must be disabled for *.ejs files.
+  // Standard JS rules:
   eslint.configs.recommended,
 
   // Apply the EJS processor to all *.ejs files with no rules (opt-in below):
@@ -41,10 +40,6 @@ export default defineConfig([
   {
     files: ['**/*.ejs'],
     rules: {
-      // Disable rules that are not compatible with EJS virtual blocks:
-      'no-undef': 'off', // variable references are related to context which is only available in runtime
-      'no-constant-condition': 'off', // same as above `if (variable) {` reports no-constant-condition since variable is not a known constant
-
       // Enable EJS-specific rules (apply in this recommended order):
       'ejs-templates/experimental-prefer-slurp-multiline': 'error',
       'ejs-templates/prefer-slurping-codeonly': 'error',
@@ -63,16 +58,7 @@ Or use `configs.all` to enable every rule in one step:
 import { defineConfig } from 'eslint/config';
 import templates from 'eslint-plugin-ejs-templates';
 
-export default defineConfig([
-  ...templates.configs.all,
-  {
-    files: ['**/*.ejs'],
-    rules: {
-      'no-undef': 'off',
-      'no-constant-condition': 'off',
-    },
-  },
-]);
+export default defineConfig([...templates.configs.all]);
 ```
 
 Then run ESLint as usual:
@@ -86,13 +72,8 @@ npx eslint --fix "**/*.ejs"
 > **Note on incompatible rules**
 >
 > The EJS processor lints each tag as a separate virtual JavaScript block.
-> Because of this isolation, certain standard ESLint rules produce false
-> positives and should be disabled for `*.ejs` files:
->
-> | Rule                    | Reason                                                                                 |
-> | ----------------------- | -------------------------------------------------------------------------------------- |
-> | `no-undef`              | variable references are related to context which is only available in runtime          |
-> | `no-constant-condition` | `if (variable) {` reports no-constant-condition since variable is not a known variable |
+> `no-undef` diagnostics are suppressed internally for `*.ejs` virtual blocks,
+> so you do not need to disable `no-undef` in your ESLint config.
 
 ## Rules
 
