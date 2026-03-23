@@ -89,6 +89,8 @@ Apply rules in the following order for best results:
 ### `ejs-templates/prefer-raw`
 
 Prefers `<%-` (raw / unescaped output) over `<%=` (HTML-escaped output).
+`<%=` is meant for HTML output; when the value is not expected to be rendered
+as HTML, prefer raw output with `<%-`.
 
 |             |                                              |
 | ----------- | -------------------------------------------- |
@@ -105,7 +107,11 @@ Prefers `<%-` (raw / unescaped output) over `<%=` (HTML-escaped output).
 ### `ejs-templates/prefer-slurping-codeonly`
 
 Prefers `<%_ … _%>` (whitespace-slurping) over `<% … %>` for single-line code
-tags whose content has balanced braces and does not open or close a brace block.
+tags that are logic-only (no direct output), whose content has balanced braces,
+and does not open or close a brace block.
+
+Use this for code-only control logic; blocks that generate output should keep
+their output-specific delimiters.
 
 |             |                                                        |
 | ----------- | ------------------------------------------------------ |
@@ -154,6 +160,9 @@ Flags EJS tags whose content spans multiple lines. The autofix splits the conten
 into separate single-line tags — one tag per statement boundary (`;`, `}`, `{`).
 Lines starting with `.` are joined to the preceding line (chained method calls).
 
+Keeping tags single-line avoids visual confusion between template output text
+and EJS control flow, making template intent easier to scan.
+
 |             |                                        |
 | ----------- | -------------------------------------- |
 | **Fixable** | Yes — `eslint --fix` collapses the tag |
@@ -200,6 +209,10 @@ Ensures `<%_ … _%>` whitespace-slurping tags are on their own line. An inline
 slurp tag will not eat the preceding whitespace as intended. Apply this rule
 **after** `prefer-slurping-*` and **before** `indent`.
 
+Because slurp tags remove the newline/whitespace before them, placing each tag
+on its own line (then indenting it) makes the template easier to read and reason
+about.
+
 |             |                                                       |
 | ----------- | ----------------------------------------------------- |
 | **Fixable** | Yes — `eslint --fix` inserts a newline before the tag |
@@ -217,6 +230,8 @@ some text
 
 Enforces brace-depth–based indentation (two spaces per level) on standalone
 `<%_ … _%>` tags.
+
+Consistent indentation improves readability of nested template logic.
 
 |             |                                                     |
 | ----------- | --------------------------------------------------- |
