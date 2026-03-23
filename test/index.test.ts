@@ -860,6 +860,13 @@ describe('autofix: prefer-single-line-tags', () => {
       '<%_ if (x) { _%>\n<%_ doWork(); _%>\n<%_ } _%>',
     );
   });
+
+  test('non-slurp code tag with braces uses slurp delimiters for open tags', () => {
+    const input = '<%\n  if (x) {\n  doWork();\n  }\n%>';
+    expect(applyFix(input, { 'ejs-templates/prefer-single-line-tags': 'error' })).toBe(
+      '<% if (x) { _%>\n<%_ doWork(); _%>\n<%_ } %>',
+    );
+  });
 });
 
 // ---------------------------------------------------------------------------
