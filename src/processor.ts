@@ -8,7 +8,7 @@
 
 import type { Linter } from 'eslint';
 import createDebug from 'debug';
-import { parseEjs } from './ts-parser.js';
+import { parseEjs, parseJavaScript, type SyntaxNode } from './ts-parser.js';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -64,6 +64,76 @@ function splitLines(raw: string): string[] {
     .filter((l) => l.length > 0);
 }
 
+/**
+ * Collect structural opening brace positions for control-flow blocks and arrow
+ * function block bodies.
+ *
+ * In braces mode, we detect control statements (if/for/while/do/switch/try/with)
+ * and arrow functions with block bodies `() => { ... }` as structural.
+ * We ignore braces from destructuring patterns `{ x, y }`, object literals,
+ * and template interpolations, which are not statement-level constructs.
+ */
+function collectStructuralBracePositions(text: string): Set<number> {
+  const wrapperPrefix = 'function __ejs_brace_probe__() {\n';
+  const wrapperSuffix = '\n}';
+  const wrapped = `${wrapperPrefix}${text}${wrapperSuffix}`;
+  const wrappedRoot = parseJavaScript(wrapped);
+
+  const contentStart = wrapperPrefix.length;
+  const contentEnd = wrapperPrefix.length + text.length;
+  const positions = new Set<number>();
+  const structuralTypes = new Set([
+    'if_statement',
+    'for_statement',
+    'for_in_statement',
+    'while_statement',
+    'do_statement',
+    'switch_statement',
+    'try_statement',
+    'with_statement',
+  ]);
+
+  const stack: Array<SyntaxNode> = [wrappedRoot];
+  while (stack.length > 0) {
+    const node = stack.pop();
+    if (!node) continue;
+
+    const isInsideOriginalText = node.startIndex >= contentStart && node.endIndex <= contentEnd;
+
+    // Check for arrow functions with block bodies
+    if (node.type === 'arrow_function' && isInsideOriginalText) {
+      const bodyChild = node.childForFieldName('body');
+      if (bodyChild && bodyChild.type === 'statement_block') {
+        positions.add(bodyChild.startIndex - contentStart);
+      }
+    }
+
+    // Check for structural control-flow statements
+    if (structuralTypes.has(node.type) && isInsideOriginalText) {
+      const consequenceOrBody = node.childForFieldName('consequence') || node.childForFieldName('body');
+      if (consequenceOrBody && consequenceOrBody.type === 'statement_block') {
+        positions.add(consequenceOrBody.startIndex - contentStart);
+      }
+    }
+
+    for (let i = node.childCount - 1; i >= 0; i--) {
+      const child = node.child(i);
+      if (child) {
+        stack.push(child);
+      }
+    }
+  }
+
+  return positions;
+}
+
+/**
+ * Returns true if `text` contains structural control-flow braces or arrow function block bodies.
+ */
+export function hasStructuralBraces(text: string): boolean {
+  return collectStructuralBracePositions(text).size > 0;
+}
+
 // ---------------------------------------------------------------------------
 // Function-wrapper helpers
 // ---------------------------------------------------------------------------
@@ -75,6 +145,11 @@ function splitLines(raw: string): string[] {
  */
 export const SENTINEL_PREFER_SLURP_MULTILINE = 'PREFER_SLURP_MULTILINE';
 
+/**
+ * Sentinel text written by `prefer-single-line-tags` when configured with
+ * `{ mode: 'braces' }`.
+ */
+export const SENTINEL_PREFER_SINGLE_LINE_TAGS_BRACES = 'PREFER_SINGLE_LINE_TAGS_BRACES';
 /**
  * Sentinel text written by the `slurp-newline` fix.
  */
@@ -429,34 +504,197 @@ function mapMessage(msg: Linter.LintMessage, block: TagBlock): Linter.LintMessag
  * → `<%_ const arr = 'foo'.split(); _%>`, `<%_ const y = 2; _%>`  (dot-continuation joined)
  */
 function buildCollapsedTag(block: TagBlock): string {
+  return buildCollapsedTagWithMode(block, 'always');
+}
+
+type PreferSingleLineTagsMode = 'always' | 'braces';
+
+/**
+ * Identifies structural brace positions in the code (control flow, arrow functions).
+ * Returns a Set of absolute character offsets where structural opening braces appear.
+ * This allows processSegment to only split at structural braces, not object literals.
+ */
+function getStructuralBracePositions(text: string): Set<number> {
+  return collectStructuralBracePositions(text);
+}
+
+function buildCollapsedTagWithMode(block: TagBlock, mode: PreferSingleLineTagsMode): string {
   const rawLines = splitLines(block.codeContent);
   if (rawLines.length === 0) {
     return `${block.openDelim} ${block.closeDelim}`;
   }
 
-  const tags: string[] = [];
-  let accumulated = '';
-
-  for (const line of rawLines) {
-    if (accumulated.length === 0) {
-      accumulated = line;
-    } else if (line.startsWith('.')) {
-      // Dot-continuation: join without space (chained method / property access).
-      accumulated += line;
-    } else {
-      accumulated += ` ${line}`;
-    }
-
-    // Emit a tag whenever the accumulated content ends with a statement boundary.
-    if (accumulated.endsWith(';') || accumulated.endsWith('}') || accumulated.endsWith('{')) {
-      tags.push(accumulated);
-      accumulated = '';
-    }
+  const hasBraces = hasStructuralBraces(block.codeContent);
+  if (mode === 'braces' && !hasBraces) {
+    // In braces mode, multiline tags without braces are left unchanged.
+    return `${block.openDelim}${block.codeContent}${block.closeDelim}`;
   }
 
-  // Flush any remaining content (lines that don't end with a boundary char).
-  if (accumulated.length > 0) {
-    tags.push(accumulated);
+  const tags: string[] = [];
+  const collapseOnlyAtBraceBoundaries = mode === 'braces' && hasBraces;
+
+  if (collapseOnlyAtBraceBoundaries) {
+    const allLines = block.codeContent.split('\n');
+    const bodyLines: string[] = [];
+    const structuralBracePositions = getStructuralBracePositions(block.codeContent);
+
+    const flushBodyLines = () => {
+      if (bodyLines.length > 0) {
+        tags.push(bodyLines.join('\n'));
+        bodyLines.length = 0;
+      }
+    };
+
+    const findMatchingCloseIndex = (s: string, openIndex: number): number => {
+      let templateDepth = 0;
+      let nestedBraceDepth = 0;
+      for (let i = openIndex + 1; i < s.length; i++) {
+        if (templateDepth === 0) {
+          if (s[i] === '$' && i + 1 < s.length && s[i + 1] === '{') {
+            templateDepth++;
+            i++;
+          } else if (s[i] === '{') {
+            nestedBraceDepth++;
+          } else if (s[i] === '}') {
+            if (nestedBraceDepth > 0) {
+              nestedBraceDepth--;
+            } else {
+              return i;
+            }
+          }
+        } else if (s[i] === '$' && i + 1 < s.length && s[i + 1] === '{') {
+          templateDepth++;
+          i++;
+        } else if (s[i] === '{') {
+          nestedBraceDepth++;
+        } else if (s[i] === '}') {
+          if (nestedBraceDepth > 0) {
+            nestedBraceDepth--;
+          } else {
+            templateDepth--;
+          }
+        }
+      }
+      return -1;
+    };
+
+    const findNextBoundary = (s: string, absoluteOffset: number): { kind: 'open' | 'close'; index: number } | null => {
+      let templateDepth = 0;
+      for (let i = 0; i < s.length; i++) {
+        if (templateDepth === 0) {
+          if (s[i] === '$' && i + 1 < s.length && s[i + 1] === '{') {
+            templateDepth++;
+            i++;
+            continue;
+          }
+
+          if (s[i] === '{' && (i === 0 || s[i - 1] !== '$')) {
+            const braceAbsolutePos = absoluteOffset + i;
+            if (structuralBracePositions.has(braceAbsolutePos)) {
+              return { kind: 'open', index: i };
+            }
+
+            const matchingClose = findMatchingCloseIndex(s, i);
+            if (matchingClose === -1) {
+              return null;
+            }
+            i = matchingClose;
+            continue;
+          }
+
+          if (s[i] === '}') {
+            return { kind: 'close', index: i };
+          }
+        } else if (s[i] === '$' && i + 1 < s.length && s[i + 1] === '{') {
+          templateDepth++;
+          i++;
+        } else if (s[i] === '}') {
+          templateDepth--;
+        }
+      }
+
+      return null;
+    };
+
+    const processSegment = (segment: string, absoluteOffset: number) => {
+      const normalized = segment.replace(/\s+$/u, '');
+      if (normalized.trim().length === 0) {
+        return;
+      }
+
+      const boundary = findNextBoundary(normalized, absoluteOffset);
+      if (!boundary) {
+        bodyLines.push(normalized);
+        return;
+      }
+
+      if (boundary.kind === 'open') {
+        const openPart = normalized.slice(0, boundary.index + 1).trim();
+        const remainder = normalized.slice(boundary.index + 1);
+        const trimmedRemainder = remainder.trimStart();
+        const consumedWhitespace = remainder.length - trimmedRemainder.length;
+
+        flushBodyLines();
+        if (openPart.length > 0) {
+          tags.push(openPart);
+        }
+        processSegment(trimmedRemainder, absoluteOffset + boundary.index + 1 + consumedWhitespace);
+        return;
+      }
+
+      const beforeClose = normalized.slice(0, boundary.index);
+      const remainder = normalized.slice(boundary.index + 1);
+      const trimmedRemainder = remainder.trimStart();
+      const consumedWhitespace = remainder.length - trimmedRemainder.length;
+
+      if (beforeClose.trim().length > 0) {
+        bodyLines.push(beforeClose.replace(/\s+$/u, ''));
+      }
+      flushBodyLines();
+
+      if (trimmedRemainder.startsWith(';')) {
+        tags.push('};');
+        const afterSemicolon = trimmedRemainder.slice(1).trimStart();
+        const semicolonWhitespace = trimmedRemainder.slice(1).length - afterSemicolon.length;
+        processSegment(afterSemicolon, absoluteOffset + boundary.index + 2 + consumedWhitespace + semicolonWhitespace);
+      } else {
+        tags.push('}');
+        processSegment(trimmedRemainder, absoluteOffset + boundary.index + 1 + consumedWhitespace);
+      }
+    };
+
+    let currentOffset = 0;
+    for (const line of allLines) {
+      if (line.trim().length > 0) {
+        processSegment(line, currentOffset);
+      }
+      currentOffset += line.length + 1;
+    }
+
+    flushBodyLines();
+  } else {
+    let accumulated = '';
+    for (const line of rawLines) {
+      if (accumulated.length === 0) {
+        accumulated = line;
+      } else if (line.startsWith('.')) {
+        // Dot-continuation: join without space (chained method / property access).
+        accumulated += line;
+      } else {
+        accumulated += ` ${line}`;
+      }
+
+      // Emit a tag whenever the accumulated content ends with a statement boundary.
+      if (accumulated.endsWith(';') || accumulated.endsWith('}') || accumulated.endsWith('{')) {
+        tags.push(accumulated);
+        accumulated = '';
+      }
+    }
+
+    // Flush any remaining content (lines that don't end with a boundary char).
+    if (accumulated.length > 0) {
+      tags.push(accumulated);
+    }
   }
 
   if (tags.length === 0) {
@@ -464,7 +702,7 @@ function buildCollapsedTag(block: TagBlock): string {
   }
 
   if (tags.length === 1) {
-    return `${block.openDelim} ${tags[0]} ${block.closeDelim}`;
+    return `${block.openDelim} ${tags[0].trim()} ${block.closeDelim}`;
   }
 
   // Multiple tags → one per statement, indented like the original tag.
@@ -477,7 +715,8 @@ function buildCollapsedTag(block: TagBlock): string {
       const isLast = i === tags.length - 1;
       const openDelim = isFirst ? block.openDelim : '<%_';
       const closeDelim = isLast ? block.closeDelim : '_%>';
-      return `${i === 0 ? '' : block.lineIndent}${openDelim} ${tag} ${closeDelim}`;
+      const prefix = i === 0 ? '' : block.lineIndent;
+      return `${prefix}${openDelim} ${tag.trim()} ${closeDelim}`;
     })
     .join('\n');
 }
@@ -538,6 +777,8 @@ function buildIndentedTag(block: TagBlock, options?: { normalizeContent?: boolea
  * - `SENTINEL_PREFER_SLURP_MULTILINE`: used by `experimental-prefer-slurp-multiline` to avoid
  *   collision with `prefer-single-line-tags` for `code-multiline`/`code-slurpable-multiline`
  *   tag types.
+ * - `SENTINEL_PREFER_SINGLE_LINE_TAGS_BRACES`: used by
+ *   `prefer-single-line-tags` when configured with `{ mode: 'braces' }`.
  * - `SENTINEL_SLURP_NEWLINE`: used by `slurp-newline`.
  *
  * **General JS fixes** (from standard ESLint rules such as `no-var`,
@@ -595,6 +836,24 @@ function translateFix(
       return {
         range: [indentStart, block.tagOffset + block.tagLength],
         text: buildIndentedTag(block, { normalizeContent: true }),
+      };
+    }
+    return null;
+  } else if (fix.text === SENTINEL_PREFER_SINGLE_LINE_TAGS_BRACES) {
+    // prefer-single-line-tags (mode=braces): collapse multiline tag while
+    // keeping content between braces in a single tag.
+    if (block.tagType.endsWith('-multiline')) {
+      if (!hasStructuralBraces(block.codeContent)) {
+        return null;
+      }
+      const originalText = block.openDelim + block.codeContent + block.closeDelim;
+      const fixedText = buildCollapsedTagWithMode(block, 'braces');
+      if (fixedText === originalText) {
+        return null;
+      }
+      return {
+        range: [block.tagOffset, block.tagOffset + block.tagLength],
+        text: fixedText,
       };
     }
     return null;
@@ -673,6 +932,11 @@ interface VirtualBlockSegment {
 }
 
 const fileBlocksMap = new Map<string, { segments: VirtualBlockSegment[]; globalBraceSuffix: string }>();
+const structuralControlByVirtualCodeMap = new Map<string, boolean[]>();
+
+export function getStructuralControlByVirtualCode(virtualCode: string): boolean[] | undefined {
+  return structuralControlByVirtualCodeMap.get(virtualCode);
+}
 
 function logVirtualCodeOnFatal(
   filename: string,
@@ -766,12 +1030,18 @@ export const processor: Linter.Processor = {
     fileBlocksMap.set(filename, { segments, globalBraceSuffix });
 
     const virtualCode = `${GLOBAL_VIRTUAL_OPEN}${blocks.map((b) => b.virtualCode).join('\n')}${globalBraceSuffix}${GLOBAL_VIRTUAL_CLOSE}`;
+    structuralControlByVirtualCodeMap.set(
+      virtualCode,
+      blocks.map((block) => hasStructuralBraces(block.codeContent)),
+    );
     return [virtualCode];
   },
 
   postprocess(messages: Linter.LintMessage[][], filename: string): Linter.LintMessage[] {
     const { segments = [], globalBraceSuffix = '' } = fileBlocksMap.get(filename) ?? {};
     fileBlocksMap.delete(filename);
+    const currentVirtualCode = `${GLOBAL_VIRTUAL_OPEN}${segments.map((s) => s.block.virtualCode).join('\n')}${globalBraceSuffix}${GLOBAL_VIRTUAL_CLOSE}`;
+    structuralControlByVirtualCodeMap.delete(currentVirtualCode);
 
     if (segments.length === 0) {
       return [];

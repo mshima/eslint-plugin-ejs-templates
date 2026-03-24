@@ -867,6 +867,151 @@ describe('autofix: prefer-single-line-tags', () => {
       '<% if (x) { _%>\n<%_ doWork(); _%>\n<%_ } %>',
     );
   });
+
+  test('mode=always splits statements inside braces into multiple tags', () => {
+    const input = '<%\n  if (x) {\n  doWorkA();\n  doWorkB();\n  }\n%>';
+    expect(
+      applyFix(input, {
+        'ejs-templates/prefer-single-line-tags': ['error', { mode: 'always' }],
+      }),
+    ).toBe('<% if (x) { _%>\n<%_ doWorkA(); _%>\n<%_ doWorkB(); _%>\n<%_ } %>');
+  });
+
+  test('mode=braces keeps content between braces in a single tag', () => {
+    const input = '<%\n  if (x) {\n  doWorkA();\n  doWorkB();\n  }\n%>';
+    expect(
+      applyFix(input, {
+        'ejs-templates/prefer-single-line-tags': ['error', { mode: 'braces' }],
+      }),
+    ).toBe('<% if (x) { _%>\n<%_ doWorkA();\n  doWorkB(); _%>\n<%_ } %>');
+  });
+
+  test('mode=braces keeps contents in correct order', () => {
+    const input = '<%\n  if (x) {\n  doWorkA();\n  if (y) { doWorkB();\n  doWorkC(); }\n  doWorkC();\n  }\n%>';
+    expect(
+      applyFix(input, {
+        'ejs-templates/prefer-single-line-tags': ['error', { mode: 'braces' }],
+      }),
+    ).toBe(
+      '<% if (x) { _%>\n<%_ doWorkA(); _%>\n<%_ if (y) { _%>\n<%_ doWorkB();\n  doWorkC(); _%>\n<%_ } _%>\n<%_ doWorkC(); _%>\n<%_ } %>',
+    );
+  });
+
+  test("mode=braces should not report for end braces following = which indicates it's an assignment", () => {
+    const input = '<%\n  if (cond) {\n  const { foo } = bar;\n  doWork(foo);\n  }\n%>';
+    expect(
+      applyFix(input, {
+        'ejs-templates/prefer-single-line-tags': ['error', { mode: 'braces' }],
+      }),
+    ).toBe('<% if (cond) { _%>\n<%_ const { foo } = bar;\n  doWork(foo); _%>\n<%_ } %>');
+  });
+
+  test('mode=braces with control block containing object literal (object literal braces never split)', () => {
+    const input = "<%\n if (true) {\n   beans.push({ foo: 'bar' });\n }\n%>";
+    const fixed = applyFix(input, {
+      'ejs-templates/prefer-single-line-tags': ['error', { mode: 'braces' }],
+    });
+    // Control flow braces split, object literal braces stay intact
+    expect(fixed).toBe("<% if (true) { _%>\n<%_ beans.push({ foo: 'bar' }); _%>\n<%_ } %>");
+  });
+
+  test('mode=braces keeps arrow function block body as structural', () => {
+    const input = '<%\n  const fn = (x) => {\n    doWork(x);\n  };\n%>';
+    // Arrow function with block body is structural, and semicolon stays with closing brace
+    expect(
+      applyFix(input, {
+        'ejs-templates/prefer-single-line-tags': ['error', { mode: 'braces' }],
+      }),
+    ).toBe('<% const fn = (x) => { _%>\n<%_ doWork(x); _%>\n<%_ }; %>');
+  });
+
+  test('mode=braces keeps destructuring in arrow function parameters not broken', () => {
+    const input = '<%\n  items.forEach(({ foo, bar }) => {\n    console.log(foo);\n  });\n%>';
+    // The destructuring braces in parameters should not be treated as structural,
+    // so the arrow function body is structural but params are left intact
+    const msgs = lint(input, {
+      'ejs-templates/prefer-single-line-tags': ['error', { mode: 'braces' }],
+    });
+    // Arrow function with block body should report a violation
+    expect(msgs.length).toBeGreaterThan(0);
+  });
+
+  test('mode=braces keeps multiline tags without braces unchanged', () => {
+    const input = '<%_\n  const x = 1;\n  const y = 2;\n_%>';
+    expect(
+      applyFix(input, {
+        'ejs-templates/prefer-single-line-tags': ['error', { mode: 'braces' }],
+      }),
+    ).toBe(input);
+  });
+
+  test('mode=braces keeps multiline tags with only destructuring braces unchanged', () => {
+    const input = '<%\n  const { a, b } = obj;\n  doWork(a, b);\n%>';
+    expect(
+      applyFix(input, {
+        'ejs-templates/prefer-single-line-tags': ['error', { mode: 'braces' }],
+      }),
+    ).toBe(input);
+    expect(
+      lint(input, {
+        'ejs-templates/prefer-single-line-tags': ['error', { mode: 'braces' }],
+      }),
+    ).toHaveLength(0);
+  });
+
+  test('mode=braces keeps multiline tags with destructuring and comments unchanged', () => {
+    const input = '<%\n  const { bar /*, foo */ } = obj;\n  doWork(bar);\n%>';
+    // Since this is only destructuring (no structural braces),
+    // the tag should not be fixable and thus not reported in braces mode
+    const msgs = lint(input, {
+      'ejs-templates/prefer-single-line-tags': ['error', { mode: 'braces' }],
+    });
+    expect(msgs).toHaveLength(0);
+  });
+
+  test("mode=braces don't report destructuring in arrow function parameter as block brace", () => {
+    const input = '<%\n  const { foo, bar } = obj;\n  doWork(foo);\n%>';
+    // Destructuring pattern `{ foo, bar }` is not a block brace, it's a destructuring target
+    const msgs = lint(input, {
+      'ejs-templates/prefer-single-line-tags': ['error', { mode: 'braces' }],
+    });
+    expect(msgs).toHaveLength(0);
+  });
+
+  test('mode=braces ignores ${ template literal interpolations as block braces', () => {
+    const input = '<%\n  if (cond) {\n  const x = `hello ${name}`;\n  doWork();\n  }\n%>';
+    expect(
+      applyFix(input, {
+        'ejs-templates/prefer-single-line-tags': ['error', { mode: 'braces' }],
+      }),
+    ).toBe('<% if (cond) { _%>\n<%_ const x = `hello ${name}`;\n  doWork(); _%>\n<%_ } %>');
+  });
+
+  test('mode=braces does not re-report preserved inner tag with ${ interpolation', () => {
+    const input = '<%\n  if (cond) {\n  const x = `hello ${name}`;\n  doWork();\n  }\n%>';
+    const fixed = applyFix(input, {
+      'ejs-templates/prefer-single-line-tags': ['error', { mode: 'braces' }],
+    });
+
+    expect(
+      lint(fixed, {
+        'ejs-templates/prefer-single-line-tags': ['error', { mode: 'braces' }],
+      }),
+    ).toHaveLength(0);
+  });
+
+  test('mode=braces does not report the preserved inner multiline tag again', () => {
+    const input = '<%\n  if (x) {\n  doWorkA();\n  doWorkB();\n  }\n%>';
+    const fixed = applyFix(input, {
+      'ejs-templates/prefer-single-line-tags': ['error', { mode: 'braces' }],
+    });
+
+    expect(
+      lint(fixed, {
+        'ejs-templates/prefer-single-line-tags': ['error', { mode: 'braces' }],
+      }),
+    ).toHaveLength(0);
+  });
 });
 
 // ---------------------------------------------------------------------------
