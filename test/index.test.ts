@@ -206,7 +206,7 @@ describe('processor virtual code', () => {
       throw new Error('Expected ejs.preprocess to be defined');
     }
 
-    expect(parts).toHaveLength(1);
+    expect(parts).toHaveLength(3);
 
     const virtual = parts[0];
     expect(typeof virtual).toBe('string');
@@ -285,6 +285,16 @@ describe('processor position mapping', () => {
     const msgs = lint('<%# this is a comment %>', { 'no-var': 'error' });
     expect(msgs).toHaveLength(0);
   });
+
+  test('reports parse error at EOF when closing brace is missing', () => {
+    const ejsText = '<% if (x) { %>\n<div>body</div>';
+    const msgs = lint(ejsText, { 'no-var': 'error' });
+    const parseErrors = msgs.filter((msg) => msg.ruleId === null && msg.message.includes('Parsing error'));
+
+    expect(parseErrors).toHaveLength(1);
+    expect(parseErrors[0].line).toBe(1);
+    expect(parseErrors[0].message).toContain('Parsing error');
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -342,18 +352,13 @@ describe('rule: ejs-templates/prefer-slurping-codeonly', () => {
     expect(msgs).toHaveLength(0);
   });
 
-  test('does not flag <% if (x) { %> (trailing open brace)', () => {
-    const msgs = lint('<% if (x) { %>', { 'ejs-templates/prefer-slurping-codeonly': 'error' });
+  test('does not flag <% if (x) { %><% } %> (trailing open brace)', () => {
+    const msgs = lint('<% if (x) { %><% } %>', { 'ejs-templates/prefer-slurping-codeonly': 'error' });
     expect(msgs).toHaveLength(0);
   });
 
-  test('does not flag <% } %> (leading close brace)', () => {
-    const msgs = lint('<% } %>', { 'ejs-templates/prefer-slurping-codeonly': 'error' });
-    expect(msgs).toHaveLength(0);
-  });
-
-  test('does not flag <% } else { %> (both braces)', () => {
-    const msgs = lint('<% } else { %>', { 'ejs-templates/prefer-slurping-codeonly': 'error' });
+  test('does not flag <% if (x) { %><% } else { %><% } %> (both braces)', () => {
+    const msgs = lint('<% if (x) { %><% } else { %><% } %>', { 'ejs-templates/prefer-slurping-codeonly': 'error' });
     expect(msgs).toHaveLength(0);
   });
 
@@ -1173,8 +1178,21 @@ describe('rule: ejs-templates/experimental-prefer-slurp-multiline', () => {
   });
 
   test('does not flag multiline <%_ _%> tag (already slurping)', () => {
-    const msgs = lint('<%_\n  if (x) {\n_%>', { 'ejs-templates/experimental-prefer-slurp-multiline': 'error' });
+    const msgs = lint('<%_\n  if (x) {\n_%><% } %>', { 'ejs-templates/experimental-prefer-slurp-multiline': 'error' });
     expect(msgs).toHaveLength(0);
+  });
+
+  test('reports parse error for multiline <%_ _%> tag with missing close brace', () => {
+    const msgs = lint('<%_\n  if (x) {\n_%>', { 'ejs-templates/experimental-prefer-slurp-multiline': 'error' });
+    const parseErrors = msgs.filter((msg) => msg.ruleId === null && msg.message.includes('Parsing error'));
+    expect(parseErrors).toHaveLength(1);
+    expect(parseErrors[0].message).toContain('Parsing error');
+  });
+
+  test('does not report return parse error when wrapper fallback applies', () => {
+    const msgs = lint('<% return 1; %>', { 'ejs-templates/experimental-prefer-slurp-multiline': 'error' });
+    const parseErrors = msgs.filter((msg) => msg.ruleId === null && msg.message.includes('Parsing error'));
+    expect(parseErrors).toHaveLength(0);
   });
 });
 
