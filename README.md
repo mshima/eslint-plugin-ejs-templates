@@ -167,6 +167,21 @@ and EJS control flow, making template intent easier to scan.
 | ----------- | -------------------------------------- |
 | **Fixable** | Yes — `eslint --fix` collapses the tag |
 
+Options:
+
+- `{ mode: 'always' }` (default) — always split by statement boundaries (`;`, `{`, `}`)
+- `{ mode: 'braces' }` — when braces are present, keep the content between `{` and `}` in a single tag without collapsing its inner lines; multiline tags without braces are left unchanged
+
+```js
+// eslint.config.js
+{
+  files: ['**/*.ejs'],
+  rules: {
+    'ejs-templates/prefer-single-line-tags': ['error', { mode: 'braces' }],
+  },
+}
+```
+
 ```ejs
 <!-- ✗ violation: single phrase split across lines -->
 <%_

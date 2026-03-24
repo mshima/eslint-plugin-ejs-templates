@@ -7,34 +7,17 @@
 //     http://www.apache.org/licenses/LICENSE-2.0
 
 import type { Rule } from 'eslint';
+import { SENTINEL_PREFER_SINGLE_LINE_TAGS_BRACES, getStructuralControlByVirtualCode } from '../processor.js';
+
+type PreferSingleLineTagsMode = 'always' | 'braces';
 
 /**
  * ESLint rule: collapse multiline EJS tags onto a single line.
  *
- * This ports the `ejsCollapseMultiline` option from the original Prettier
- * plugin.  The processor marks any tag whose raw content contains newlines
- * with a `-multiline` suffix on the tag type (e.g. `slurp-multiline`,
- * `code-multiline`, `escaped-output-multiline`).  This rule detects that
- * suffix and offers an autofix.
- *
- * All non-empty content lines are joined into a single line.  Lines that
- * start with `.` (method / property chaining) are joined without a leading
- * space to preserve the original intent:
- *
- * ```ejs
- * <%_
- *   if (generateSpringAuditor) {
- * _%>
- * ```
- * → `<%_ if (generateSpringAuditor) { _%>`
- *
- * ```ejs
- * <%_
- *   const notSortableFields = 'foo.bar'
- *     .split();
- * _%>
- * ```
- * → `<%_ const notSortableFields = 'foo.bar'.split(); _%>`
+ * The processor marks tags with a `-multiline` suffix in the marker comment
+ * (e.g. `//@ejs-tag:code-multiline`). This rule reports those tags and emits
+ * a sentinel fix so the processor can translate the fix back to the original
+ * EJS source.
  */
 export const preferSingleLineTags: Rule.RuleModule = {
   meta: {
@@ -47,27 +30,56 @@ export const preferSingleLineTags: Rule.RuleModule = {
     messages: {
       preferSingleLineTags: 'EJS tag content spans multiple lines; collapse to a single line.',
     },
-    schema: [],
+    schema: [
+      {
+        type: 'object',
+        properties: {
+          mode: {
+            enum: ['always', 'braces'],
+          },
+        },
+        additionalProperties: false,
+      },
+    ],
   },
 
   create(context) {
+    const configuredMode = (context.options[0] as { mode?: PreferSingleLineTagsMode } | undefined)?.mode;
+    const mode: PreferSingleLineTagsMode = configuredMode === 'braces' ? 'braces' : 'always';
+
     return {
       Program() {
         const sourceCode = context.sourceCode;
         const comments = sourceCode.getAllComments();
+        const tagComments = comments.filter((c) => c.type === 'Line' && c.value.trim().startsWith('@ejs-tag:'));
+
+        // Provided by the processor from tree-sitter AST analysis (same tag order as markers).
+        const structuralByTag = mode === 'braces' ? getStructuralControlByVirtualCode(sourceCode.text) : undefined;
+
         for (const comment of comments) {
-          if (comment.type === 'Line' && comment.value.trim().includes('-multiline')) {
-            const { range = [0, 0] } = comment;
-            context.report({
-              loc: comment.loc ?? { line: 0, column: 0 },
-              messageId: 'preferSingleLineTags',
-              fix(fixer) {
-                // Sentinel fix — the processor's postprocess translates this
-                // to a replacement of the entire original EJS tag.
-                return fixer.replaceTextRange([range[0], range[1]], '');
-              },
-            });
+          if (comment.type !== 'Line' || !comment.value.trim().includes('-multiline')) {
+            continue;
           }
+
+          if (mode === 'braces') {
+            const tagIndex = tagComments.indexOf(comment);
+            const hasStructuralInThisBlock = tagIndex !== -1 && structuralByTag?.[tagIndex] === true;
+            if (!hasStructuralInThisBlock) {
+              continue;
+            }
+          }
+
+          const { range = [0, 0] } = comment;
+          context.report({
+            loc: comment.loc ?? { line: 0, column: 0 },
+            messageId: 'preferSingleLineTags',
+            fix(fixer) {
+              return fixer.replaceTextRange(
+                [range[0], range[1]],
+                mode === 'braces' ? SENTINEL_PREFER_SINGLE_LINE_TAGS_BRACES : '',
+              );
+            },
+          });
         }
       },
     };
