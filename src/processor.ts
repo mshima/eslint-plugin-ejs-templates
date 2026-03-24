@@ -931,11 +931,22 @@ interface VirtualBlockSegment {
   endOffset: number;
 }
 
-const fileBlocksMap = new Map<string, { segments: VirtualBlockSegment[]; globalBraceSuffix: string }>();
+const fileBlocksMap = new Map<
+  string,
+  { segments: VirtualBlockSegment[]; rawSegments: VirtualBlockSegment[]; globalBraceSuffix: string }
+>();
 const structuralControlByVirtualCodeMap = new Map<string, boolean[]>();
 
 export function getStructuralControlByVirtualCode(virtualCode: string): boolean[] | undefined {
   return structuralControlByVirtualCodeMap.get(virtualCode);
+}
+
+function translateRawParserFatalMessage(message: string, globalBraceSuffix: string): string {
+  if (globalBraceSuffix.length > 0 && /Parsing error: Unexpected token\s+\)/u.test(message)) {
+    return 'Parsing error';
+  }
+
+  return message;
 }
 
 function logVirtualCodeOnFatal(
@@ -988,13 +999,16 @@ export const processor: Linter.Processor = {
   preprocess(text: string, filename: string): Array<string | { text: string; filename: string }> {
     const blocks = extractTagBlocks(text);
     if (blocks.length === 0) {
-      fileBlocksMap.set(filename, { segments: [], globalBraceSuffix: '' });
+      fileBlocksMap.set(filename, { segments: [], rawSegments: [], globalBraceSuffix: '' });
       return [];
     }
 
     const segments: VirtualBlockSegment[] = [];
+    const rawSegments: VirtualBlockSegment[] = [];
     let lineCursor = 2;
     let offsetCursor = GLOBAL_VIRTUAL_OPEN.length;
+    let rawLineCursor = 1;
+    let rawOffsetCursor = 0;
 
     for (const block of blocks) {
       const lineCount = block.virtualCode.split('\n').length;
@@ -1005,9 +1019,24 @@ export const processor: Linter.Processor = {
 
       segments.push({ block, startLine, endLine, startOffset, endOffset });
 
+      const rawStartLine = rawLineCursor;
+      const rawEndLine = rawStartLine + lineCount - 1;
+      const rawStartOffset = rawOffsetCursor;
+      const rawEndOffset = rawStartOffset + block.virtualCode.length;
+
+      rawSegments.push({
+        block,
+        startLine: rawStartLine,
+        endLine: rawEndLine,
+        startOffset: rawStartOffset,
+        endOffset: rawEndOffset,
+      });
+
       // Combined virtual file joins each block with a single newline.
       lineCursor += lineCount;
       offsetCursor += block.virtualCode.length + 1;
+      rawLineCursor += lineCount;
+      rawOffsetCursor += block.virtualCode.length + 1;
     }
 
     // Global brace balancing: count the cumulative net `{`/`}` delta across
@@ -1027,18 +1056,24 @@ export const processor: Linter.Processor = {
     }
     const globalBraceSuffix = globalBraceDelta > 0 ? '\n' + '}'.repeat(globalBraceDelta) : '';
 
-    fileBlocksMap.set(filename, { segments, globalBraceSuffix });
+    fileBlocksMap.set(filename, { segments, rawSegments, globalBraceSuffix });
 
     const virtualCode = `${GLOBAL_VIRTUAL_OPEN}${blocks.map((b) => b.virtualCode).join('\n')}${globalBraceSuffix}${GLOBAL_VIRTUAL_CLOSE}`;
     structuralControlByVirtualCodeMap.set(
       virtualCode,
       blocks.map((block) => hasStructuralBraces(block.codeContent)),
     );
-    return [virtualCode];
+
+    // Second pass target: full virtual JS with no wrapper.
+    const rawVirtualCode = blocks.map((b) => b.virtualCode).join('\n');
+    // Third pass target: wrapped raw virtual used only when `return` requires a function body.
+    const wrappedRawVirtualCode = `${GLOBAL_VIRTUAL_OPEN}${blocks.map((b) => b.virtualCode).join('\n')}${GLOBAL_VIRTUAL_CLOSE}`;
+
+    return [virtualCode, rawVirtualCode, wrappedRawVirtualCode];
   },
 
   postprocess(messages: Linter.LintMessage[][], filename: string): Linter.LintMessage[] {
-    const { segments = [], globalBraceSuffix = '' } = fileBlocksMap.get(filename) ?? {};
+    const { segments = [], rawSegments = [], globalBraceSuffix = '' } = fileBlocksMap.get(filename) ?? {};
     fileBlocksMap.delete(filename);
     const currentVirtualCode = `${GLOBAL_VIRTUAL_OPEN}${segments.map((s) => s.block.virtualCode).join('\n')}${globalBraceSuffix}${GLOBAL_VIRTUAL_CLOSE}`;
     structuralControlByVirtualCodeMap.delete(currentVirtualCode);
@@ -1055,56 +1090,125 @@ export const processor: Linter.Processor = {
     const virtualMessages = messages[0] ?? [];
     logVirtualCodeOnFatal(filename, virtualMessages, segments, globalBraceSuffix);
 
-    return (
-      virtualMessages
-        .filter((msg) => !msg.fatal && !suppressedRuleIds.has(msg.ruleId ?? ''))
-        // suppress parse errors and known per-tag wrapper false positives
-        .flatMap((msg) => {
-          const segment = segments.find((s) => msg.line >= s.startLine && msg.line <= s.endLine);
-          if (!segment) {
-            return [];
+    const mappedMessages = virtualMessages
+      .filter((msg) => !msg.fatal && !suppressedRuleIds.has(msg.ruleId ?? ''))
+      .flatMap((msg) => {
+        const segment = segments.find((s) => msg.line >= s.startLine && msg.line <= s.endLine);
+        if (!segment) {
+          return [];
+        }
+
+        // Convert global (combined-file) positions to per-block positions.
+        const localMsg: Linter.LintMessage = {
+          ...msg,
+          line: msg.line - segment.startLine + 1,
+          column: msg.column,
+        };
+
+        if (msg.endLine !== undefined) {
+          localMsg.endLine = msg.endLine - segment.startLine + 1;
+          localMsg.endColumn = msg.endColumn;
+        }
+
+        if (msg.fix) {
+          const [start, end] = msg.fix.range;
+          if (start >= segment.startOffset && end <= segment.endOffset) {
+            localMsg.fix = {
+              range: [start - segment.startOffset, end - segment.startOffset],
+              text: msg.fix.text,
+            };
+          } else {
+            delete localMsg.fix;
           }
+        }
 
-          // Convert global (combined-file) positions to per-block positions.
-          const localMsg: Linter.LintMessage = {
-            ...msg,
-            line: msg.line - segment.startLine + 1,
-            column: msg.column,
-          };
+        const mapped = mapMessage(localMsg, segment.block);
 
-          if (msg.endLine !== undefined) {
-            localMsg.endLine = msg.endLine - segment.startLine + 1;
-            localMsg.endColumn = msg.endColumn;
+        if (mapped.fix) {
+          const translated = translateFix(mapped.fix, segment.block);
+          if (translated) {
+            return [{ ...mapped, fix: translated }];
           }
+          // No translation available – drop the fix.
+          const result = { ...mapped };
+          delete result.fix;
+          return [result];
+        }
 
-          if (msg.fix) {
-            const [start, end] = msg.fix.range;
-            if (start >= segment.startOffset && end <= segment.endOffset) {
-              localMsg.fix = {
-                range: [start - segment.startOffset, end - segment.startOffset],
-                text: msg.fix.text,
-              };
-            } else {
-              delete localMsg.fix;
-            }
-          }
+        return [mapped];
+      });
 
-          const mapped = mapMessage(localMsg, segment.block);
-
-          if (mapped.fix) {
-            const translated = translateFix(mapped.fix, segment.block);
-            if (translated) {
-              return [{ ...mapped, fix: translated }];
-            }
-            // No translation available – drop the fix.
-            const result = { ...mapped };
-            delete result.fix;
-            return [result];
-          }
-
-          return [mapped];
-        })
+    const rawValidationMessages = messages[1] ?? [];
+    const wrappedRawValidationMessages = messages[2] ?? [];
+    const shouldFallbackToWrappedRaw = rawValidationMessages.some(
+      (msg) => msg.fatal && /\breturn\b/u.test(msg.message),
     );
+    const finalValidationMessages = shouldFallbackToWrappedRaw ? wrappedRawValidationMessages : rawValidationMessages;
+    const finalValidationSegments = shouldFallbackToWrappedRaw ? segments : rawSegments;
+
+    const mappedRawValidationMessages = finalValidationMessages
+      .filter((msg) => !suppressedRuleIds.has(msg.ruleId ?? ''))
+      .flatMap((msg) => {
+        const segment = finalValidationSegments.find((s) => msg.line >= s.startLine && msg.line <= s.endLine);
+        if (!segment) {
+          if (msg.fatal) {
+            const lastSegment = segments[segments.length - 1];
+            const block = lastSegment.block;
+
+            let line = block.originalLine;
+            let column = block.originalColumn + 1;
+
+            for (const ch of block.codeContent) {
+              if (ch === '\n') {
+                line += 1;
+                column = 1;
+              } else {
+                column += 1;
+              }
+            }
+
+            const fatalMsg: Linter.LintMessage = {
+              ...msg,
+              message: translateRawParserFatalMessage(msg.message, globalBraceSuffix),
+              line,
+              column,
+            };
+            delete fatalMsg.fix;
+            return [fatalMsg];
+          }
+          return [];
+        }
+
+        const localMsg: Linter.LintMessage = {
+          ...msg,
+          line: msg.line - segment.startLine + 1,
+          column: msg.column,
+        };
+
+        if (msg.endLine !== undefined) {
+          localMsg.endLine = msg.endLine - segment.startLine + 1;
+          localMsg.endColumn = msg.endColumn;
+        }
+
+        delete localMsg.fix;
+        return [mapMessage(localMsg, segment.block)];
+      });
+
+    // Keep primary diagnostics and append only unique entries from raw validation.
+    const toKey = (msg: Linter.LintMessage): string =>
+      `${msg.ruleId ?? ''}|${String(msg.fatal ?? false)}|${String(msg.line)}|${String(msg.column)}|${msg.message}`;
+
+    const seen = new Set(mappedMessages.map(toKey));
+    const uniqueRawMessages = mappedRawValidationMessages.filter((msg) => {
+      const key = toKey(msg);
+      if (seen.has(key)) {
+        return false;
+      }
+      seen.add(key);
+      return true;
+    });
+
+    return [...mappedMessages, ...uniqueRawMessages];
   },
 
   supportsAutofix: true,
