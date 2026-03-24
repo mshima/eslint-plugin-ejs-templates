@@ -7,6 +7,7 @@
 //     http://www.apache.org/licenses/LICENSE-2.0
 
 import type { Rule } from 'eslint';
+import { SENTINEL_INDENT, SENTINEL_INDENT_NORMALIZE } from '../processor.js';
 
 /**
  * ESLint rule: enforce brace-depth–based indentation on standalone
@@ -43,16 +44,27 @@ export const indent: Rule.RuleModule = {
     messages: {
       indent: 'Incorrect indentation for EJS tag; expected {{expected}} spaces, got {{actual}} spaces.',
     },
-    schema: [],
+    schema: [
+      {
+        type: 'object',
+        properties: {
+          normalizeContent: { type: 'boolean' },
+        },
+        additionalProperties: false,
+      },
+    ],
   },
 
   create(context) {
+    const normalizeContent =
+      (context.options[0] as { normalizeContent?: boolean } | undefined)?.normalizeContent ?? false;
+
     return {
       Program() {
         const sourceCode = context.sourceCode;
         const comments = sourceCode.getAllComments();
         for (const comment of comments) {
-          if (comment.type === 'Line' && comment.value.trim() === '@ejs-tag:slurp-needs-indent') {
+          if (comment.type === 'Line' && comment.value.trim().startsWith('@ejs-tag:slurp-needs-indent')) {
             const { range = [0, 0] } = comment;
             context.report({
               loc: comment.loc ?? { line: 0, column: 0 },
@@ -67,7 +79,10 @@ export const indent: Rule.RuleModule = {
               fix(fixer) {
                 // Sentinel fix — the processor's postprocess translates this
                 // to replacing the line-prefix whitespace before the tag.
-                return fixer.replaceTextRange([range[0], range[1]], '');
+                return fixer.replaceTextRange(
+                  [range[0], range[1]],
+                  normalizeContent ? SENTINEL_INDENT_NORMALIZE : SENTINEL_INDENT,
+                );
               },
             });
           }

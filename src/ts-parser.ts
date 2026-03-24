@@ -26,9 +26,13 @@ await Parser.init({
 const _language = await Language.load(
   require.resolve('tree-sitter-embedded-template/tree-sitter-embedded_template.wasm'),
 );
+const _javascriptLanguage = await Language.load(require.resolve('tree-sitter-javascript/tree-sitter-javascript.wasm'));
 
 const _parser = new Parser();
 _parser.setLanguage(_language);
+
+const _javascriptParser = new Parser();
+_javascriptParser.setLanguage(_javascriptLanguage);
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -44,5 +48,14 @@ _parser.setLanguage(_language);
 export function parseEjs(text: string): SyntaxNode {
   const tree = _parser.parse(text);
   if (!tree) throw new Error('tree-sitter failed to parse EJS template');
+  return tree.rootNode;
+}
+
+/**
+ * Parse JavaScript source using tree-sitter-javascript.
+ */
+export function parseJavaScript(text: string): SyntaxNode {
+  const tree = _javascriptParser.parse(text);
+  if (!tree) throw new Error('tree-sitter failed to parse JavaScript source');
   return tree.rootNode;
 }
