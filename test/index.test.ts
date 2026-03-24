@@ -880,6 +880,12 @@ describe('rule: ejs-templates/indent', () => {
     expect(msgs.filter((m) => m.ruleId === 'ejs-templates/indent').length).toBeGreaterThan(0);
   });
 
+  test('flags a standalone multiline <%_ _%> tag with wrong indentation', () => {
+    const input = '<%_ if (x) { %>\n    <%_\n    doWork();\n    _%>\n<%_ } %>';
+    const msgs = lint(input, { 'ejs-templates/indent': 'error' });
+    expect(msgs.filter((m) => m.ruleId === 'ejs-templates/indent').length).toBeGreaterThan(0);
+  });
+
   test('does not flag tags with correct brace-depth indentation', () => {
     const input = '<%_ if (x) { _%>\n  <%_ doWork(); _%>\n<%_ } _%>';
     const msgs = lint(input, { 'ejs-templates/indent': 'error' });
@@ -947,6 +953,27 @@ describe('autofix: indent', () => {
     // so the following <%_ %>  slurp tag should be indented.
     const input = '<% if (x) { %>\n<%_ doWork(); _%>\n<% } %>';
     expect(applyFix(input, { 'ejs-templates/indent': 'error' })).toBe('<% if (x) { %>\n  <%_ doWork(); _%>\n<% } %>');
+  });
+
+  test('aligns close-open transition tags like } else { with the opening block level', () => {
+    const input = '<%_ if (x) { _%>\n  <%_ a(); _%>\n<%_ } else { _%>\n  <%_ b(); _%>\n<%_ } _%>';
+    expect(applyFix(input, { 'ejs-templates/indent': 'error' })).toBe(
+      '<%_ if (x) { _%>\n  <%_ a(); _%>\n<%_ } else { _%>\n  <%_ b(); _%>\n<%_ } _%>',
+    );
+  });
+
+  test('indents multiline slurp tag and its content', () => {
+    const input = '<%_ if (x) { %>\n<%_\ndoWork();\ndoMore();\n_%>\n<%_ } %>';
+    expect(applyFix(input, { 'ejs-templates/indent': 'error' })).toBe(
+      '<%_ if (x) { %>\n  <%_ doWork();\ndoMore();\n  _%>\n<%_ } %>',
+    );
+  });
+
+  test('normalizes multiline content when normalizeContent=true', () => {
+    const input = '<%_ if (x) { %>\n<%_\ndoWork();\ndoMore();\n_%>\n<%_ } %>';
+    expect(applyFix(input, { 'ejs-templates/indent': ['error', { normalizeContent: true }] })).toBe(
+      '<%_ if (x) { %>\n  <%_ doWork();\n      doMore();\n  _%>\n<%_ } %>',
+    );
   });
 });
 

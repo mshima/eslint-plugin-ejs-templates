@@ -80,6 +80,16 @@ export const SENTINEL_PREFER_SLURP_MULTILINE = 'PREFER_SLURP_MULTILINE';
  */
 export const SENTINEL_SLURP_NEWLINE = 'SLURP_NEWLINE';
 
+/**
+ * Sentinel text written by the `indent` fix.
+ */
+export const SENTINEL_INDENT = 'INDENT';
+
+/**
+ * Sentinel text written by the `indent` fix when `normalizeContent` is enabled.
+ */
+export const SENTINEL_INDENT_NORMALIZE = 'INDENT_NORMALIZE';
+
 /** Opening line of the function wrapper injected around the full virtual file. */
 const GLOBAL_VIRTUAL_OPEN = '(function() {\n';
 /** Closing line of the function wrapper injected around the full virtual file. */
@@ -273,16 +283,14 @@ export function extractTagBlocks(text: string): TagBlock[] {
 
     // ── Final tag type (with violation suffixes) ───────────────────────────
     let tagType = baseType;
-    if (isMultiline) {
+    if (isStandalone && isSlurpTag && lineIndent !== expectedIndent) {
+      tagType = isMultiline ? 'slurp-needs-indent-multiline' : 'slurp-needs-indent';
+    } else if (isMultiline) {
       tagType += '-multiline';
     } else if (isSlurpTag && !isStandalone) {
       // Slurp tag that is inline (not at the start of its own line).
       // The `slurp-newline` rule will move it to its own line.
       tagType = 'slurp-not-standalone';
-    } else if (isStandalone && isSlurpTag && lineIndent !== expectedIndent) {
-      // Only add needs-indent for single-line slurp tags (multiline ones get
-      // fixed by prefer-single-line-tags first, then re-checked for indent).
-      tagType = 'slurp-needs-indent';
     }
 
     // ── Virtual body extras (void-expression wrapping) ────────────────────
@@ -474,6 +482,45 @@ function buildCollapsedTag(block: TagBlock): string {
     .join('\n');
 }
 
+function buildIndentedTag(block: TagBlock, options?: { normalizeContent?: boolean }): string {
+  const normalizeContent = options?.normalizeContent ?? false;
+  const tagText = `${block.openDelim}${block.codeContent}${block.closeDelim}`;
+
+  if (!tagText.includes('\n')) {
+    return `${block.expectedIndent}${tagText}`;
+  }
+
+  // Multiline tag: trim content start, indent content lines to align with
+  // the position after the opening delimiter and space:
+  // contentIndent = expectedIndent + openDelim.length + 1 (for space)
+  const content = block.codeContent.trim();
+  const contentLines = content.split('\n');
+  const normalizedContentIndent = ' '.repeat(block.expectedIndent.length + block.openDelim.length + 1);
+
+  const lines: string[] = [];
+
+  // First line: opening delimiter + first content line (with space)
+  const firstLine = contentLines[0].trimStart();
+  lines.push(`${block.expectedIndent}${block.openDelim} ${firstLine}`);
+
+  // Middle lines:
+  // - normalizeContent=true  -> normalize each line to content-level indentation
+  // - normalizeContent=false -> preserve internal line indentation
+  for (let i = 1; i < contentLines.length; i++) {
+    if (normalizeContent) {
+      const trimmedLine = contentLines[i].trimStart();
+      lines.push(`${normalizedContentIndent}${trimmedLine}`);
+    } else {
+      lines.push(contentLines[i]);
+    }
+  }
+
+  // Last line: closing delimiter with same indent as opening tag
+  lines.push(`${block.expectedIndent}${block.closeDelim}`);
+
+  return lines.join('\n');
+}
+
 /**
  * Translate an ESLint fix object from the virtual JS code space back to the
  * original EJS source space.
@@ -529,6 +576,28 @@ function translateFix(
       };
     }
     return null;
+  } else if (fix.text === SENTINEL_INDENT) {
+    // indent: fix standalone <%_ _%> indentation (single-line and multiline)
+    if (block.tagType.startsWith('slurp-needs-indent')) {
+      // Replace from line start through full tag; in default mode only the
+      // start/end boundaries are adjusted for multiline content.
+      const indentStart = block.tagOffset - block.tagColumn;
+      return {
+        range: [indentStart, block.tagOffset + block.tagLength],
+        text: buildIndentedTag(block, { normalizeContent: false }),
+      };
+    }
+    return null;
+  } else if (fix.text === SENTINEL_INDENT_NORMALIZE) {
+    // indent (normalizeContent=true): normalize multiline content indentation too.
+    if (block.tagType.startsWith('slurp-needs-indent')) {
+      const indentStart = block.tagOffset - block.tagColumn;
+      return {
+        range: [indentStart, block.tagOffset + block.tagLength],
+        text: buildIndentedTag(block, { normalizeContent: true }),
+      };
+    }
+    return null;
   } else if (fix.text === '') {
     // ── Generic sentinel (fix.text === '') ────────────────────────────────
 
@@ -550,16 +619,6 @@ function translateFix(
       return {
         range: [block.tagOffset, block.tagOffset + block.tagLength],
         text: buildCollapsedTag(block),
-      };
-    }
-
-    // indent: fix the whitespace before a standalone <%_ _%> tag
-    if (block.tagType === 'slurp-needs-indent') {
-      // Replace the line prefix (from line start to tag start) with the expected indent.
-      const indentStart = block.tagOffset - block.tagColumn;
-      return {
-        range: [indentStart, block.tagOffset],
-        text: block.expectedIndent,
       };
     }
 
