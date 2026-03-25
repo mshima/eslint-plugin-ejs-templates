@@ -1436,6 +1436,11 @@ describe('autofix: format', () => {
       '  <%_ doWork(); _%>',
     );
   });
+
+  test('does not move close tag to new line when open tag is not slurp', () => {
+    const input = '  <%\n  doWork(); %>';
+    expect(applyFix(input, { 'ejs-templates/format': 'error' })).toBe('  <% doWork(); %>');
+  });
 });
 
 // ---------------------------------------------------------------------------
