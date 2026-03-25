@@ -274,10 +274,57 @@ export interface TagBlock {
   virtualBodyExtraLine: string;
   /** Whether the tag is standalone (only whitespace before it on the same line). */
   isStandalone: boolean;
+  /** Whether this block is a virtualized ESLint directive comment from an EJS comment tag. */
+  isDirectiveComment: boolean;
+}
+
+function extractEslintDirectiveFromEjsComment(commentText: string): string | null {
+  const content = commentText
+    .replace(/^<%#/u, '')
+    .replace(/(?:_%>|-%>|%>)$/u, '')
+    .trim();
+  if (/^eslint-(?:disable|enable)(?:-next-line)?(?:\s|$)/u.test(content)) {
+    return content;
+  }
+  return null;
+}
+
+function createDirectiveCommentBlock(params: {
+  directiveText: string;
+  tagOffset: number;
+  tagLength: number;
+  tagLine: number;
+  tagColumn: number;
+  lineIndent: string;
+  isStandalone: boolean;
+}): TagBlock {
+  const { directiveText, tagOffset, tagLength, tagLine, tagColumn, lineIndent, isStandalone } = params;
+  return {
+    virtualCode: `/* ${directiveText} */`,
+    tagLine,
+    tagColumn,
+    originalLine: tagLine,
+    originalColumn: tagColumn,
+    tagOffset,
+    tagLength,
+    tagType: 'directive-comment',
+    codeContent: directiveText,
+    openDelim: '<%#',
+    closeDelim: '%>',
+    lineIndent,
+    expectedIndent: lineIndent,
+    virtualBodyPrefix: '',
+    virtualBodyPrefixLen: 0,
+    virtualBodyInlineSuffix: '',
+    virtualBodyExtraLine: '',
+    isStandalone,
+    isDirectiveComment: true,
+  };
 }
 
 /**
  * Extract each non-comment EJS tag from `text` as a {@link TagBlock},
+ * plus supported ESLint directive comments written as EJS comments.
  * using tree-sitter-embedded-template for accurate parsing.
  *
  * Each per-tag virtual block has the structure:
@@ -306,10 +353,63 @@ export function extractTagBlocks(text: string): TagBlock[] {
 
   const root = parseEjs(text);
   let braceDepth = 0;
+  let pendingNextLineDirective: {
+    disableText: string;
+    enableText: string;
+    tagOffset: number;
+    tagLength: number;
+    tagLine: number;
+    tagColumn: number;
+    lineIndent: string;
+    isStandalone: boolean;
+  } | null = null;
 
   for (const node of root.children) {
-    // Skip content nodes and comment directives.
-    if (node.type === 'content' || node.type === 'comment_directive') continue;
+    // Skip content nodes.
+    if (node.type === 'content') continue;
+
+    if (node.type === 'comment_directive') {
+      const directiveText = extractEslintDirectiveFromEjsComment(node.text);
+      if (!directiveText) {
+        continue;
+      }
+
+      const tagOffset = node.startIndex;
+      const tagLength = node.endIndex - node.startIndex;
+      const tagLine = node.startPosition.row + 1;
+      const tagColumn = node.startPosition.column;
+      const lineStart = tagOffset - tagColumn;
+      const linePrefix = text.slice(lineStart, tagOffset);
+      const isStandalone = /^\s*$/u.test(linePrefix);
+      const lineIndent = isStandalone ? linePrefix : '';
+
+      if (/^eslint-disable-next-line(?:\s|$)/u.test(directiveText)) {
+        pendingNextLineDirective = {
+          disableText: directiveText.replace(/^eslint-disable-next-line\b/u, 'eslint-disable'),
+          enableText: directiveText.replace(/^eslint-disable-next-line\b/u, 'eslint-enable'),
+          tagOffset,
+          tagLength,
+          tagLine,
+          tagColumn,
+          lineIndent,
+          isStandalone,
+        };
+        continue;
+      }
+
+      blocks.push(
+        createDirectiveCommentBlock({
+          directiveText,
+          tagOffset,
+          tagLength,
+          tagLine,
+          tagColumn,
+          lineIndent,
+          isStandalone,
+        }),
+      );
+      continue;
+    }
 
     // Skip nodes with parse errors.
     if (node.hasError) continue;
@@ -338,6 +438,20 @@ export function extractTagBlocks(text: string): TagBlock[] {
     const linePrefix = text.slice(lineStart, tagOffset);
     const isStandalone = /^\s*$/.test(linePrefix);
     const lineIndent = isStandalone ? linePrefix : '';
+
+    if (pendingNextLineDirective) {
+      blocks.push(
+        createDirectiveCommentBlock({
+          directiveText: pendingNextLineDirective.disableText,
+          tagOffset: pendingNextLineDirective.tagOffset,
+          tagLength: pendingNextLineDirective.tagLength,
+          tagLine: pendingNextLineDirective.tagLine,
+          tagColumn: pendingNextLineDirective.tagColumn,
+          lineIndent: pendingNextLineDirective.lineIndent,
+          isStandalone: pendingNextLineDirective.isStandalone,
+        }),
+      );
+    }
 
     // ── Base tag type ─────────────────────────────────────────────────────
     let baseType: string;
@@ -428,7 +542,23 @@ export function extractTagBlocks(text: string): TagBlock[] {
       virtualBodyInlineSuffix,
       virtualBodyExtraLine,
       isStandalone,
+      isDirectiveComment: false,
     });
+
+    if (pendingNextLineDirective) {
+      blocks.push(
+        createDirectiveCommentBlock({
+          directiveText: pendingNextLineDirective.enableText,
+          tagOffset,
+          tagLength,
+          tagLine,
+          tagColumn,
+          lineIndent,
+          isStandalone,
+        }),
+      );
+      pendingNextLineDirective = null;
+    }
   }
 
   return blocks;
@@ -1153,17 +1283,19 @@ export const processor: Linter.Processor = {
     const virtualCode = `${GLOBAL_VIRTUAL_OPEN}${blocks.map((b) => b.virtualCode).join('\n')}${globalBraceSuffix}${GLOBAL_VIRTUAL_CLOSE}`;
     structuralControlByVirtualCodeMap.set(
       virtualCode,
-      blocks.map((block) => hasStructuralBraces(block.codeContent)),
+      blocks.filter((block) => !block.isDirectiveComment).map((block) => hasStructuralBraces(block.codeContent)),
     );
     tagFormatByVirtualCodeMap.set(
       virtualCode,
-      blocks.map((block) => {
-        const originalText = block.openDelim + block.codeContent + block.closeDelim;
-        return {
-          isFormattedDefault: originalText === buildFormattedTag(block, { multilineCloseOnNewLine: false }),
-          isFormattedMultilineClose: originalText === buildFormattedTag(block, { multilineCloseOnNewLine: true }),
-        };
-      }),
+      blocks
+        .filter((block) => !block.isDirectiveComment)
+        .map((block) => {
+          const originalText = block.openDelim + block.codeContent + block.closeDelim;
+          return {
+            isFormattedDefault: originalText === buildFormattedTag(block, { multilineCloseOnNewLine: false }),
+            isFormattedMultilineClose: originalText === buildFormattedTag(block, { multilineCloseOnNewLine: true }),
+          };
+        }),
     );
 
     // Second pass target: full virtual JS with no wrapper.

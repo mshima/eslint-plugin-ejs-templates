@@ -52,6 +52,13 @@ describe('extractTagBlocks', () => {
     expect(blocks).toHaveLength(0);
   });
 
+  test('extracts eslint-disable EJS comment as virtual directive comment', () => {
+    const blocks = extractTagBlocks('<%# eslint-disable no-var %>');
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0].virtualCode).toBe('/* eslint-disable no-var */');
+    expect(blocks[0].isDirectiveComment).toBe(true);
+  });
+
   test('extracts a single escaped-output tag (<%= %>)', () => {
     const blocks = extractTagBlocks('<%= name %>');
     expect(blocks).toHaveLength(1);
@@ -284,6 +291,26 @@ describe('processor position mapping', () => {
   test('comment tags produce no virtual blocks (no lint errors)', () => {
     const msgs = lint('<%# this is a comment %>', { 'no-var': 'error' });
     expect(msgs).toHaveLength(0);
+  });
+
+  test('eslint-disable in EJS comment suppresses following standard ESLint rule', () => {
+    const msgs = lint('<%# eslint-disable no-var %>\n<% var value = 1; %>', { 'no-var': 'error' });
+    expect(msgs).toHaveLength(0);
+  });
+
+  test('eslint-disable-next-line in EJS comment suppresses next tag', () => {
+    const msgs = lint('<%# eslint-disable-next-line no-var %>\n<% var value = 1; %>', { 'no-var': 'error' });
+    expect(msgs).toHaveLength(0);
+  });
+
+  test('eslint-enable in EJS comment restores linting after disable', () => {
+    const msgs = lint(
+      '<%# eslint-disable no-var %>\n<% var first = 1; %>\n<%# eslint-enable no-var %>\n<% var second = 2; %>',
+      { 'no-var': 'error' },
+    );
+    expect(msgs).toHaveLength(1);
+    expect(msgs[0].ruleId).toBe('no-var');
+    expect(msgs[0].line).toBe(4);
   });
 
   test('reports parse error at EOF when closing brace is missing', () => {
