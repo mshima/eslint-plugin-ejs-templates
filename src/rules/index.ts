@@ -12,3 +12,4 @@ export { preferSlurpMultiline } from './prefer-slurp-multiline.js';
 export { preferSingleLineTags } from './prefer-single-line-tags.js';
 export { slurpNewline } from './slurp-newline.js';
 export { indent } from './indent.js';
+export { format } from './format.js';

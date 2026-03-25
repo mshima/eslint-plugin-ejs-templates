@@ -437,6 +437,7 @@ describe('plugin shape', () => {
     expect(config.rules?.['ejs-templates/prefer-slurping-codeonly']).toBe('error');
     expect(config.rules?.['ejs-templates/experimental-prefer-slurp-multiline']).toBe('error');
     expect(config.rules?.['ejs-templates/prefer-single-line-tags']).toBe('error');
+    expect(config.rules?.['ejs-templates/format']).toBe('error');
     expect(config.rules?.['ejs-templates/slurp-newline']).toBe('error');
     expect(config.rules?.['ejs-templates/indent']).toBe('error');
   });
@@ -992,6 +993,16 @@ describe('autofix: prefer-single-line-tags', () => {
     ).toBe('<% if (cond) { _%>\n<%_ const x = `hello ${name}`;\n  doWork(); _%>\n<%_ } %>');
   });
 
+  test('applies indent-aware split when indent also reports in the same run', () => {
+    const input = '  <%_\n  if (x) {\n  doWork();\n  }\n  _%>';
+    expect(
+      applyFix(input, {
+        'ejs-templates/prefer-single-line-tags': 'error',
+        'ejs-templates/indent': 'error',
+      }),
+    ).toBe('<%_ if (x) { _%>\n  <%_ doWork(); _%>\n<%_ } _%>');
+  });
+
   test('mode=braces does not re-report preserved inner tag with ${ interpolation', () => {
     const input = '<%\n  if (cond) {\n  const x = `hello ${name}`;\n  doWork();\n  }\n%>';
     const fixed = applyFix(input, {
@@ -1201,9 +1212,9 @@ describe('rule: ejs-templates/experimental-prefer-slurp-multiline', () => {
 // ---------------------------------------------------------------------------
 
 describe('autofix: experimental-prefer-slurp-multiline', () => {
-  test('converts multiline <% %> to <%_ _%> (content unchanged)', () => {
+  test('converts multiline <% %> to <%_ _%> (content trimmed before fix)', () => {
     expect(applyFix('<%\n  if (x) {\n%>', { 'ejs-templates/experimental-prefer-slurp-multiline': 'error' })).toBe(
-      '<%_\n  if (x) {\n_%>',
+      '<%_ if (x) { _%>',
     );
   });
 
@@ -1218,6 +1229,60 @@ describe('autofix: experimental-prefer-slurp-multiline', () => {
       'ejs-templates/prefer-single-line-tags': 'error',
     });
     expect(result).toBe('<%_ if (x) { _%>');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Rule: ejs-templates/format
+// ---------------------------------------------------------------------------
+
+describe('rule: ejs-templates/format', () => {
+  test('flags tag without spacing around content', () => {
+    const msgs = lint('<%foo%>', { 'ejs-templates/format': 'error' });
+    expect(msgs.filter((m) => m.ruleId === 'ejs-templates/format').length).toBeGreaterThan(0);
+  });
+
+  test('does not flag tag already spaced', () => {
+    const msgs = lint('<% foo %>', { 'ejs-templates/format': 'error' });
+    expect(msgs.filter((m) => m.ruleId === 'ejs-templates/format')).toHaveLength(0);
+  });
+
+  test("flags multiline close with default multilineClose='new-line'", () => {
+    const input = '<%_\n  doWork(); _%>';
+    const msgs = lint(input, { 'ejs-templates/format': 'error' });
+    expect(msgs.filter((m) => m.ruleId === 'ejs-templates/format').length).toBeGreaterThan(0);
+  });
+
+  test("does not require multiline close newline when multilineClose='same-line'", () => {
+    const input = '<%_ doWork(); _%>';
+    const msgs = lint(input, { 'ejs-templates/format': ['error', { multilineClose: 'same-line' }] });
+    expect(msgs.filter((m) => m.ruleId === 'ejs-templates/format')).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Autofix: ejs-templates/format
+// ---------------------------------------------------------------------------
+
+describe('autofix: format', () => {
+  test('adds a single space around single-line content', () => {
+    expect(applyFix('<%foo%>', { 'ejs-templates/format': 'error' })).toBe('<% foo %>');
+  });
+
+  test('formats slurp tag content by trimming outer whitespace', () => {
+    expect(applyFix('<%_  doWork();   _%>', { 'ejs-templates/format': 'error' })).toBe('<%_ doWork(); _%>');
+  });
+
+  test("moves multiline close to a new line aligned with opening indent by default (multilineClose='new-line')", () => {
+    const input = '  <%_\n  doWork(); _%>';
+    expect(applyFix(input, { 'ejs-templates/format': 'error' })).toBe('  <%_ doWork();\n  _%>');
+  });
+
+  test("keeps close on same line when multilineClose='same-line'", () => {
+    const input = '  <%_\n  doWork(); _%>';
+    expect(applyFix(input, { 'ejs-templates/format': ['error', { multilineClose: 'same-line' }] })).toBe(
+      '  <%_ doWork(); _%>',
+    );
   });
 });
 

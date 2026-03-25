@@ -13,6 +13,7 @@ import { preferSlurpMultiline } from './rules/prefer-slurp-multiline.js';
 import { preferSingleLineTags } from './rules/prefer-single-line-tags.js';
 import { slurpNewline } from './rules/slurp-newline.js';
 import { indent } from './rules/indent.js';
+import { format } from './rules/format.js';
 import { type Config } from 'eslint/config';
 
 // ---------------------------------------------------------------------------
@@ -36,6 +37,7 @@ const pluginCore = {
     'prefer-single-line-tags': preferSingleLineTags,
     'slurp-newline': slurpNewline,
     indent,
+    format,
   },
 };
 
@@ -87,6 +89,7 @@ const all: Config[] = [
       [`${pluginName}/slurp-newline`]: 'error',
       [`${pluginName}/indent`]: 'error',
       [`${pluginName}/prefer-raw`]: 'error',
+      [`${pluginName}/format`]: 'error',
     },
   },
 ] as const satisfies Config[];
@@ -102,4 +105,4 @@ const plugin = {
 
 export default plugin;
 export { processor };
-export { preferRaw, preferSlurpingCodeonly, preferSlurpMultiline, preferSingleLineTags, slurpNewline, indent };
+export { preferRaw, preferSlurpingCodeonly, preferSlurpMultiline, preferSingleLineTags, slurpNewline, indent, format };
