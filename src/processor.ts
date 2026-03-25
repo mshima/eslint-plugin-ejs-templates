@@ -956,12 +956,13 @@ function buildFormattedTag(block: TagBlock, options?: { multilineCloseOnNewLine?
   const multilineCloseOnNewLine = options?.multilineCloseOnNewLine ?? false;
   const trimmedContent = block.codeContent.trim();
   const wasMultiline = block.codeContent.includes('\n');
+  const isSlurpOpenTag = block.openDelim === '<%_';
 
   if (trimmedContent.length === 0) {
     return `${block.openDelim} ${block.closeDelim}`;
   }
 
-  if (!multilineCloseOnNewLine || !wasMultiline) {
+  if (!multilineCloseOnNewLine || !wasMultiline || !isSlurpOpenTag) {
     return `${block.openDelim} ${trimmedContent} ${block.closeDelim}`;
   }
 
