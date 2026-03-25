@@ -77,6 +77,23 @@ npx eslint --fix "**/*.ejs"
 > `no-undef` diagnostics are suppressed internally for `*.ejs` virtual blocks,
 > so you do not need to disable `no-undef` in your ESLint config.
 
+> **Note on ESLint directives in EJS comments**
+>
+> You can use supported ESLint directive comments inside EJS comments:
+>
+> - `<%# eslint-disable no-var %>`
+> - `<%# eslint-enable no-var %>`
+> - `<%# eslint-disable-next-line no-var %>`
+>
+> Example:
+>
+> ```ejs
+> <%# eslint-disable-next-line no-var %>
+> <% var value = 1; %>
+> ```
+>
+> Regular EJS comments that are not ESLint directives continue to be ignored.
+
 ## Rules
 
 Apply rules in the following order for best results:
