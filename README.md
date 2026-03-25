@@ -12,6 +12,7 @@ EJS files are parsed by [tree-sitter-embedded-template](https://github.com/tree-
 - **`ejs-templates/prefer-slurping-codeonly`** – flags `<% … %>` code tags that can be safely converted to `<%_ … _%>`
 - **`ejs-templates/experimental-prefer-slurp-multiline`** – converts multiline `<% … %>` to `<%_ … _%>`
 - **`ejs-templates/prefer-single-line-tags`** – collapses multiline EJS tags to single-line tags
+- **`ejs-templates/format`** – normalizes spacing inside tags and multiline closing delimiter layout
 - **`ejs-templates/slurp-newline`** – ensures `<%_ … _%>` tags are on their own line
 - **`ejs-templates/indent`** – enforces brace-depth–based indentation on standalone `<%_ … _%>` tags
 
@@ -47,6 +48,7 @@ export default defineConfig([
       'ejs-templates/slurp-newline': 'error',
       'ejs-templates/indent': 'error',
       'ejs-templates/prefer-raw': 'error',
+      'ejs-templates/format': 'error',
     },
   },
 ]);
@@ -85,6 +87,7 @@ Apply rules in the following order for best results:
 4. `slurp-newline` — ensure slurp tags are on their own line
 5. `indent` — enforce brace-depth indentation
 6. `prefer-raw` — prefer `<%-` over `<%=`
+7. `format` — apply final whitespace/layout normalization
 
 ### `ejs-templates/prefer-raw`
 
@@ -239,6 +242,45 @@ some text<%_ doWork(); _%>
 <!-- ✓ fixed -->
 some text
 <%_ doWork(); _%>
+```
+
+### `ejs-templates/format`
+
+Applies final formatting normalization to EJS tags:
+
+- ensures a single space around trimmed content (`<% foo %>`)
+- controls multiline closing delimiter style
+
+|             |                                                       |
+| ----------- | ----------------------------------------------------- |
+| **Fixable** | Yes — `eslint --fix` normalizes tag whitespace/layout |
+
+Options:
+
+- `{ multilineClose: 'new-line' }` (default) — for originally multiline tags, move close delimiter to a new line aligned with opening tag indentation
+- `{ multilineClose: 'same-line' }` — keep close delimiter on the same line as content after formatting
+
+```js
+// eslint.config.js
+{
+  files: ['**/*.ejs'],
+  rules: {
+    'ejs-templates/format': ['error', { multilineClose: 'new-line' }],
+  },
+}
+```
+
+```ejs
+<!-- input -->
+  <%_
+  doWork(); _%>
+
+<!-- with multilineClose: 'new-line' (default) -->
+  <%_ doWork();
+  _%>
+
+<!-- with multilineClose: 'same-line' -->
+  <%_ doWork(); _%>
 ```
 
 ### `ejs-templates/indent`

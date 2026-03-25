@@ -165,6 +165,17 @@ export const SENTINEL_INDENT = 'INDENT';
  */
 export const SENTINEL_INDENT_NORMALIZE = 'INDENT_NORMALIZE';
 
+/**
+ * Sentinel text written by the `format` fix.
+ */
+export const SENTINEL_FORMAT = 'FORMAT';
+
+/**
+ * Sentinel text written by the `format` fix when `multilineCloseOnNewLine`
+ * is enabled.
+ */
+export const SENTINEL_FORMAT_MULTILINE_CLOSE = 'FORMAT_MULTILINE_CLOSE';
+
 /** Opening line of the function wrapper injected around the full virtual file. */
 const GLOBAL_VIRTUAL_OPEN = '(function() {\n';
 /** Closing line of the function wrapper injected around the full virtual file. */
@@ -503,8 +514,8 @@ function mapMessage(msg: Linter.LintMessage, block: TagBlock): Linter.LintMessag
  * ```
  * → `<%_ const arr = 'foo'.split(); _%>`, `<%_ const y = 2; _%>`  (dot-continuation joined)
  */
-function buildCollapsedTag(block: TagBlock): string {
-  return buildCollapsedTagWithMode(block, 'always');
+function buildCollapsedTag(block: TagBlock, options?: { applyIndent?: boolean }): string {
+  return buildCollapsedTagWithMode(block, 'always', options);
 }
 
 type PreferSingleLineTagsMode = 'always' | 'braces';
@@ -518,10 +529,16 @@ function getStructuralBracePositions(text: string): Set<number> {
   return collectStructuralBracePositions(text);
 }
 
-function buildCollapsedTagWithMode(block: TagBlock, mode: PreferSingleLineTagsMode): string {
+function buildCollapsedTagWithMode(
+  block: TagBlock,
+  mode: PreferSingleLineTagsMode,
+  options?: { applyIndent?: boolean },
+): string {
+  const applyIndent = options?.applyIndent ?? false;
   const rawLines = splitLines(block.codeContent);
   if (rawLines.length === 0) {
-    return `${block.openDelim} ${block.closeDelim}`;
+    const baseIndent = applyIndent ? block.expectedIndent : '';
+    return `${baseIndent}${block.openDelim} ${block.closeDelim}`;
   }
 
   const hasBraces = hasStructuralBraces(block.codeContent);
@@ -698,27 +715,52 @@ function buildCollapsedTagWithMode(block: TagBlock, mode: PreferSingleLineTagsMo
   }
 
   if (tags.length === 0) {
-    return `${block.openDelim} ${block.closeDelim}`;
+    const baseIndent = applyIndent ? block.expectedIndent : '';
+    return `${baseIndent}${block.openDelim} ${block.closeDelim}`;
   }
 
   if (tags.length === 1) {
-    return `${block.openDelim} ${tags[0].trim()} ${block.closeDelim}`;
+    const baseIndent = applyIndent ? block.expectedIndent : '';
+    return `${baseIndent}${block.openDelim} ${tags[0].trim()} ${block.closeDelim}`;
   }
 
-  // Multiple tags → one per statement, indented like the original tag.
-  // - First tag: uses original open delimiter, slurp close
-  // - Middle tags: both slurp delimiters
-  // - Last tag: slurp open, uses original close delimiter
-  return tags
-    .map((tag, i) => {
-      const isFirst = i === 0;
-      const isLast = i === tags.length - 1;
-      const openDelim = isFirst ? block.openDelim : '<%_';
-      const closeDelim = isLast ? block.closeDelim : '_%>';
-      const prefix = i === 0 ? '' : block.lineIndent;
-      return `${prefix}${openDelim} ${tag.trim()} ${closeDelim}`;
-    })
-    .join('\n');
+  if (!applyIndent) {
+    // Legacy prefer-single-line-tags behaviour: preserve existing indentation.
+    return tags
+      .map((tag, i) => {
+        const isFirst = i === 0;
+        const isLast = i === tags.length - 1;
+        const openDelim = isFirst ? block.openDelim : '<%_';
+        const closeDelim = isLast ? block.closeDelim : '_%>';
+        const prefix = i === 0 ? '' : block.lineIndent;
+        return `${prefix}${openDelim} ${tag.trim()} ${closeDelim}`;
+      })
+      .join('\n');
+  }
+
+  // Indent-aware split: align generated tags with expected indent and structural depth.
+  const resultParts: string[] = [];
+  let relativeDepth = 0;
+  for (let i = 0; i < tags.length; i++) {
+    const tag = tags[i];
+    const isFirst = i === 0;
+    const isLast = i === tags.length - 1;
+    const openDelim = isFirst ? block.openDelim : '<%_';
+    const closeDelim = isLast ? block.closeDelim : '_%>';
+    const trimmedTag = tag.trim();
+
+    if (!isFirst && trimmedTag.startsWith('}')) {
+      relativeDepth = Math.max(0, relativeDepth - 1);
+    }
+
+    const prefix = block.expectedIndent + '  '.repeat(relativeDepth);
+    resultParts.push(`${prefix}${openDelim} ${trimmedTag} ${closeDelim}`);
+
+    if (trimmedTag.endsWith('{')) {
+      relativeDepth++;
+    }
+  }
+  return resultParts.join('\n');
 }
 
 function buildIndentedTag(block: TagBlock, options?: { normalizeContent?: boolean }): string {
@@ -760,6 +802,23 @@ function buildIndentedTag(block: TagBlock, options?: { normalizeContent?: boolea
   return lines.join('\n');
 }
 
+function buildFormattedTag(block: TagBlock, options?: { multilineCloseOnNewLine?: boolean }): string {
+  const multilineCloseOnNewLine = options?.multilineCloseOnNewLine ?? false;
+  const trimmedContent = block.codeContent.trim();
+  const wasMultiline = block.codeContent.includes('\n');
+
+  if (trimmedContent.length === 0) {
+    return `${block.openDelim} ${block.closeDelim}`;
+  }
+
+  if (!multilineCloseOnNewLine || !wasMultiline) {
+    return `${block.openDelim} ${trimmedContent} ${block.closeDelim}`;
+  }
+
+  const lines = trimmedContent.split('\n').map((line) => line.trimEnd());
+  return `${block.openDelim} ${lines.join('\n')}\n${block.lineIndent}${block.closeDelim}`;
+}
+
 /**
  * Translate an ESLint fix object from the virtual JS code space back to the
  * original EJS source space.
@@ -794,7 +853,10 @@ function buildIndentedTag(block: TagBlock, options?: { normalizeContent?: boolea
 function translateFix(
   fix: { range: [number, number]; text: string },
   block: TagBlock,
+  options?: { applyIndentForSingleLineTags?: boolean },
 ): { range: [number, number]; text: string } | null {
+  const applyIndentForSingleLineTags = options?.applyIndentForSingleLineTags ?? false;
+  const trimmedCodeContent = block.codeContent.trim();
   // ── Sentinel fix detection ─────────────────────────────────────────────
   // All plugin-rule sentinels start at offset 0 in the virtual file.
   if (fix.range[0] !== 0) {
@@ -804,7 +866,7 @@ function translateFix(
     if (block.tagType === 'code-multiline' || block.tagType === 'code-slurpable-multiline') {
       return {
         range: [block.tagOffset, block.tagOffset + block.tagLength],
-        text: `<%_${block.codeContent}_%>`,
+        text: `<%_ ${trimmedCodeContent} _%>`,
       };
     }
     return null;
@@ -839,6 +901,17 @@ function translateFix(
       };
     }
     return null;
+  } else if (fix.text === SENTINEL_FORMAT || fix.text === SENTINEL_FORMAT_MULTILINE_CLOSE) {
+    const multilineCloseOnNewLine = fix.text === SENTINEL_FORMAT_MULTILINE_CLOSE;
+    const originalText = block.openDelim + block.codeContent + block.closeDelim;
+    const fixedText = buildFormattedTag(block, { multilineCloseOnNewLine });
+    if (fixedText === originalText) {
+      return null;
+    }
+    return {
+      range: [block.tagOffset, block.tagOffset + block.tagLength],
+      text: fixedText,
+    };
   } else if (fix.text === SENTINEL_PREFER_SINGLE_LINE_TAGS_BRACES) {
     // prefer-single-line-tags (mode=braces): collapse multiline tag while
     // keeping content between braces in a single tag.
@@ -847,12 +920,16 @@ function translateFix(
         return null;
       }
       const originalText = block.openDelim + block.codeContent + block.closeDelim;
-      const fixedText = buildCollapsedTagWithMode(block, 'braces');
+      const fixedText = buildCollapsedTagWithMode(block, 'braces', {
+        applyIndent: applyIndentForSingleLineTags,
+      });
       if (fixedText === originalText) {
         return null;
       }
+      const bracesModeIndentStart =
+        applyIndentForSingleLineTags && block.isStandalone ? block.tagOffset - block.tagColumn : block.tagOffset;
       return {
-        range: [block.tagOffset, block.tagOffset + block.tagLength],
+        range: [bracesModeIndentStart, block.tagOffset + block.tagLength],
         text: fixedText,
       };
     }
@@ -869,15 +946,20 @@ function translateFix(
     if (block.tagType === 'code-slurpable') {
       return {
         range: [block.tagOffset, block.tagOffset + block.tagLength],
-        text: `<%_${block.codeContent}_%>`,
+        text: `<%_ ${trimmedCodeContent} _%>`,
       };
     }
 
-    // prefer-single-line-tags: collapse multiline tag into single-line tag(s)
+    // prefer-single-line-tags: collapse multiline tag into single-line tag(s).
     if (block.tagType.endsWith('-multiline')) {
+      const indentStart =
+        applyIndentForSingleLineTags && block.isStandalone ? block.tagOffset - block.tagColumn : block.tagOffset;
       return {
-        range: [block.tagOffset, block.tagOffset + block.tagLength],
-        text: buildCollapsedTag(block),
+        range: [indentStart, block.tagOffset + block.tagLength],
+        text: buildCollapsedTag(
+          { ...block, codeContent: trimmedCodeContent },
+          { applyIndent: applyIndentForSingleLineTags },
+        ),
       };
     }
 
@@ -937,8 +1019,18 @@ const fileBlocksMap = new Map<
 >();
 const structuralControlByVirtualCodeMap = new Map<string, boolean[]>();
 
+interface TagFormatState {
+  isFormattedDefault: boolean;
+  isFormattedMultilineClose: boolean;
+}
+const tagFormatByVirtualCodeMap = new Map<string, TagFormatState[]>();
+
 export function getStructuralControlByVirtualCode(virtualCode: string): boolean[] | undefined {
   return structuralControlByVirtualCodeMap.get(virtualCode);
+}
+
+export function getTagFormatByVirtualCode(virtualCode: string): TagFormatState[] | undefined {
+  return tagFormatByVirtualCodeMap.get(virtualCode);
 }
 
 function translateRawParserFatalMessage(message: string, globalBraceSuffix: string): string {
@@ -1063,6 +1155,16 @@ export const processor: Linter.Processor = {
       virtualCode,
       blocks.map((block) => hasStructuralBraces(block.codeContent)),
     );
+    tagFormatByVirtualCodeMap.set(
+      virtualCode,
+      blocks.map((block) => {
+        const originalText = block.openDelim + block.codeContent + block.closeDelim;
+        return {
+          isFormattedDefault: originalText === buildFormattedTag(block, { multilineCloseOnNewLine: false }),
+          isFormattedMultilineClose: originalText === buildFormattedTag(block, { multilineCloseOnNewLine: true }),
+        };
+      }),
+    );
 
     // Second pass target: full virtual JS with no wrapper.
     const rawVirtualCode = blocks.map((b) => b.virtualCode).join('\n');
@@ -1077,6 +1179,7 @@ export const processor: Linter.Processor = {
     fileBlocksMap.delete(filename);
     const currentVirtualCode = `${GLOBAL_VIRTUAL_OPEN}${segments.map((s) => s.block.virtualCode).join('\n')}${globalBraceSuffix}${GLOBAL_VIRTUAL_CLOSE}`;
     structuralControlByVirtualCodeMap.delete(currentVirtualCode);
+    tagFormatByVirtualCodeMap.delete(currentVirtualCode);
 
     if (segments.length === 0) {
       return [];
@@ -1089,6 +1192,7 @@ export const processor: Linter.Processor = {
 
     const virtualMessages = messages[0] ?? [];
     logVirtualCodeOnFatal(filename, virtualMessages, segments, globalBraceSuffix);
+    const hasIndentMessages = virtualMessages.some((msg) => msg.ruleId === 'ejs-templates/indent');
 
     const mappedMessages = virtualMessages
       .filter((msg) => !msg.fatal && !suppressedRuleIds.has(msg.ruleId ?? ''))
@@ -1125,7 +1229,9 @@ export const processor: Linter.Processor = {
         const mapped = mapMessage(localMsg, segment.block);
 
         if (mapped.fix) {
-          const translated = translateFix(mapped.fix, segment.block);
+          const translated = translateFix(mapped.fix, segment.block, {
+            applyIndentForSingleLineTags: hasIndentMessages,
+          });
           if (translated) {
             return [{ ...mapped, fix: translated }];
           }
@@ -1208,7 +1314,12 @@ export const processor: Linter.Processor = {
       return true;
     });
 
-    return [...mappedMessages, ...uniqueRawMessages];
+    const formatMessages = mappedMessages.filter((msg) => msg.ruleId === 'ejs-templates/format');
+    const nonFormatMessages = mappedMessages.filter((msg) => msg.ruleId !== 'ejs-templates/format');
+
+    // Keep `format` fixes last so all structural/semantic fixes and validations
+    // run first, and formatting is applied as a final normalization step.
+    return [...nonFormatMessages, ...uniqueRawMessages, ...formatMessages];
   },
 
   supportsAutofix: true,
