@@ -289,6 +289,20 @@ function extractEslintDirectiveFromEjsComment(commentText: string): string | nul
   return null;
 }
 
+/**
+ * Extract the close delimiter from an EJS comment tag text.
+ * Supported delimiters: `%>`, `-%>`, `_%>`
+ */
+function extractCloseDelimFromEjsComment(commentText: string): string {
+  const delimiters = ['_%>', '-%>', '%>'];
+  for (const delim of delimiters) {
+    if (commentText.endsWith(delim)) {
+      return delim;
+    }
+  }
+  return '%>'; // fallback
+}
+
 function createDirectiveCommentBlock(params: {
   directiveText: string;
   tagOffset: number;
@@ -297,8 +311,9 @@ function createDirectiveCommentBlock(params: {
   tagColumn: number;
   lineIndent: string;
   isStandalone: boolean;
+  closeDelim?: string;
 }): TagBlock {
-  const { directiveText, tagOffset, tagLength, tagLine, tagColumn, lineIndent, isStandalone } = params;
+  const { directiveText, tagOffset, tagLength, tagLine, tagColumn, lineIndent, isStandalone, closeDelim } = params;
   return {
     virtualCode: `/* ${directiveText} */`,
     tagLine,
@@ -310,7 +325,7 @@ function createDirectiveCommentBlock(params: {
     tagType: 'directive-comment',
     codeContent: directiveText,
     openDelim: '<%#',
-    closeDelim: '%>',
+    closeDelim: closeDelim ?? '%>',
     lineIndent,
     expectedIndent: lineIndent,
     virtualBodyPrefix: '',
@@ -362,6 +377,7 @@ export function extractTagBlocks(text: string): TagBlock[] {
     tagColumn: number;
     lineIndent: string;
     isStandalone: boolean;
+    closeDelim: string;
   } | null = null;
 
   for (const node of root.children) {
@@ -393,6 +409,7 @@ export function extractTagBlocks(text: string): TagBlock[] {
           tagColumn,
           lineIndent,
           isStandalone,
+          closeDelim: extractCloseDelimFromEjsComment(node.text),
         };
         continue;
       }
@@ -406,6 +423,7 @@ export function extractTagBlocks(text: string): TagBlock[] {
           tagColumn,
           lineIndent,
           isStandalone,
+          closeDelim: extractCloseDelimFromEjsComment(node.text),
         }),
       );
       continue;
@@ -449,6 +467,7 @@ export function extractTagBlocks(text: string): TagBlock[] {
           tagColumn: pendingNextLineDirective.tagColumn,
           lineIndent: pendingNextLineDirective.lineIndent,
           isStandalone: pendingNextLineDirective.isStandalone,
+          closeDelim: pendingNextLineDirective.closeDelim,
         }),
       );
     }
@@ -555,6 +574,7 @@ export function extractTagBlocks(text: string): TagBlock[] {
           tagColumn,
           lineIndent,
           isStandalone,
+          closeDelim: pendingNextLineDirective.closeDelim,
         }),
       );
       pendingNextLineDirective = null;
@@ -1192,6 +1212,216 @@ function logVirtualCodeOnFatal(
   );
 }
 
+function formatRuleListForUnusedDirective(ruleIds: string[]): string {
+  const quoted = ruleIds.map((ruleId) => `'${ruleId}'`);
+  if (quoted.length === 1) {
+    return quoted[0];
+  }
+  if (quoted.length === 2) {
+    return `${quoted[0]} and ${quoted[1]}`;
+  }
+  return `${quoted.slice(0, -1).join(', ')}, and ${quoted[quoted.length - 1]}`;
+}
+
+function extractUnusedDirectiveRuleIds(message: string): string[] {
+  return [...message.matchAll(/'([^']+)'/gu)].map((m) => m[1]);
+}
+
+function findMatchingEnableDirective(
+  blocks: TagBlock[],
+  currentBlockIndex: number,
+): { block: TagBlock; index: number } | null {
+  const currentBlock = blocks[currentBlockIndex];
+  if (!currentBlock.isDirectiveComment) {
+    return null;
+  }
+
+  const currentDirectiveMatch = currentBlock.codeContent.match(/^eslint-disable(?:-next-line)?(?:\s+(.*))?$/u);
+  if (!currentDirectiveMatch) {
+    return null;
+  }
+
+  const [, currentRuleListRaw = ''] = currentDirectiveMatch;
+  const ruleListText = currentRuleListRaw.trim();
+  if (ruleListText.length === 0) {
+    // eslint-disable with no explicit rule list matches eslint-enable with no rule list
+    for (let i = currentBlockIndex + 1; i < blocks.length; i++) {
+      const block = blocks[i];
+      if (block.isDirectiveComment && /^eslint-enable(?:\s|$)/u.test(block.codeContent)) {
+        const enableMatch = block.codeContent.match(/^eslint-enable(?:\s+(.*))?$/u);
+        if (enableMatch && (!enableMatch[1] || enableMatch[1].trim().length === 0)) {
+          return { block, index: i };
+        }
+      }
+    }
+  } else {
+    // eslint-disable with explicit rules matches eslint-enable with same rules (in any order)
+    const disableRuleIds = new Set(
+      ruleListText
+        .split(',')
+        .map((r) => r.trim())
+        .filter((r) => r.length > 0),
+    );
+
+    for (let i = currentBlockIndex + 1; i < blocks.length; i++) {
+      const block = blocks[i];
+      if (block.isDirectiveComment && /^eslint-enable(?:\s|$)/u.test(block.codeContent)) {
+        const enableMatch = block.codeContent.match(/^eslint-enable(?:\s+(.*))?$/u);
+        if (enableMatch) {
+          const [, enableRuleListRaw = ''] = enableMatch;
+          const enableRuleListText = enableRuleListRaw.trim();
+          if (enableRuleListText.length === 0) {
+            // eslint-enable with no rules matches any disable (stops at first enable)
+            return { block, index: i };
+          }
+          const enableRuleIds = new Set(
+            enableRuleListText
+              .split(',')
+              .map((r) => r.trim())
+              .filter((r) => r.length > 0),
+          );
+          if (disableRuleIds.size === enableRuleIds.size && [...disableRuleIds].every((r) => enableRuleIds.has(r))) {
+            return { block, index: i };
+          }
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
+function translateUnusedDirectiveFix(
+  msg: Linter.LintMessage,
+  block: TagBlock,
+  blocks?: TagBlock[],
+  blockIndex?: number,
+): {
+  disableFix: { range: [number, number]; text: string };
+  enableBlock?: TagBlock;
+  enableFix?: { range: [number, number]; text: string };
+} | null {
+  if (!block.isDirectiveComment || msg.ruleId !== null || !/^Unused eslint-disable directive/u.test(msg.message)) {
+    return null;
+  }
+
+  const directiveMatch = block.codeContent.match(/^eslint-disable(?:-next-line)?(?:\s+(.*))?$/u);
+  if (!directiveMatch) {
+    return null;
+  }
+
+  const [, ruleListRaw = ''] = directiveMatch;
+  const ruleListText = ruleListRaw.trim();
+  if (ruleListText.length === 0) {
+    // `eslint-disable` with no explicit rule list: drop the whole directive tag.
+    return {
+      disableFix: {
+        range: [block.tagOffset, block.tagOffset + block.tagLength],
+        text: '',
+      },
+    };
+  }
+
+  const currentRuleIds = ruleListText
+    .split(',')
+    .map((r) => r.trim())
+    .filter((r) => r.length > 0);
+  const unusedRuleIds = new Set(extractUnusedDirectiveRuleIds(msg.message));
+  if (unusedRuleIds.size === 0) {
+    return null;
+  }
+
+  const remainingRuleIds = currentRuleIds.filter((ruleId) => !unusedRuleIds.has(ruleId));
+  if (remainingRuleIds.length === currentRuleIds.length) {
+    return null;
+  }
+
+  let disableFix: { range: [number, number]; text: string };
+
+  if (remainingRuleIds.length === 0) {
+    disableFix = {
+      range: [block.tagOffset, block.tagOffset + block.tagLength],
+      text: '',
+    };
+  } else {
+    disableFix = {
+      range: [block.tagOffset, block.tagOffset + block.tagLength],
+      text: `<%# eslint-disable ${remainingRuleIds.join(', ')} ${block.closeDelim}`,
+    };
+  }
+
+  // Look for matching eslint-enable directive if we have segments info
+  const result: {
+    disableFix: { range: [number, number]; text: string };
+    enableBlock?: TagBlock;
+    enableFix?: { range: [number, number]; text: string };
+  } = {
+    disableFix,
+  };
+
+  if (blocks && blockIndex !== undefined) {
+    const matchingEnable = findMatchingEnableDirective(blocks, blockIndex);
+    if (matchingEnable) {
+      const enableRuleListMatch = matchingEnable.block.codeContent.match(/^eslint-enable(?:\s+(.*))?$/u);
+      if (enableRuleListMatch) {
+        const [, enableRuleListRaw = ''] = enableRuleListMatch;
+        const enableRuleListText = enableRuleListRaw.trim();
+        if (enableRuleListText.length === 0) {
+          // enable has no rule list, no need to update
+        } else {
+          // Update enable directive to match the remaining rules
+          result.enableBlock = matchingEnable.block;
+          if (remainingRuleIds.length === 0) {
+            result.enableFix = {
+              range: [matchingEnable.block.tagOffset, matchingEnable.block.tagOffset + matchingEnable.block.tagLength],
+              text: '',
+            };
+          } else {
+            result.enableFix = {
+              range: [matchingEnable.block.tagOffset, matchingEnable.block.tagOffset + matchingEnable.block.tagLength],
+              text: `<%# eslint-enable ${remainingRuleIds.join(', ')} ${matchingEnable.block.closeDelim}`,
+            };
+          }
+        }
+      }
+    }
+  }
+
+  return result;
+}
+
+function normalizeUnusedDisableDirectiveMessage(
+  msg: Linter.LintMessage,
+  options?: { ignoreEjsTemplateRules?: boolean },
+): Linter.LintMessage | null {
+  const ignoreEjsTemplateRules = options?.ignoreEjsTemplateRules ?? false;
+  if (msg.ruleId !== null || !/^Unused eslint-disable directive/u.test(msg.message)) {
+    return msg;
+  }
+
+  const allRuleIds = [...msg.message.matchAll(/'([^']+)'/gu)].map((m) => m[1]);
+  if (allRuleIds.length === 0) {
+    return msg;
+  }
+
+  if (!ignoreEjsTemplateRules) {
+    return msg;
+  }
+
+  const remainingRuleIds = allRuleIds.filter((ruleId) => !ruleId.startsWith('ejs-templates/'));
+  if (remainingRuleIds.length === allRuleIds.length) {
+    return msg;
+  }
+  if (remainingRuleIds.length === 0) {
+    return null;
+  }
+
+  return {
+    ...msg,
+    message: `Unused eslint-disable directive (no problems were reported from ${formatRuleListForUnusedDirective(remainingRuleIds)}).`,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // ESLint processor
 // ---------------------------------------------------------------------------
@@ -1329,29 +1559,37 @@ export const processor: Linter.Processor = {
     const mappedMessages = virtualMessages
       .filter((msg) => !msg.fatal && !suppressedRuleIds.has(msg.ruleId ?? ''))
       .flatMap((msg) => {
-        const segment = segments.find((s) => msg.line >= s.startLine && msg.line <= s.endLine);
-        if (!segment) {
+        const normalizedMsg = normalizeUnusedDisableDirectiveMessage(msg, { ignoreEjsTemplateRules: false });
+        if (!normalizedMsg) {
           return [];
         }
 
+        const segmentIndex = segments.findIndex(
+          (s) => normalizedMsg.line >= s.startLine && normalizedMsg.line <= s.endLine,
+        );
+        if (segmentIndex === -1) {
+          return [];
+        }
+        const segment = segments[segmentIndex];
+
         // Convert global (combined-file) positions to per-block positions.
         const localMsg: Linter.LintMessage = {
-          ...msg,
-          line: msg.line - segment.startLine + 1,
-          column: msg.column,
+          ...normalizedMsg,
+          line: normalizedMsg.line - segment.startLine + 1,
+          column: normalizedMsg.column,
         };
 
-        if (msg.endLine !== undefined) {
-          localMsg.endLine = msg.endLine - segment.startLine + 1;
-          localMsg.endColumn = msg.endColumn;
+        if (normalizedMsg.endLine !== undefined) {
+          localMsg.endLine = normalizedMsg.endLine - segment.startLine + 1;
+          localMsg.endColumn = normalizedMsg.endColumn;
         }
 
-        if (msg.fix) {
-          const [start, end] = msg.fix.range;
+        if (normalizedMsg.fix) {
+          const [start, end] = normalizedMsg.fix.range;
           if (start >= segment.startOffset && end <= segment.endOffset) {
             localMsg.fix = {
               range: [start - segment.startOffset, end - segment.startOffset],
-              text: msg.fix.text,
+              text: normalizedMsg.fix.text,
             };
           } else {
             delete localMsg.fix;
@@ -1361,6 +1599,33 @@ export const processor: Linter.Processor = {
         const mapped = mapMessage(localMsg, segment.block);
 
         if (mapped.fix) {
+          const blocks = segments.map((s) => s.block);
+          const unusedDirectiveFixResult = translateUnusedDirectiveFix(mapped, segment.block, blocks, segmentIndex);
+          if (unusedDirectiveFixResult) {
+            const result: Linter.LintMessage[] = [];
+            result.push({ ...mapped, fix: unusedDirectiveFixResult.disableFix });
+            // Handle enable directive fix in a separate message(s)
+            if (unusedDirectiveFixResult.enableBlock && unusedDirectiveFixResult.enableFix) {
+              // Find the virtual block range for the enable directive to calculate correct position
+              const enableBlockIndex = blocks.indexOf(unusedDirectiveFixResult.enableBlock);
+              if (enableBlockIndex !== -1) {
+                const enableSegment = segments[enableBlockIndex];
+                const enableMappedMsg = mapMessage(
+                  {
+                    ruleId: null,
+                    message: 'Unused eslint-disable directive',
+                    severity: 2,
+                    line: enableSegment.startLine + 1,
+                    column: 1,
+                  },
+                  unusedDirectiveFixResult.enableBlock,
+                );
+                result.push({ ...enableMappedMsg, fix: unusedDirectiveFixResult.enableFix });
+              }
+            }
+            return result;
+          }
+
           const translated = translateFix(mapped.fix, segment.block, {
             applyIndentForSingleLineTags: hasIndentMessages,
           });
@@ -1387,9 +1652,16 @@ export const processor: Linter.Processor = {
     const mappedRawValidationMessages = finalValidationMessages
       .filter((msg) => !suppressedRuleIds.has(msg.ruleId ?? ''))
       .flatMap((msg) => {
-        const segment = finalValidationSegments.find((s) => msg.line >= s.startLine && msg.line <= s.endLine);
+        const normalizedMsg = normalizeUnusedDisableDirectiveMessage(msg, { ignoreEjsTemplateRules: true });
+        if (!normalizedMsg) {
+          return [];
+        }
+
+        const segment = finalValidationSegments.find(
+          (s) => normalizedMsg.line >= s.startLine && normalizedMsg.line <= s.endLine,
+        );
         if (!segment) {
-          if (msg.fatal) {
+          if (normalizedMsg.fatal) {
             const lastSegment = segments[segments.length - 1];
             const block = lastSegment.block;
 
@@ -1406,8 +1678,8 @@ export const processor: Linter.Processor = {
             }
 
             const fatalMsg: Linter.LintMessage = {
-              ...msg,
-              message: translateRawParserFatalMessage(msg.message, globalBraceSuffix),
+              ...normalizedMsg,
+              message: translateRawParserFatalMessage(normalizedMsg.message, globalBraceSuffix),
               line,
               column,
             };
@@ -1418,14 +1690,14 @@ export const processor: Linter.Processor = {
         }
 
         const localMsg: Linter.LintMessage = {
-          ...msg,
-          line: msg.line - segment.startLine + 1,
-          column: msg.column,
+          ...normalizedMsg,
+          line: normalizedMsg.line - segment.startLine + 1,
+          column: normalizedMsg.column,
         };
 
-        if (msg.endLine !== undefined) {
-          localMsg.endLine = msg.endLine - segment.startLine + 1;
-          localMsg.endColumn = msg.endColumn;
+        if (normalizedMsg.endLine !== undefined) {
+          localMsg.endLine = normalizedMsg.endLine - segment.startLine + 1;
+          localMsg.endColumn = normalizedMsg.endColumn;
         }
 
         delete localMsg.fix;
