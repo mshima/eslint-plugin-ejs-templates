@@ -14,7 +14,47 @@ import * as fixture2 from './fixtures/2.js';
 import * as fixture3 from './fixtures/3.js';
 import * as fixture4 from './fixtures/4.js';
 import * as fixture5 from './fixtures/5.js';
-import { lint, applyFix } from './helpers.js';
+import { lint, applyFix, makeLinter, makeConfig } from './helpers.js';
+
+function lintWithUnusedDisableDirectivesError(
+  ejsText: string,
+  rules: Record<string, import('eslint').Linter.RuleSeverityAndOptions | import('eslint').Linter.RuleSeverity> = {},
+): import('eslint').Linter.LintMessage[] {
+  const linter = makeLinter();
+  const [baseConfig] = makeConfig(rules);
+  return linter.verify(
+    ejsText,
+    [
+      {
+        ...baseConfig,
+        linterOptions: {
+          reportUnusedDisableDirectives: 'error',
+        },
+      },
+    ],
+    { filename: 'template.ejs' },
+  );
+}
+
+function applyFixWithUnusedDisableDirectivesError(
+  ejsText: string,
+  rules: Record<string, import('eslint').Linter.RuleSeverityAndOptions | import('eslint').Linter.RuleSeverity> = {},
+): string {
+  const linter = makeLinter();
+  const [baseConfig] = makeConfig(rules);
+  return linter.verifyAndFix(
+    ejsText,
+    [
+      {
+        ...baseConfig,
+        linterOptions: {
+          reportUnusedDisableDirectives: 'error',
+        },
+      },
+    ],
+    { filename: 'template.ejs' },
+  ).output;
+}
 
 // ---------------------------------------------------------------------------
 // canConvertToSlurping
@@ -311,6 +351,91 @@ describe('processor position mapping', () => {
     expect(msgs).toHaveLength(1);
     expect(msgs[0].ruleId).toBe('no-var');
     expect(msgs[0].line).toBe(4);
+  });
+
+  test("reportUnusedDisableDirectives='error': single disabled rule is correctly consumed", () => {
+    const msgs = lintWithUnusedDisableDirectivesError('<%# eslint-disable no-var %>\n<% var value = 1; %>', {
+      'no-var': 'error',
+    });
+    expect(msgs).toHaveLength(0);
+  });
+
+  test("reportUnusedDisableDirectives='error': multiple disabled rules are correctly consumed", () => {
+    const msgs = lintWithUnusedDisableDirectivesError('<%# eslint-disable no-var, eqeqeq %>\n<% var a = b == c; %>', {
+      'no-var': 'error',
+      eqeqeq: 'error',
+    });
+    expect(msgs).toHaveLength(0);
+  });
+
+  test("reportUnusedDisableDirectives='error': ignores ejs-templates/* in unused-directive diagnostics", () => {
+    const msgs = lintWithUnusedDisableDirectivesError(
+      '<%# eslint-disable eqeqeq, ejs-templates/prefer-raw %>\n<%= a == b %>',
+      {
+        eqeqeq: 'error',
+        'ejs-templates/prefer-raw': 'error',
+      },
+    );
+    const unusedDirectiveMsgs = msgs.filter(
+      (msg) => msg.ruleId === null && msg.message.includes('Unused eslint-disable directive'),
+    );
+    expect(unusedDirectiveMsgs).toHaveLength(0);
+    expect(msgs).toHaveLength(0);
+  });
+
+  test("reportUnusedDisableDirectives='error': reports unused directive for ejs-templates/* when truly unused", () => {
+    const msgs = lintWithUnusedDisableDirectivesError('<%# eslint-disable ejs-templates/prefer-raw %>\n<%- value %>', {
+      'ejs-templates/prefer-raw': 'error',
+    });
+    const unusedDirectiveMsgs = msgs.filter(
+      (msg) =>
+        msg.ruleId === null &&
+        msg.message.includes('Unused eslint-disable directive') &&
+        msg.message.includes('ejs-templates/prefer-raw'),
+    );
+    expect(unusedDirectiveMsgs).toHaveLength(1);
+  });
+
+  test("reportUnusedDisableDirectives='error': autofix removes single unused disabled rule", () => {
+    const fixed = applyFixWithUnusedDisableDirectivesError('<%# eslint-disable eqeqeq %>\n<% const x = 1; %>', {
+      eqeqeq: 'error',
+    });
+    expect(fixed).not.toContain('eslint-disable eqeqeq');
+  });
+
+  test("reportUnusedDisableDirectives='error': autofix removes only unused rule from multi-rule directive", () => {
+    const fixed = applyFixWithUnusedDisableDirectivesError('<%# eslint-disable no-var, eqeqeq %>\n<% var x = 1; %>', {
+      'no-var': 'error',
+      eqeqeq: 'error',
+    });
+    expect(fixed).toContain('eslint-disable no-var');
+    expect(fixed).not.toContain('eqeqeq');
+  });
+
+  test("reportUnusedDisableDirectives='error': autofix updates both disable and enable directives", () => {
+    const fixed = applyFixWithUnusedDisableDirectivesError(
+      '<%# eslint-disable no-var, eqeqeq %>\n<% var x = 1; %>\n<%# eslint-enable no-var, eqeqeq %>',
+      {
+        'no-var': 'error',
+        eqeqeq: 'error',
+      },
+    );
+    expect(fixed).toContain('eslint-disable no-var');
+    expect(fixed).toContain('eslint-enable no-var');
+    expect(fixed).not.toContain('eqeqeq');
+  });
+
+  test("reportUnusedDisableDirectives='error': preserves close tag (-%>) when removing unused rules", () => {
+    const fixed = applyFixWithUnusedDisableDirectivesError(
+      '<%# eslint-disable no-var, eqeqeq -%>\n<% var x = 1; %>\n<%# eslint-enable no-var, eqeqeq -%>',
+      {
+        'no-var': 'error',
+        eqeqeq: 'error',
+      },
+    );
+    expect(fixed).toContain('eslint-disable no-var -%>');
+    expect(fixed).toContain('eslint-enable no-var -%>');
+    expect(fixed).not.toContain('eqeqeq');
   });
 
   test('reports parse error at EOF when closing brace is missing', () => {
