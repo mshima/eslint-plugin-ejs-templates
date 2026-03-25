@@ -7,12 +7,24 @@
 //     http://www.apache.org/licenses/LICENSE-2.0
 
 import { createRequire } from 'module';
+import { existsSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { Parser, Language } from 'web-tree-sitter';
 import type { Node as SyntaxNode } from 'web-tree-sitter';
 
 export type { SyntaxNode };
 
 const require = createRequire(import.meta.url);
+const moduleDir = dirname(fileURLToPath(import.meta.url));
+
+function resolveWasm(localFileName: string, packageWasmPath: string): string {
+  const localPath = resolve(moduleDir, localFileName);
+  if (existsSync(localPath)) {
+    return localPath;
+  }
+  return require.resolve(packageWasmPath);
+}
 
 // ---------------------------------------------------------------------------
 // One-time async initialisation (top-level await — valid in ES modules).
@@ -24,9 +36,11 @@ await Parser.init({
 });
 
 const _language = await Language.load(
-  require.resolve('tree-sitter-embedded-template/tree-sitter-embedded_template.wasm'),
+  resolveWasm('tree-sitter-embedded_template.wasm', 'tree-sitter-embedded-template/tree-sitter-embedded_template.wasm'),
 );
-const _javascriptLanguage = await Language.load(require.resolve('tree-sitter-javascript/tree-sitter-javascript.wasm'));
+const _javascriptLanguage = await Language.load(
+  resolveWasm('tree-sitter-javascript.wasm', 'tree-sitter-javascript/tree-sitter-javascript.wasm'),
+);
 
 const _parser = new Parser();
 _parser.setLanguage(_language);
