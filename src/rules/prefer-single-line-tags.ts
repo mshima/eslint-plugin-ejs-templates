@@ -62,6 +62,12 @@ export const preferSingleLineTags: Rule.RuleModule = {
           }
 
           if (mode === 'braces') {
+            // Only apply braces mode to slurp tags
+            const marker = comment.value.trim();
+            if (!marker.includes('slurp')) {
+              continue;
+            }
+
             const tagIndex = tagComments.indexOf(comment);
             const hasStructuralInThisBlock = tagIndex !== -1 && structuralByTag?.[tagIndex] === true;
             if (!hasStructuralInThisBlock) {
