@@ -290,8 +290,8 @@ export interface TagBlock {
    * Structure:
    * ```
    * Line 1:   //@ejs-tag:<type>               ← type marker comment
-   * Line 2:   [virtualBodyPrefix]<codeContent>[virtualBodyInlineSuffix]
-   *           ← block.originalLine (col adjusted by virtualBodyPrefixLen)
+  * Line 2:   <codeContent>[virtualBodyInlineSuffix]
+  *           ← block.originalLine
    * Line 2+n: <further JS lines>              ← block.originalLine + n
    * Line 2+m: [virtualBodyExtraLine]          ← optional extra line (e.g. `void 0;`)
    * ```
@@ -342,20 +342,6 @@ export interface TagBlock {
    * Only meaningful for standalone `<%_ _%>` tags; empty string otherwise.
    */
   expectedIndent: string;
-  /**
-   * Text prepended to `codeContent` in the virtual body (same line, before the code).
-   * Reserved for wrappers that need to prepend text before the original content.
-   * Empty string for current output-tag handling.
-   * Empty string for non-output tags.
-   */
-  virtualBodyPrefix: string;
-  /**
-   * Number of characters in `virtualBodyPrefix`.
-   * Used to correct column offsets when mapping virtual-file positions back to
-   * the original EJS source (subtract this from the virtual column before adding
-   * `originalColumn`).
-   */
-  virtualBodyPrefixLen: number;
   /**
    * Text appended to `codeContent` in the virtual body (same line, after the code).
    * For current output-tag handling this is `';'`, turning an expression into
@@ -441,8 +427,6 @@ function createDirectiveCommentBlock(params: {
     closeDelim: closeDelim ?? '%>',
     lineIndent,
     expectedIndent: lineIndent,
-    virtualBodyPrefix: '',
-    virtualBodyPrefixLen: 0,
     virtualBodyInlineSuffix: '',
     virtualBodyExtraLine: '',
     isStandalone,
@@ -459,7 +443,7 @@ function createDirectiveCommentBlock(params: {
  * ```
  * //@ejs-tag:<tagType>
  * [synthetic prefix — brace-balancing]
- * [virtualBodyPrefix]<raw JS code from the tag>[virtualBodyInlineSuffix]
+ * <raw JS code from the tag>[virtualBodyInlineSuffix]
  * [virtualBodyExtraLine — e.g. void 0;]
  * [synthetic suffix — brace-balancing]
  * ```
@@ -652,14 +636,10 @@ export function extractTagBlocks(nodes: EjsSyntaxNode[]): TagBlock[] {
     const isOutputTag = baseType === 'escaped-output' || baseType === 'raw-output';
     const endsWithOpenBrace = !isMultiline && codeContent.trim().endsWith('{');
 
-    let virtualBodyPrefix = '';
-    let virtualBodyPrefixLen = 0;
     let virtualBodyInlineSuffix = '';
     let virtualBodyExtraLine = '';
 
     if (!isMultiline && isOutputTag) {
-      virtualBodyPrefix = '';
-      virtualBodyPrefixLen = virtualBodyPrefix.length;
       virtualBodyInlineSuffix = ';';
     } else if (endsWithOpenBrace) {
       virtualBodyExtraLine = '\nvoid 0;';
@@ -671,8 +651,7 @@ export function extractTagBlocks(nodes: EjsSyntaxNode[]): TagBlock[] {
     // `[`/`]`, so it would BREAK cross-tag constructs like
     // `forEach(x => { ... })`.  Global brace balancing is applied in
     // `preprocess` instead.
-    const virtualCode =
-      `//@ejs-tag:${tagType}\n` + `${virtualBodyPrefix}${codeContent}${virtualBodyInlineSuffix}${virtualBodyExtraLine}`;
+    const virtualCode = `//@ejs-tag:${tagType}\n` + `${codeContent}${virtualBodyInlineSuffix}${virtualBodyExtraLine}`;
 
     blocks.push({
       ejsNode: node,
@@ -690,8 +669,6 @@ export function extractTagBlocks(nodes: EjsSyntaxNode[]): TagBlock[] {
       closeDelim,
       lineIndent,
       expectedIndent,
-      virtualBodyPrefix,
-      virtualBodyPrefixLen,
       virtualBodyInlineSuffix,
       virtualBodyExtraLine,
       isStandalone,
@@ -730,8 +707,8 @@ export function extractTagBlocks(nodes: EjsSyntaxNode[]): TagBlock[] {
  * Virtual file structure per block:
  * ```
  * Line 1:   //@ejs-tag:<type>                ← type marker comment
- * Line 2:   [virtualBodyPrefix]<first JS>[virtualBodyInlineSuffix]
- *           ← block.originalLine (col adjusted by virtualBodyPrefixLen)
+ * Line 2:   <first JS>[virtualBodyInlineSuffix]
+ *           ← block.originalLine
  * Line 2+n: <further JS lines>               ← block.originalLine + n
  * Line 2+m: [virtualBodyExtraLine]            ← filtered out (maps to tag position)
  * ```
@@ -758,17 +735,13 @@ function mapMessage(msg: Linter.LintMessage, block: TagBlock): Linter.LintMessag
   }
 
   const originalLine = block.originalLine + codeLineIndex;
-  // For the first code line, subtract virtualBodyPrefixLen so the column
-  // points into codeContent rather than into any synthetic prefix.
-  const originalColumn =
-    codeLineIndex === 0 ? msg.column - block.virtualBodyPrefixLen + block.originalColumn : msg.column;
+  const originalColumn = codeLineIndex === 0 ? msg.column + block.originalColumn : msg.column;
   const mapped: Linter.LintMessage = { ...msg, line: originalLine, column: originalColumn };
 
   if (msg.endLine !== undefined) {
     const endCodeLineIndex = msg.endLine - codeStartLine;
     mapped.endLine = block.originalLine + endCodeLineIndex;
-    mapped.endColumn =
-      endCodeLineIndex === 0 ? (msg.endColumn ?? 0) - block.virtualBodyPrefixLen + block.originalColumn : msg.endColumn;
+    mapped.endColumn = endCodeLineIndex === 0 ? (msg.endColumn ?? 0) + block.originalColumn : msg.endColumn;
   }
 
   return mapped;
@@ -1210,7 +1183,7 @@ function buildFormattedTag(block: TagBlock, options?: { multilineCloseOnNewLine?
  * code offsets back to the corresponding positions in the original EJS source:
  *
  * ```
- * codeContentStart = markerLen + virtualBodyPrefixLen
+ * codeContentStart = markerLen
  * originalOffset   = tagOffset + openDelim.length + (virtualOffset - codeContentStart)
  * ```
  */
@@ -1339,14 +1312,14 @@ function translateFix(
 
   // ── General JS fix ─────────────────────────────────────────────────────
   // The virtual code body is:
-  //   <virtualBodyPrefix><codeContent><virtualBodyInlineSuffix><virtualBodyExtraLine>
+  //   <codeContent><virtualBodyInlineSuffix><virtualBodyExtraLine>
   //
   // codeContent starts at byte offset:
-  //   codeContentStart = markerLen + virtualBodyPrefixLen
+  //   codeContentStart = markerLen
   //
   // where markerLen = '//@ejs-tag:'.length + tagType.length + 1  (+1 for '\n')
   const markerLen = '//@ejs-tag:'.length + block.tagType.length + 1;
-  const codeContentStart = markerLen + block.virtualBodyPrefixLen;
+  const codeContentStart = markerLen;
   const codeContentEnd = codeContentStart + block.codeContent.length;
 
   // Guard: only translate fixes that target the actual codeContent region.
