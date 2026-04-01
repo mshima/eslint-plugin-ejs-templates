@@ -33,9 +33,10 @@ type RelativeJavascriptNode = {
   start: number;
 
   cleanup: () => void;
-  unOpenedCloseBracesCount: number;
-  unClosedOpenBracesCount: number;
+  missingCloseBracesCount: number;
+  missingOpenBracesCount: number;
   bracesDelta: number;
+  hasStructuralBraces: boolean;
 };
 
 // ---------------------------------------------------------------------------
@@ -136,13 +137,14 @@ const collectNodesStartingInRange = (node: SyntaxNode, contentStart = 0, content
 /**
  * Tries to generate a approximate node for a Javascript partial code.
  */
-function parseJavaScriptPartial(text: string, incrementalCode?: string): RelativeJavascriptNode {
+export function parseJavaScriptPartial(text: string, incrementalCode?: string): RelativeJavascriptNode {
   const contentTree = parseJavaScript(text);
-  const isMissingCloseBrace = (n: SyntaxNode) => n.isError && n.type === '}';
-  const isMissingOpenBrace = (n: SyntaxNode) => n.isMissing && n.type === '{';
+  const isMissingCloseBrace = (n: SyntaxNode) =>
+    (n.isError && n.text.trimEnd().endsWith('{')) || (n.isMissing && n.type === '}');
+  const isMissingOpenBrace = (n: SyntaxNode) => n.isError && (n.text.trimStart().startsWith('}') || n.type === '{');
   const errorNodes = collectErrorNodes(contentTree.rootNode);
-  const unOpenedCloseBracesCount = errorNodes.filter(isMissingCloseBrace).length;
-  const unClosedOpenBracesCount = errorNodes.filter(isMissingOpenBrace).length;
+  const missingCloseBracesCount = errorNodes.filter(isMissingCloseBrace).length;
+  const missingOpenBracesCount = errorNodes.filter(isMissingOpenBrace).length;
   let wrapperPrefix = '';
   let contentTreeBestGuess: Tree | undefined = undefined;
   if (contentTree.rootNode.hasError) {
@@ -158,8 +160,8 @@ function parseJavaScriptPartial(text: string, incrementalCode?: string): Relativ
     // Ignore node warnings
     if (collectErrorNodes(contentTreeBestGuess.rootNode).some((n) => n.isError)) {
       contentTreeBestGuess.delete();
-      wrapperPrefix = ejsBaseWrapperPrefix + ejsBracesPrefix.repeat(unOpenedCloseBracesCount);
-      wrapperSuffix = ejsBaseWrapperSuffix + ejsBracesSuffix.repeat(unClosedOpenBracesCount);
+      wrapperPrefix = ejsBaseWrapperPrefix + ejsBracesPrefix.repeat(missingCloseBracesCount);
+      wrapperSuffix = ejsBaseWrapperSuffix + ejsBracesSuffix.repeat(missingOpenBracesCount);
       contentTreeBestGuess = parseJavaScript(`${wrapperPrefix}${text}${wrapperSuffix}`);
     }
 
@@ -179,9 +181,12 @@ function parseJavaScriptPartial(text: string, incrementalCode?: string): Relativ
     nodes,
     contentNode: contentTree.rootNode,
     start: contentStart,
-    unOpenedCloseBracesCount,
-    unClosedOpenBracesCount,
-    bracesDelta: unClosedOpenBracesCount - unOpenedCloseBracesCount,
+    missingCloseBracesCount,
+    missingOpenBracesCount,
+    bracesDelta: missingOpenBracesCount - missingCloseBracesCount,
+    hasStructuralBraces: nodes.some(
+      (n) => n.type === 'statement_block' || missingCloseBracesCount > 0 || missingOpenBracesCount > 0,
+    ),
     cleanup: () => {
       contentTreeBestGuess?.delete();
       contentTree.delete();
