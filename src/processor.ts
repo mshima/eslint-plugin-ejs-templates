@@ -9,6 +9,34 @@
 import type { Linter } from 'eslint';
 import createDebug from 'debug';
 import { parseEjs, parseJavaScript, type SyntaxNode } from './ts-parser.js';
+import type { Tree } from 'web-tree-sitter';
+
+type EjsSyntaxNode = SyntaxNode & { linePrefix: string };
+type VitualJavascriptCode = {
+  virtualCode: string;
+  getPosition: (offset: number) => { node: SyntaxNode; startOffset: number; endOffset: number } | null;
+};
+type RelativeJavascriptNode = {
+  /**
+   * Parser content node corresponding to the original tag content (excluding synthetic wrapper).
+   */
+  contentNode: SyntaxNode;
+  /**
+   * Guessed nodes in the content subtree that start within the original content range.
+   * Should be used with start offset correction (virtualOffset - start) to map back to original source positions.
+   */
+  nodes: SyntaxNode[];
+  /**
+   * Character offset of the content start in the virtual code (after synthetic wrapper) relative to the original content.
+   * Should be used nodes position correction when mapping virtual code positions back to original source (virtualOffset - start + originalColumn).
+   */
+  start: number;
+
+  cleanup: () => void;
+  unOpenedCloseBracesCount: number;
+  unClosedOpenBracesCount: number;
+  bracesDelta: number;
+};
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -64,74 +92,137 @@ function splitLines(raw: string): string[] {
     .filter((l) => l.length > 0);
 }
 
+function findErrorNode(node: SyntaxNode): SyntaxNode | null {
+  if (node.isError || node.isMissing) return node;
+  for (const child of node.children) {
+    const errorNode = findErrorNode(child);
+    if (errorNode) return errorNode;
+  }
+  return null;
+}
+
+const collectErrorNodes = (node: SyntaxNode | SyntaxNode[]): SyntaxNode[] => {
+  const nodes: Array<SyntaxNode> = [];
+  if (Array.isArray(node)) {
+    for (const n of node) {
+      nodes.push(...collectErrorNodes(n));
+    }
+    return nodes;
+  }
+  if (node.isError || node.isMissing) {
+    // We may have nodes that starts within the content but ends outside of it (e.g. an unclosed `{` at the end of the content).
+    // Include those nodes, but log them for visibility since they may indicate parsing issues.
+    nodes.push(node);
+  }
+  for (const child of node.children) {
+    nodes.push(...collectErrorNodes(child));
+  }
+  return nodes;
+};
+
+const collectNodesStartingInRange = (node: SyntaxNode, contentStart = 0, contentEnd = Infinity): SyntaxNode[] => {
+  const nodes: Array<SyntaxNode> = [];
+  if (node.startIndex >= contentStart && node.startIndex < contentEnd) {
+    // We may have nodes that starts within the content but ends outside of it (e.g. an unclosed `{` at the end of the content).
+    // Include those nodes, but log them for visibility since they may indicate parsing issues.
+    nodes.push(node);
+  }
+  for (const child of node.children) {
+    nodes.push(...collectNodesStartingInRange(child, contentStart, contentEnd));
+  }
+  return nodes;
+};
+
 /**
- * Collect structural opening brace positions for control-flow blocks and arrow
- * function block bodies.
- *
- * In braces mode, we detect control statements (if/for/while/do/switch/try/with)
- * and arrow functions with block bodies `() => { ... }` as structural.
- * We ignore braces from destructuring patterns `{ x, y }`, object literals,
- * and template interpolations, which are not statement-level constructs.
+ * Tries to generate a approximate node for a Javascript partial code.
  */
-function collectStructuralBracePositions(text: string): Set<number> {
-  const wrapperPrefix = 'function __ejs_brace_probe__() {\n';
-  const wrapperSuffix = '\n}';
-  const wrapped = `${wrapperPrefix}${text}${wrapperSuffix}`;
-  const wrappedRoot = parseJavaScript(wrapped);
+function parseJavaScriptPartial(text: string, incrementalCode?: string): RelativeJavascriptNode {
+  const contentTree = parseJavaScript(text);
+  const isMissingCloseBrace = (n: SyntaxNode) => n.isError && n.type === '}';
+  const isMissingOpenBrace = (n: SyntaxNode) => n.isMissing && n.type === '{';
+  const errorNodes = collectErrorNodes(contentTree.rootNode);
+  const unOpenedCloseBracesCount = errorNodes.filter(isMissingCloseBrace).length;
+  const unClosedOpenBracesCount = errorNodes.filter(isMissingOpenBrace).length;
+  let wrapperPrefix = '';
+  let contentTreeBestGuess: Tree | undefined = undefined;
+  if (contentTree.rootNode.hasError) {
+    const ejsBaseWrapperPrefix = 'function __ejs_brace_probe__() {\n';
+    const ejsBaseWrapperSuffix = '\n  foo(); \n}\n';
+    const ejsBracesPrefix = '  if (true) {\n';
+    const ejsBracesSuffix = '}\n';
 
-  const contentStart = wrapperPrefix.length;
-  const contentEnd = wrapperPrefix.length + text.length;
-  const positions = new Set<number>();
-  const structuralTypes = new Set([
-    'if_statement',
-    'for_statement',
-    'for_in_statement',
-    'while_statement',
-    'do_statement',
-    'switch_statement',
-    'try_statement',
-    'with_statement',
-  ]);
+    wrapperPrefix = ejsBaseWrapperPrefix + ejsBracesPrefix;
+    let wrapperSuffix = ejsBaseWrapperSuffix + ejsBracesSuffix;
+    contentTreeBestGuess = parseJavaScript(`${wrapperPrefix}${text}${wrapperSuffix}`);
 
-  const stack: Array<SyntaxNode> = [wrappedRoot];
-  while (stack.length > 0) {
-    const node = stack.pop();
-    if (!node) continue;
-
-    const isInsideOriginalText = node.startIndex >= contentStart && node.endIndex <= contentEnd;
-
-    // Check for arrow functions with block bodies
-    if (node.type === 'arrow_function' && isInsideOriginalText) {
-      const bodyChild = node.childForFieldName('body');
-      if (bodyChild && bodyChild.type === 'statement_block') {
-        positions.add(bodyChild.startIndex - contentStart);
-      }
+    // Ignore node warnings
+    if (collectErrorNodes(contentTreeBestGuess.rootNode).some((n) => n.isError)) {
+      contentTreeBestGuess.delete();
+      wrapperPrefix = ejsBaseWrapperPrefix + ejsBracesPrefix.repeat(unOpenedCloseBracesCount);
+      wrapperSuffix = ejsBaseWrapperSuffix + ejsBracesSuffix.repeat(unClosedOpenBracesCount);
+      contentTreeBestGuess = parseJavaScript(`${wrapperPrefix}${text}${wrapperSuffix}`);
     }
 
-    // Check for structural control-flow statements
-    if (structuralTypes.has(node.type) && isInsideOriginalText) {
-      const consequenceOrBody = node.childForFieldName('consequence') || node.childForFieldName('body');
-      if (consequenceOrBody && consequenceOrBody.type === 'statement_block') {
-        positions.add(consequenceOrBody.startIndex - contentStart);
-      }
-    }
-
-    for (let i = node.childCount - 1; i >= 0; i--) {
-      const child = node.child(i);
-      if (child) {
-        stack.push(child);
-      }
+    // Fallback to incremental
+    if (incrementalCode !== undefined && collectErrorNodes(contentTreeBestGuess.rootNode).some((n) => n.isError)) {
+      contentTreeBestGuess.delete();
+      wrapperPrefix = ejsBaseWrapperPrefix + incrementalCode;
+      wrapperSuffix = ejsBaseWrapperSuffix;
+      contentTreeBestGuess = parseJavaScript(`${wrapperPrefix}${text}${wrapperSuffix}`);
     }
   }
 
-  return positions;
+  const contentStart = wrapperPrefix.length;
+  const contentEnd = wrapperPrefix.length + text.length;
+  const nodes = collectNodesStartingInRange((contentTreeBestGuess ?? contentTree).rootNode, contentStart, contentEnd);
+  return {
+    nodes,
+    contentNode: contentTree.rootNode,
+    start: contentStart,
+    unOpenedCloseBracesCount,
+    unClosedOpenBracesCount,
+    bracesDelta: unClosedOpenBracesCount - unOpenedCloseBracesCount,
+    cleanup: () => {
+      contentTreeBestGuess?.delete();
+      contentTree.delete();
+    },
+  };
+}
+
+/**
+ * Collect structural opening brace positions from JavaScript statement blocks.
+ *
+ * Tree-sitter uses `statement_block` for bodies such as `if (...) { ... }`,
+ * `else { ... }`, loops, `try/catch/finally`, and arrow/function bodies.
+ * It does not use `statement_block` for object literals, destructuring, or
+ * template interpolations, so those braces are naturally excluded.
+ */
+function collectStructuralBracePositions(text: string): Set<number> {
+  const collectStatementBlockPositions = (nodes: SyntaxNode[], contentStart: number): Set<number> => {
+    const positions = new Set<number>();
+
+    for (const node of nodes) {
+      if (node.type === 'statement_block') {
+        positions.add(node.startIndex - contentStart);
+      }
+    }
+
+    return positions;
+  };
+
+  const parsed = parseJavaScriptPartial(text);
+  return collectStatementBlockPositions(parsed.nodes, parsed.start);
+}
+
+function hasCloseOpenTransition(text: string): boolean {
+  return /^\s*\}\s*(?:else(?:\s+if\s*\([^\n]*\))?|catch\s*\([^\n]*\)|finally)\s*\{/u.test(text);
 }
 
 /**
  * Returns true if `text` contains structural control-flow braces or arrow function block bodies.
  */
 export function hasStructuralBraces(text: string): boolean {
-  return collectStructuralBracePositions(text).size > 0;
+  return collectStructuralBracePositions(text).size > 0 || hasCloseOpenTransition(text);
 }
 
 // ---------------------------------------------------------------------------
@@ -187,6 +278,7 @@ const GLOBAL_VIRTUAL_CLOSE = '\n})();';
 
 /** A single extracted EJS tag together with its position in the original file. */
 export interface TagBlock {
+  ejsNode: EjsSyntaxNode;
   /**
    * Virtual JS code for this block (original content only — no synthetic braces).
    *
@@ -229,6 +321,7 @@ export interface TagBlock {
   tagType: string;
   /** Raw JS content captured between the delimiters. */
   codeContent: string;
+  javascriptPartialNode?: RelativeJavascriptNode;
   /** Full opening delimiter string (e.g. `<%`, `<%_`, `<%=`, `<%-`). */
   openDelim: string;
   /** Full closing delimiter string (e.g. `%>`, `_%>`, `-%>`). */
@@ -304,6 +397,8 @@ function extractCloseDelimFromEjsComment(commentText: string): string {
 }
 
 function createDirectiveCommentBlock(params: {
+  ejsNode: EjsSyntaxNode;
+  javascriptPartialNode?: RelativeJavascriptNode;
   directiveText: string;
   tagOffset: number;
   tagLength: number;
@@ -313,8 +408,21 @@ function createDirectiveCommentBlock(params: {
   isStandalone: boolean;
   closeDelim?: string;
 }): TagBlock {
-  const { directiveText, tagOffset, tagLength, tagLine, tagColumn, lineIndent, isStandalone, closeDelim } = params;
+  const {
+    ejsNode,
+    javascriptPartialNode,
+    directiveText,
+    tagOffset,
+    tagLength,
+    tagLine,
+    tagColumn,
+    lineIndent,
+    isStandalone,
+    closeDelim,
+  } = params;
   return {
+    ejsNode,
+    javascriptPartialNode,
     virtualCode: `/* ${directiveText} */`,
     tagLine,
     tagColumn,
@@ -363,11 +471,11 @@ function createDirectiveCommentBlock(params: {
  * - `-needs-indent`      – wrong brace-depth indentation (fixable by `indent`)
  * - `-not-standalone`    – slurp tag is inline (fixable by `slurp-newline`)
  */
-export function extractTagBlocks(text: string): TagBlock[] {
+export function extractTagBlocks(nodes: EjsSyntaxNode[]): TagBlock[] {
   const blocks: TagBlock[] = [];
 
-  const root = parseEjs(text);
   let braceDepth = 0;
+  let incrementalCode = '';
   let pendingNextLineDirective: {
     disableText: string;
     enableText: string;
@@ -380,24 +488,26 @@ export function extractTagBlocks(text: string): TagBlock[] {
     closeDelim: string;
   } | null = null;
 
-  for (const node of root.children) {
+  for (const node of nodes) {
     // Skip content nodes.
-    if (node.type === 'content') continue;
+    if (!['comment_directive', 'code', 'directive', 'output_directive'].includes(node.type)) continue;
+
+    const tagOffset = node.startIndex;
+    const tagLength = node.endIndex - node.startIndex;
+    const tagLine = node.startPosition.row + 1;
+    const tagColumn = node.startPosition.column;
+    const linePrefix = node.linePrefix;
+    // ── Standalone detection ──────────────────────────────────────────────
+    // A tag is "standalone" when everything before it on the same line is
+    // whitespace (i.e. `tagColumn` characters of pure whitespace).
+    const isStandalone = /^\s*$/u.test(linePrefix);
+    const lineIndent = isStandalone ? linePrefix : '';
 
     if (node.type === 'comment_directive') {
       const directiveText = extractEslintDirectiveFromEjsComment(node.text);
       if (!directiveText) {
         continue;
       }
-
-      const tagOffset = node.startIndex;
-      const tagLength = node.endIndex - node.startIndex;
-      const tagLine = node.startPosition.row + 1;
-      const tagColumn = node.startPosition.column;
-      const lineStart = tagOffset - tagColumn;
-      const linePrefix = text.slice(lineStart, tagOffset);
-      const isStandalone = /^\s*$/u.test(linePrefix);
-      const lineIndent = isStandalone ? linePrefix : '';
 
       if (/^eslint-disable-next-line(?:\s|$)/u.test(directiveText)) {
         pendingNextLineDirective = {
@@ -416,6 +526,7 @@ export function extractTagBlocks(text: string): TagBlock[] {
 
       blocks.push(
         createDirectiveCommentBlock({
+          ejsNode: node,
           directiveText,
           tagOffset,
           tagLength,
@@ -429,37 +540,26 @@ export function extractTagBlocks(text: string): TagBlock[] {
       continue;
     }
 
-    // Skip nodes with parse errors.
-    if (node.hasError) continue;
-
-    const tagOffset = node.startIndex;
-    const tagLength = node.endIndex - node.startIndex;
-
     // Extract opening/closing delimiters and code content from tree-sitter nodes.
     const openDelim: string = node.children[0]?.text ?? '<%';
     const closeDelim: string = node.children[node.childCount - 1]?.text ?? '%>';
     const codeNode = node.namedChildren.find((c) => c.type === 'code');
     const codeContent: string = codeNode?.text ?? '';
+    const javascriptPartialNode = parseJavaScriptPartial(codeContent, incrementalCode);
+    const { contentNode } = javascriptPartialNode;
+    incrementalCode += codeContent;
 
     // tree-sitter gives us precise position info directly.
-    const tagLine = node.startPosition.row + 1; // 1-based
-    const tagColumn = node.startPosition.column; // 0-based
     const codeStartRow = codeNode ? codeNode.startPosition.row + 1 : tagLine;
     const codeStartCol = codeNode ? codeNode.startPosition.column : tagColumn + openDelim.length;
     const originalLine = codeStartRow;
     const originalColumn = codeStartCol;
 
-    // ── Standalone detection ──────────────────────────────────────────────
-    // A tag is "standalone" when everything before it on the same line is
-    // whitespace (i.e. `tagColumn` characters of pure whitespace).
-    const lineStart = tagOffset - tagColumn;
-    const linePrefix = text.slice(lineStart, tagOffset);
-    const isStandalone = /^\s*$/.test(linePrefix);
-    const lineIndent = isStandalone ? linePrefix : '';
-
     if (pendingNextLineDirective) {
       blocks.push(
         createDirectiveCommentBlock({
+          ejsNode: node,
+          javascriptPartialNode,
           directiveText: pendingNextLineDirective.disableText,
           tagOffset: pendingNextLineDirective.tagOffset,
           tagLength: pendingNextLineDirective.tagLength,
@@ -472,6 +572,40 @@ export function extractTagBlocks(text: string): TagBlock[] {
       );
     }
 
+    // ── Brace-depth tracking (for indent) ─────────────────────────────────
+    // Updated for EVERY non-comment tag so structural `<% if %>` / `<% } %>`
+    // tags are included in the depth count even though we won't indent them.
+    const oldBraceDepth = braceDepth;
+    // If contentNode doesn't have errors, its a balanced snippet we can just use current depth.
+    if (contentNode.hasError) {
+      const contentErrorNodes = collectErrorNodes(contentNode);
+      if (contentErrorNodes.some((c) => c.type === 'ERROR')) {
+        const incrementalTree = parseJavaScript(incrementalCode);
+        const incrementalNodes = collectNodesStartingInRange(incrementalTree.rootNode);
+        // If the incremental parse doesn't have errors, we can reset the brace depth to 0 since the virtual code will be fully balanced at this point.
+        if (incrementalTree.rootNode.hasError) {
+          if (incrementalNodes.some((c) => c.type === 'ERROR')) {
+            const contentNodes = collectNodesStartingInRange(contentNode);
+            // fallback to simple brace counting when the parse fails in ERROR
+            const openBracesNodes = contentNodes.filter((n) => n.type === '{');
+            const closeBracesNodes = contentNodes.filter((n) => n.type === '}');
+            braceDepth += openBracesNodes.length - closeBracesNodes.length;
+          } else {
+            const missingCloseBraceNode = incrementalNodes.filter((n) => n.isMissing && n.type === '}');
+            braceDepth = missingCloseBraceNode.length;
+          }
+        } else {
+          incrementalCode = '';
+          braceDepth = 0;
+        }
+      } else {
+        const missingCloseBraceNode = contentErrorNodes.filter((n) => n.type === '}');
+        braceDepth += missingCloseBraceNode.length;
+      }
+    }
+    braceDepth = Math.max(0, braceDepth);
+
+    const lowerBraceDepth = Math.max(0, Math.min(oldBraceDepth - countLeadingCloseBraces(codeContent), braceDepth));
     // ── Base tag type ─────────────────────────────────────────────────────
     let baseType: string;
     if (openDelim === '<%=') {
@@ -483,15 +617,8 @@ export function extractTagBlocks(text: string): TagBlock[] {
     } else if (closeDelim === '-%>') {
       baseType = 'code';
     } else {
-      baseType = canConvertToSlurping(codeContent) ? 'code-slurpable' : 'code';
+      baseType = contentNode.hasError ? 'code' : 'code-slurpable';
     }
-
-    // ── Brace-depth tracking (for indent) ─────────────────────────────────
-    // Updated for EVERY non-comment tag so structural `<% if %>` / `<% } %>`
-    // tags are included in the depth count even though we won't indent them.
-    const oldBraceDepth = braceDepth;
-    braceDepth = Math.max(0, braceDepth + bracesDelta(codeContent));
-    const lowerBraceDepth = Math.max(0, Math.min(oldBraceDepth - countLeadingCloseBraces(codeContent), braceDepth));
 
     // ── Expected indent (for standalone <%_ _%> tags only) ────────────────
     const isSlurpTag = baseType === 'slurp';
@@ -543,6 +670,7 @@ export function extractTagBlocks(text: string): TagBlock[] {
       `//@ejs-tag:${tagType}\n` + `${virtualBodyPrefix}${codeContent}${virtualBodyInlineSuffix}${virtualBodyExtraLine}`;
 
     blocks.push({
+      ejsNode: node,
       virtualCode,
       tagLine,
       tagColumn,
@@ -552,6 +680,7 @@ export function extractTagBlocks(text: string): TagBlock[] {
       tagLength,
       tagType,
       codeContent,
+      javascriptPartialNode,
       openDelim,
       closeDelim,
       lineIndent,
@@ -567,6 +696,8 @@ export function extractTagBlocks(text: string): TagBlock[] {
     if (pendingNextLineDirective) {
       blocks.push(
         createDirectiveCommentBlock({
+          ejsNode: node,
+          javascriptPartialNode,
           directiveText: pendingNextLineDirective.enableText,
           tagOffset,
           tagLength,
@@ -670,15 +801,6 @@ function buildCollapsedTag(block: TagBlock, options?: { applyIndent?: boolean })
 
 type PreferSingleLineTagsMode = 'always' | 'braces';
 
-/**
- * Identifies structural brace positions in the code (control flow, arrow functions).
- * Returns a Set of absolute character offsets where structural opening braces appear.
- * This allows processSegment to only split at structural braces, not object literals.
- */
-function getStructuralBracePositions(text: string): Set<number> {
-  return collectStructuralBracePositions(text);
-}
-
 function buildCollapsedTagWithMode(
   block: TagBlock,
   mode: PreferSingleLineTagsMode,
@@ -686,10 +808,6 @@ function buildCollapsedTagWithMode(
 ): string {
   const applyIndent = options?.applyIndent ?? false;
   const rawLines = splitLines(block.codeContent);
-  if (rawLines.length === 0) {
-    const baseIndent = applyIndent ? block.expectedIndent : '';
-    return `${baseIndent}${block.openDelim} ${block.closeDelim}`;
-  }
 
   const hasBraces = hasStructuralBraces(block.codeContent);
   if (mode === 'braces' && !hasBraces) {
@@ -703,7 +821,35 @@ function buildCollapsedTagWithMode(
   if (collapseOnlyAtBraceBoundaries) {
     const allLines = block.codeContent.split('\n');
     const bodyLines: string[] = [];
-    const structuralBracePositions = getStructuralBracePositions(block.codeContent);
+    const structuralBracePositionsFromContentNode = block.javascriptPartialNode?.contentNode
+      ? new Set(
+          collectNodesStartingInRange(block.javascriptPartialNode.contentNode, 0, block.codeContent.length)
+            .filter((node) => node.type === 'statement_block')
+            .map((node) => node.startIndex),
+        )
+      : new Set<number>();
+    const structuralBracePositions =
+      structuralBracePositionsFromContentNode.size > 0
+        ? structuralBracePositionsFromContentNode
+        : collectStructuralBracePositions(block.codeContent);
+
+    const collapseAccumulatedLines = (lines: string[]): string => {
+      let accumulated = '';
+      for (const line of lines) {
+        const trimmedLine = line.trim();
+        if (trimmedLine.length === 0) {
+          continue;
+        }
+        if (accumulated.length === 0) {
+          accumulated = trimmedLine;
+        } else if (trimmedLine.startsWith('.')) {
+          accumulated += trimmedLine;
+        } else {
+          accumulated += ` ${trimmedLine}`;
+        }
+      }
+      return accumulated;
+    };
 
     const flushBodyLines = () => {
       if (bodyLines.length > 0) {
@@ -801,9 +947,30 @@ function buildCollapsedTagWithMode(
         const trimmedRemainder = remainder.trimStart();
         const consumedWhitespace = remainder.length - trimmedRemainder.length;
 
-        flushBodyLines();
-        if (openPart.length > 0) {
-          tags.push(openPart);
+        const canMergeAccumulatedWithOpen =
+          bodyLines.length > 0 &&
+          bodyLines.every((line) => {
+            const trimmedLine = line.trim();
+            return (
+              !trimmedLine.startsWith('//') &&
+              !trimmedLine.endsWith(';') &&
+              !trimmedLine.endsWith('}') &&
+              !trimmedLine.endsWith('{')
+            );
+          });
+
+        if (canMergeAccumulatedWithOpen) {
+          const prefixPart = collapseAccumulatedLines(bodyLines);
+          bodyLines.length = 0;
+          const combinedOpenPart = prefixPart.length > 0 ? `${prefixPart} ${openPart}` : openPart;
+          if (combinedOpenPart.length > 0) {
+            tags.push(combinedOpenPart);
+          }
+        } else {
+          flushBodyLines();
+          if (openPart.length > 0) {
+            tags.push(openPart);
+          }
         }
         processSegment(trimmedRemainder, absoluteOffset + boundary.index + 1 + consumedWhitespace);
         return;
@@ -813,6 +980,43 @@ function buildCollapsedTagWithMode(
       const remainder = normalized.slice(boundary.index + 1);
       const trimmedRemainder = remainder.trimStart();
       const consumedWhitespace = remainder.length - trimmedRemainder.length;
+
+      if (trimmedRemainder.length > 0) {
+        let nextIndex = 0;
+        while (nextIndex < trimmedRemainder.length && /\s/u.test(trimmedRemainder[nextIndex])) {
+          nextIndex += 1;
+        }
+
+        const looksLikeTransition =
+          trimmedRemainder.startsWith('else', nextIndex) ||
+          trimmedRemainder.startsWith('catch', nextIndex) ||
+          trimmedRemainder.startsWith('finally', nextIndex);
+
+        if (looksLikeTransition) {
+          let openBraceIndex = nextIndex;
+          while (openBraceIndex < trimmedRemainder.length && trimmedRemainder[openBraceIndex] !== '{') {
+            openBraceIndex += 1;
+          }
+
+          if (openBraceIndex < trimmedRemainder.length) {
+            const transitionBraceAbsolutePos =
+              absoluteOffset + boundary.index + 1 + consumedWhitespace + openBraceIndex;
+            if (structuralBracePositions.has(transitionBraceAbsolutePos)) {
+              const transitionPart = `} ${trimmedRemainder.slice(0, openBraceIndex + 1)}`.trim();
+              const transitionRemainder = trimmedRemainder.slice(openBraceIndex + 1).trimStart();
+              flushBodyLines();
+              tags.push(transitionPart);
+              processSegment(
+                transitionRemainder,
+                transitionBraceAbsolutePos +
+                  1 +
+                  (trimmedRemainder.slice(openBraceIndex + 1).length - transitionRemainder.length),
+              );
+              return;
+            }
+          }
+        }
+      }
 
       if (beforeClose.trim().length > 0) {
         bodyLines.push(beforeClose.replace(/\s+$/u, ''));
@@ -843,6 +1047,10 @@ function buildCollapsedTagWithMode(
     let accumulated = '';
     for (const line of rawLines) {
       if (accumulated.length === 0) {
+        accumulated = line;
+      } else if (accumulated.trimStart().startsWith('//') || line.trimStart().startsWith('//')) {
+        // Never collapse code onto a line-comment line (or vice versa).
+        tags.push(accumulated);
         accumulated = line;
       } else if (line.startsWith('.')) {
         // Dot-continuation: join without space (chained method / property access).
@@ -1164,9 +1372,22 @@ interface VirtualBlockSegment {
   endOffset: number;
 }
 
+const processedFilesMap = new Map<
+  string,
+  {
+    ejsNodes: EjsSyntaxNode[];
+    javascriptVitualCode: VitualJavascriptCode;
+  }
+>();
+
 const fileBlocksMap = new Map<
   string,
-  { segments: VirtualBlockSegment[]; rawSegments: VirtualBlockSegment[]; globalBraceSuffix: string }
+  {
+    segments: VirtualBlockSegment[];
+    rawSegments: VirtualBlockSegment[];
+    globalBracePrefix: string;
+    globalBraceSuffix: string;
+  }
 >();
 const structuralControlByVirtualCodeMap = new Map<string, boolean[]>();
 
@@ -1196,6 +1417,7 @@ function logVirtualCodeOnFatal(
   filename: string,
   virtualMessages: Linter.LintMessage[],
   segments: VirtualBlockSegment[],
+  globalBracePrefix: string,
   globalBraceSuffix: string,
 ): void {
   const fatalMessages = virtualMessages.filter((msg) => msg.fatal);
@@ -1207,7 +1429,7 @@ function logVirtualCodeOnFatal(
         `- line ${String(msg.line)}, col ${String(msg.column)}: ${msg.message}${msg.ruleId ? ` [${msg.ruleId}]` : ''}`,
     )
     .join('\n');
-  const virtualCode = `${GLOBAL_VIRTUAL_OPEN}${segments.map((s) => s.block.virtualCode).join('\n')}${globalBraceSuffix}${GLOBAL_VIRTUAL_CLOSE}`;
+  const virtualCode = `${GLOBAL_VIRTUAL_OPEN}${globalBracePrefix}${segments.map((s) => s.block.virtualCode).join('\n')}${globalBraceSuffix}${GLOBAL_VIRTUAL_CLOSE}`;
   debug(
     `[ejs-templates] ESLint fatal error while processing ${filename}:\n${renderedErrors}\nVirtual code:\n${virtualCode}`,
   );
@@ -1423,6 +1645,56 @@ function normalizeUnusedDisableDirectiveMessage(
   };
 }
 
+export const getEjsNodes = (text: string): EjsSyntaxNode[] => {
+  const tree = parseEjs(text);
+  if (tree.rootNode.hasError) {
+    const errorNode = findErrorNode(tree.rootNode);
+    if (!errorNode) {
+      throw new Error('Unexpectedly did not find error node in tree with hasError=true');
+    }
+    const error = new Error(
+      `Failed to parse EJS template at line ${String(errorNode.startPosition.row + 1)}, column ${String(errorNode.startPosition.column + 1)}: unexpected token '${text.slice(errorNode.startIndex, errorNode.endIndex)}'`,
+    ) as Error & { line: number; column: number };
+    error.line = errorNode.startPosition.row + 1;
+    error.column = errorNode.startPosition.column + 1;
+    throw error;
+  }
+
+  return tree.rootNode.children.map((node) => {
+    (node as EjsSyntaxNode).linePrefix = text.slice(node.startIndex - node.startPosition.column, node.startIndex);
+    return node as EjsSyntaxNode;
+  });
+};
+
+const buildVirtualCode = (nodes: SyntaxNode[]): VitualJavascriptCode => {
+  const codeNodes = nodes.filter((n) => ['output_directive', 'directive'].includes(n.type)).map((n) => n.children[1]);
+  let virtualCode: string = '';
+  const nodeWithPositions: { node: SyntaxNode; startOffset: number; endOffset: number }[] = [];
+  for (const node of codeNodes) {
+    virtualCode += node.text + '\n';
+    nodeWithPositions.push({
+      node,
+      startOffset: virtualCode.length - node.text.length - 1,
+      endOffset: virtualCode.length - 1,
+    });
+  }
+  return {
+    virtualCode,
+    getPosition(offset: number) {
+      for (const { node, startOffset, endOffset } of nodeWithPositions) {
+        if (offset >= startOffset && offset <= endOffset) {
+          return {
+            node,
+            startOffset,
+            endOffset,
+          };
+        }
+      }
+      return null;
+    },
+  };
+};
+
 // ---------------------------------------------------------------------------
 // ESLint processor
 // ---------------------------------------------------------------------------
@@ -1450,16 +1722,49 @@ export const processor: Linter.Processor = {
   meta: { name: 'ejs' },
 
   preprocess(text: string, filename: string): Array<string | { text: string; filename: string }> {
-    const blocks = extractTagBlocks(text);
+    const ejsNodes = getEjsNodes(text);
+    const javascriptVitualCode = buildVirtualCode(ejsNodes);
+    processedFilesMap.set(filename, {
+      ejsNodes,
+      javascriptVitualCode,
+    });
+    const blocks = extractTagBlocks(ejsNodes);
     if (blocks.length === 0) {
-      fileBlocksMap.set(filename, { segments: [], rawSegments: [], globalBraceSuffix: '' });
+      fileBlocksMap.set(filename, { segments: [], rawSegments: [], globalBracePrefix: '', globalBraceSuffix: '' });
       return [];
     }
 
+    let globalBraceDelta = 0;
+    let runningBraceDepth = 0;
+    let minimumBraceDepth = 0;
+    for (const block of blocks) {
+      for (const char of block.codeContent) {
+        if (char === '{') {
+          globalBraceDelta += 1;
+          runningBraceDepth += 1;
+        } else if (char === '}') {
+          globalBraceDelta -= 1;
+          runningBraceDepth -= 1;
+          minimumBraceDepth = Math.min(minimumBraceDepth, runningBraceDepth);
+        }
+      }
+    }
+    const globalBracePrefixCount = Math.max(0, -minimumBraceDepth);
+    const firstContentBlock = blocks.find((block) => !block.isDirectiveComment);
+    const syntheticIfPrefix =
+      globalBracePrefixCount > 0 && firstContentBlock && hasCloseOpenTransition(firstContentBlock.codeContent)
+        ? 'if (true) {\n'
+        : '';
+    const additionalBracePrefixCount = Math.max(0, globalBracePrefixCount - (syntheticIfPrefix === '' ? 0 : 1));
+    const globalBracePrefix = syntheticIfPrefix + '{\n'.repeat(additionalBracePrefixCount);
+    const rebalancedGlobalBraceDelta =
+      globalBraceDelta + additionalBracePrefixCount + (syntheticIfPrefix === '' ? 0 : 1);
+    const globalBraceSuffix = rebalancedGlobalBraceDelta > 0 ? '\n' + '}'.repeat(rebalancedGlobalBraceDelta) : '';
+
     const segments: VirtualBlockSegment[] = [];
     const rawSegments: VirtualBlockSegment[] = [];
-    let lineCursor = 2;
-    let offsetCursor = GLOBAL_VIRTUAL_OPEN.length;
+    let lineCursor = 2 + (globalBracePrefix.length > 0 ? globalBracePrefix.split('\n').length - 1 : 0);
+    let offsetCursor = GLOBAL_VIRTUAL_OPEN.length + globalBracePrefix.length;
     let rawLineCursor = 1;
     let rawOffsetCursor = 0;
 
@@ -1492,26 +1797,10 @@ export const processor: Linter.Processor = {
       rawOffsetCursor += block.virtualCode.length + 1;
     }
 
-    // Global brace balancing: count the cumulative net `{`/`}` delta across
-    // ALL blocks' code content.  For well-formed EJS templates the delta is 0
-    // (every `if (x) {` has a matching `}` in a later tag).  For isolated
-    // test fragments (e.g. a single `if (x) {` tag with no close), a positive
-    // delta means we need synthetic `}` characters before the IIFE close so
-    // that the global virtual file parses without errors.
-    //
-    // Using `bracesDelta` on the combined content also correctly handles
-    // cross-tag constructs like `forEach(x => { … })` where the `(` and `)` of
-    // the call straddle two separate tags — the brace delta across both tags is
-    // zero, so no synthetic suffix is injected and the file remains valid.
-    let globalBraceDelta = 0;
-    for (const block of blocks) {
-      globalBraceDelta += bracesDelta(block.codeContent);
-    }
-    const globalBraceSuffix = globalBraceDelta > 0 ? '\n' + '}'.repeat(globalBraceDelta) : '';
+    fileBlocksMap.set(filename, { segments, rawSegments, globalBracePrefix, globalBraceSuffix });
 
-    fileBlocksMap.set(filename, { segments, rawSegments, globalBraceSuffix });
-
-    const virtualCode = `${GLOBAL_VIRTUAL_OPEN}${blocks.map((b) => b.virtualCode).join('\n')}${globalBraceSuffix}${GLOBAL_VIRTUAL_CLOSE}`;
+    const joinedBlocksVirtualCode = blocks.map((b) => b.virtualCode).join('\n');
+    const virtualCode = `${GLOBAL_VIRTUAL_OPEN}${globalBracePrefix}${joinedBlocksVirtualCode}${globalBraceSuffix}${GLOBAL_VIRTUAL_CLOSE}`;
     structuralControlByVirtualCodeMap.set(
       virtualCode,
       blocks.filter((block) => !block.isDirectiveComment).map((block) => hasStructuralBraces(block.codeContent)),
@@ -1530,17 +1819,61 @@ export const processor: Linter.Processor = {
     );
 
     // Second pass target: full virtual JS with no wrapper.
-    const rawVirtualCode = blocks.map((b) => b.virtualCode).join('\n');
+    const rawVirtualCode = joinedBlocksVirtualCode;
     // Third pass target: wrapped raw virtual used only when `return` requires a function body.
-    const wrappedRawVirtualCode = `${GLOBAL_VIRTUAL_OPEN}${blocks.map((b) => b.virtualCode).join('\n')}${GLOBAL_VIRTUAL_CLOSE}`;
+    const wrappedRawVirtualCode = `${GLOBAL_VIRTUAL_OPEN}${joinedBlocksVirtualCode}${GLOBAL_VIRTUAL_CLOSE}`;
 
     return [virtualCode, rawVirtualCode, wrappedRawVirtualCode];
   },
 
   postprocess(messages: Linter.LintMessage[][], filename: string): Linter.LintMessage[] {
-    const { segments = [], rawSegments = [], globalBraceSuffix = '' } = fileBlocksMap.get(filename) ?? {};
+    const processedFile = processedFilesMap.get(filename);
+    if (!processedFile) {
+      throw new Error(`Unexpectedly did not find processed file data for ${filename}`);
+    }
+    const fullTree = parseJavaScript(processedFile.javascriptVitualCode.virtualCode);
+    if (fullTree.rootNode.hasError) {
+      const errorNode = findErrorNode(fullTree.rootNode);
+      if (!errorNode) {
+        throw new Error('Unexpectedly did not find error or missing node in tree with hasError=true');
+      }
+      const ejsErrorNode = processedFile.javascriptVitualCode.getPosition(errorNode.startIndex);
+      let line = 1;
+      let column = 1;
+      let endLine = 1;
+      let endColumn = 1;
+      if (ejsErrorNode) {
+        const { startPosition } = ejsErrorNode.node;
+        const { row: endPositionRow, column: endPositionColumn } = errorNode.endPosition;
+        line = startPosition.row + 1;
+        column = startPosition.column + errorNode.startPosition.column + 1;
+        endLine = startPosition.row + endPositionRow + 1;
+        endColumn = startPosition.column + endPositionColumn + 1;
+      }
+      fullTree.delete();
+      return [
+        {
+          fatal: true,
+          ruleId: null,
+          severity: 2,
+          message: `Failed to parse virtual JavaScript code generated from EJS template, ${errorNode.isError ? 'Unexpected' : 'Missing'} token: ${errorNode.text}`,
+          line,
+          column,
+          endLine,
+          endColumn,
+        },
+      ];
+    }
+    fullTree.delete();
+
+    const {
+      segments = [],
+      rawSegments = [],
+      globalBracePrefix = '',
+      globalBraceSuffix = '',
+    } = fileBlocksMap.get(filename) ?? {};
     fileBlocksMap.delete(filename);
-    const currentVirtualCode = `${GLOBAL_VIRTUAL_OPEN}${segments.map((s) => s.block.virtualCode).join('\n')}${globalBraceSuffix}${GLOBAL_VIRTUAL_CLOSE}`;
+    const currentVirtualCode = `${GLOBAL_VIRTUAL_OPEN}${globalBracePrefix}${segments.map((s) => s.block.virtualCode).join('\n')}${globalBraceSuffix}${GLOBAL_VIRTUAL_CLOSE}`;
     structuralControlByVirtualCodeMap.delete(currentVirtualCode);
     tagFormatByVirtualCodeMap.delete(currentVirtualCode);
 
@@ -1554,7 +1887,7 @@ export const processor: Linter.Processor = {
     const suppressedRuleIds = new Set(['no-undef']);
 
     const virtualMessages = messages[0] ?? [];
-    logVirtualCodeOnFatal(filename, virtualMessages, segments, globalBraceSuffix);
+    logVirtualCodeOnFatal(filename, virtualMessages, segments, globalBracePrefix, globalBraceSuffix);
     const hasIndentMessages = virtualMessages.some((msg) => msg.ruleId === 'ejs-templates/indent');
 
     const mappedMessages = virtualMessages
@@ -1639,6 +1972,7 @@ export const processor: Linter.Processor = {
           return [result];
         }
 
+        segment.block.javascriptPartialNode?.cleanup();
         return [mapped];
       });
 

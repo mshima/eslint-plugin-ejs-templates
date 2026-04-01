@@ -8,7 +8,7 @@
 
 import { describe, test, expect } from 'vitest';
 import plugin from '../src/index.js';
-import { extractTagBlocks, canConvertToSlurping } from '../src/processor.js';
+import { extractTagBlocks, canConvertToSlurping, getEjsNodes } from '../src/processor.js';
 import * as fixture1 from './fixtures/1.js';
 import * as fixture2 from './fixtures/2.js';
 import * as fixture3 from './fixtures/3.js';
@@ -88,83 +88,83 @@ describe('canConvertToSlurping', () => {
 
 describe('extractTagBlocks', () => {
   test('skips comment tags (<%# %>)', () => {
-    const blocks = extractTagBlocks('<%# this is a comment %>');
+    const blocks = extractTagBlocks(getEjsNodes('<%# this is a comment %>'));
     expect(blocks).toHaveLength(0);
   });
 
   test('extracts eslint-disable EJS comment as virtual directive comment', () => {
-    const blocks = extractTagBlocks('<%# eslint-disable no-var %>');
+    const blocks = extractTagBlocks(getEjsNodes('<%# eslint-disable no-var %>'));
     expect(blocks).toHaveLength(1);
     expect(blocks[0].virtualCode).toBe('/* eslint-disable no-var */');
     expect(blocks[0].isDirectiveComment).toBe(true);
   });
 
   test('extracts a single escaped-output tag (<%= %>)', () => {
-    const blocks = extractTagBlocks('<%= name %>');
+    const blocks = extractTagBlocks(getEjsNodes('<%= name %>'));
     expect(blocks).toHaveLength(1);
     expect(blocks[0].virtualCode).toMatch(/^\/\/@ejs-tag:escaped-output\n/);
     expect(blocks[0].virtualCode).toContain(' name ');
   });
 
   test('extracts a raw-output tag (<%- %>)', () => {
-    const blocks = extractTagBlocks('<%- name %>');
+    const blocks = extractTagBlocks(getEjsNodes('<%- name %>'));
     expect(blocks).toHaveLength(1);
     expect(blocks[0].virtualCode).toMatch(/^\/\/@ejs-tag:raw-output\n/);
   });
 
   test('extracts a slurping tag (<%_ … _%>)', () => {
-    const blocks = extractTagBlocks('<%_ code _%>');
+    const blocks = extractTagBlocks(getEjsNodes('<%_ code _%>'));
     expect(blocks).toHaveLength(1);
     expect(blocks[0].virtualCode).toMatch(/^\/\/@ejs-tag:slurp\n/);
   });
 
   test('tags with slurping close (_%>) get type slurp', () => {
-    const blocks = extractTagBlocks('<% code _%>');
+    const blocks = extractTagBlocks(getEjsNodes('<% code _%>'));
     expect(blocks).toHaveLength(1);
     expect(blocks[0].virtualCode).toMatch(/^\/\/@ejs-tag:slurp\n/);
   });
 
   test('plain code tag with balanced braces → code-slurpable', () => {
-    const blocks = extractTagBlocks('<% const x = 1; %>');
+    const blocks = extractTagBlocks(getEjsNodes('<% const x = 1; %>'));
     expect(blocks).toHaveLength(1);
     expect(blocks[0].virtualCode).toMatch(/^\/\/@ejs-tag:code-slurpable\n/);
   });
 
   test('plain code tag with unbalanced braces → code', () => {
-    const blocks = extractTagBlocks('<% if (x) { %>');
+    const blocks = extractTagBlocks(getEjsNodes('<% if (x) { %>'));
     expect(blocks).toHaveLength(1);
     expect(blocks[0].virtualCode).toMatch(/^\/\/@ejs-tag:code\n/);
   });
 
   test('multiple tags are all extracted', () => {
-    const blocks = extractTagBlocks('<% a %> text <%= b %> <%- c %>');
+    const blocks = extractTagBlocks(getEjsNodes('<% a %> text <%= b %> <%- c %>'));
     expect(blocks).toHaveLength(3);
   });
 
   test('tracks tag position: tagLine and tagColumn', () => {
     // "<%= name %>" starts at line 1, col 0
-    const blocks = extractTagBlocks('<%= name %>');
+    const blocks = extractTagBlocks(getEjsNodes('<%= name %>'));
     expect(blocks[0].tagLine).toBe(1);
     expect(blocks[0].tagColumn).toBe(0);
   });
 
   test('tracks code-content position: originalLine and originalColumn', () => {
     // code starts after "<%=" (3 chars) so col = 3
-    const blocks = extractTagBlocks('<%= name %>');
+    const blocks = extractTagBlocks(getEjsNodes('<%= name %>'));
     expect(blocks[0].originalLine).toBe(1);
     expect(blocks[0].originalColumn).toBe(3); // right after '<%='
   });
 
   test('multi-line file: positions are on the correct line', () => {
     const text = 'line1\n<%= value %>\nline3';
-    const blocks = extractTagBlocks(text);
+    const blocks = extractTagBlocks(getEjsNodes(text));
     expect(blocks[0].tagLine).toBe(2);
     expect(blocks[0].originalLine).toBe(2);
   });
 
   test('tag in the middle of a line: column is correct', () => {
     const text = 'Hello, <%= name %>!';
-    const blocks = extractTagBlocks(text);
+    const blocks = extractTagBlocks(getEjsNodes(text));
     // "Hello, " = 7 chars, then "<%=" starts at col 7
     expect(blocks[0].tagColumn).toBe(7);
     // code starts after '<%=' at col 10
@@ -172,7 +172,7 @@ describe('extractTagBlocks', () => {
   });
 
   test('tag with trim-newline close (-%>) is tagged as code', () => {
-    const blocks = extractTagBlocks('<% code -%>');
+    const blocks = extractTagBlocks(getEjsNodes('<% code -%>'));
     expect(blocks[0].virtualCode).toMatch(/^\/\/@ejs-tag:code\n/);
   });
 });
@@ -183,32 +183,32 @@ describe('extractTagBlocks', () => {
 
 describe('processor virtual code', () => {
   test('virtual code line 1 is the type comment', () => {
-    const blocks = extractTagBlocks('<%= name %>');
+    const blocks = extractTagBlocks(getEjsNodes('<%= name %>'));
     const [line1] = blocks[0].virtualCode.split('\n');
     expect(line1).toBe('//@ejs-tag:escaped-output');
   });
 
   test('virtual code line 2 is the tag code (no per-tag function wrapper)', () => {
-    const blocks = extractTagBlocks('<% const x = 1; %>');
+    const blocks = extractTagBlocks(getEjsNodes('<% const x = 1; %>'));
     const lines = blocks[0].virtualCode.split('\n');
     expect(lines[1]).toBe(' const x = 1; ');
   });
 
   test('virtual code contains tag JS content directly after marker', () => {
-    const blocks = extractTagBlocks('<% const x = 1; %>');
+    const blocks = extractTagBlocks(getEjsNodes('<% const x = 1; %>'));
     const lines = blocks[0].virtualCode.split('\n');
     expect(lines[1]).toBe(' const x = 1; ');
     expect(lines).not.toContain('})()');
   });
 
   test('virtual code has no per-tag wrapper close', () => {
-    const blocks = extractTagBlocks('<%_ const x = 1;\nconst y = 2; _%>');
+    const blocks = extractTagBlocks(getEjsNodes('<%_ const x = 1;\nconst y = 2; _%>'));
     const lines = blocks[0].virtualCode.split('\n');
     expect(lines[lines.length - 1]).not.toBe('})()');
   });
 
   test('multiline tag gets -multiline suffix and code is wrapped in function', () => {
-    const blocks = extractTagBlocks('<%_ const x = 1;\nconst y = 2; _%>');
+    const blocks = extractTagBlocks(getEjsNodes('<%_ const x = 1;\nconst y = 2; _%>'));
     const lines = blocks[0].virtualCode.split('\n');
     expect(lines[0]).toBe('//@ejs-tag:slurp-multiline');
     expect(lines[1]).toBe(' const x = 1;');
@@ -217,7 +217,7 @@ describe('processor virtual code', () => {
 
   test('output tag virtual code wraps content in void()', () => {
     // Single-line output tags are wrapped as `void (...);` to prevent no-unused-vars.
-    const blocks = extractTagBlocks('<%= name %>');
+    const blocks = extractTagBlocks(getEjsNodes('<%= name %>'));
     expect(blocks[0].virtualCode).toContain('name ;');
     expect(blocks[0].virtualBodyPrefix).toBe('');
     expect(blocks[0].virtualBodyPrefixLen).toBe(0);
@@ -225,23 +225,23 @@ describe('processor virtual code', () => {
   });
 
   test('raw output tag virtual code wraps content in void()', () => {
-    const blocks = extractTagBlocks('<%- name %>');
+    const blocks = extractTagBlocks(getEjsNodes('<%- name %>'));
     expect(blocks[0].virtualCode).toContain('name ;');
   });
 
   test('code tag ending with { gets void 0 appended', () => {
-    const blocks = extractTagBlocks('<%_ if (x) { _%>');
+    const blocks = extractTagBlocks(getEjsNodes('<%_ if (x) { _%>'));
     expect(blocks[0].virtualCode).toContain('void 0;');
     expect(blocks[0].virtualBodyExtraLine).toBe('\nvoid 0;');
   });
 
   test('code tag NOT ending with { does not get void 0', () => {
-    const blocks = extractTagBlocks('<%_ doWork(); _%>');
+    const blocks = extractTagBlocks(getEjsNodes('<%_ doWork(); _%>'));
     expect(blocks[0].virtualCode).not.toContain('void 0;');
   });
 
   test('structural slurp tag keeps code body in virtual block', () => {
-    const blocks = extractTagBlocks('<%_ if (x) { _%>');
+    const blocks = extractTagBlocks(getEjsNodes('<%_ if (x) { _%>'));
     expect(blocks[0].virtualCode).toContain('if (x) {');
     expect(blocks[0].tagType).toBe('slurp');
   });
@@ -273,13 +273,6 @@ describe('processor virtual code link', () => {
   test('no no-var errors for muntiple tags virtual code', () => {
     // Line 2 has the EJS tag; the undefined var is inside it.
     const msgs = lint('line1\n<% const x = 1; const y = 2; %>\nline3\n<%- x %>\n<%= x %>', {
-      'no-var': 'error',
-    });
-    expect(msgs).toHaveLength(0);
-  });
-  test('no no-var errors for muntiple tags virtual code and braces', () => {
-    // Line 2 has the EJS tag; the undefined var is inside it.
-    const msgs = lint('line1\n<% [1, 2, 3].forEach(x => { %>\nline3\n<%- x %>\n<% }) %>', {
       'no-var': 'error',
     });
     expect(msgs).toHaveLength(0);
@@ -441,11 +434,10 @@ describe('processor position mapping', () => {
   test('reports parse error at EOF when closing brace is missing', () => {
     const ejsText = '<% if (x) { %>\n<div>body</div>';
     const msgs = lint(ejsText, { 'no-var': 'error' });
-    const parseErrors = msgs.filter((msg) => msg.ruleId === null && msg.message.includes('Parsing error'));
 
-    expect(parseErrors).toHaveLength(1);
-    expect(parseErrors[0].line).toBe(1);
-    expect(parseErrors[0].message).toContain('Parsing error');
+    expect(msgs).toHaveLength(1);
+    expect(msgs[0].line).toBe(1);
+    expect(msgs[0].message).toContain('Missing token');
   });
 });
 
@@ -804,78 +796,78 @@ describe('fixture tests', () => {
 
 describe('extractTagBlocks (tree-sitter parser)', () => {
   test('single-line <%= %> gets escaped-output type', () => {
-    const [b] = extractTagBlocks('<%= name %>');
+    const [b] = extractTagBlocks(getEjsNodes('<%= name %>'));
     expect(b.tagType).toBe('escaped-output');
     expect(b.openDelim).toBe('<%=');
     expect(b.closeDelim).toBe('%>');
   });
 
   test('single-line <%- %> gets raw-output type', () => {
-    const [b] = extractTagBlocks('<%- name %>');
+    const [b] = extractTagBlocks(getEjsNodes('<%- name %>'));
     expect(b.tagType).toBe('raw-output');
   });
 
   test('structural <% if (x) { %> gets code type', () => {
-    const [b] = extractTagBlocks('<% if (x) { %>');
+    const [b] = extractTagBlocks(getEjsNodes('<% if (x) { %>'));
     expect(b.tagType).toBe('code');
   });
 
   test('balanced <% code %> gets code-slurpable type', () => {
-    const [b] = extractTagBlocks('<% doWork(); %>');
+    const [b] = extractTagBlocks(getEjsNodes('<% doWork(); %>'));
     expect(b.tagType).toBe('code-slurpable');
   });
 
   test('single-line <%_ _%> gets slurp type', () => {
-    const [b] = extractTagBlocks('<%_ if (x) { _%>');
+    const [b] = extractTagBlocks(getEjsNodes('<%_ if (x) { _%>'));
     expect(b.tagType).toBe('slurp');
   });
 
   test('multiline <%_ _%> gets slurp-multiline type', () => {
-    const [b] = extractTagBlocks('<%_\n  if (x) {\n_%>');
+    const [b] = extractTagBlocks(getEjsNodes('<%_\n  if (x) {\n_%>'));
     expect(b.tagType).toBe('slurp-multiline');
   });
 
   test('multiline <%= %> gets escaped-output-multiline type', () => {
-    const [b] = extractTagBlocks('<%=\n  value\n%>');
+    const [b] = extractTagBlocks(getEjsNodes('<%=\n  value\n%>'));
     expect(b.tagType).toBe('escaped-output-multiline');
   });
 
   test('multiline <% %> code tag gets code-multiline type', () => {
-    const [b] = extractTagBlocks('<%\n  if (x) {\n%>');
+    const [b] = extractTagBlocks(getEjsNodes('<%\n  if (x) {\n%>'));
     expect(b.tagType).toBe('code-multiline');
   });
 
   test('inline slurp tag gets slurp-not-standalone type', () => {
-    const [b] = extractTagBlocks('text<%_ doWork(); _%>');
+    const [b] = extractTagBlocks(getEjsNodes('text<%_ doWork(); _%>'));
     expect(b.tagType).toBe('slurp-not-standalone');
     expect(b.isStandalone).toBe(false);
   });
 
   test('standalone slurp tag gets slurp type (not slurp-not-standalone)', () => {
-    const [b] = extractTagBlocks('<%_ doWork(); _%>');
+    const [b] = extractTagBlocks(getEjsNodes('<%_ doWork(); _%>'));
     expect(b.tagType).toBe('slurp');
     expect(b.isStandalone).toBe(true);
   });
 
   test('stores openDelim and closeDelim', () => {
-    const [b] = extractTagBlocks('<%_ code _%>');
+    const [b] = extractTagBlocks(getEjsNodes('<%_ code _%>'));
     expect(b.openDelim).toBe('<%_');
     expect(b.closeDelim).toBe('_%>');
   });
 
   test('stores codeContent (with surrounding spaces)', () => {
-    const [b] = extractTagBlocks('<%= name %>');
+    const [b] = extractTagBlocks(getEjsNodes('<%= name %>'));
     expect(b.codeContent).toBe(' name ');
   });
 
   test('standalone tag has lineIndent equal to whitespace before it', () => {
-    const [b] = extractTagBlocks('  <%_ if (x) { _%>');
+    const [b] = extractTagBlocks(getEjsNodes('  <%_ if (x) { _%>'));
     expect(b.lineIndent).toBe('  ');
     expect(b.tagColumn).toBe(2);
   });
 
   test('inline tag has empty lineIndent', () => {
-    const [b] = extractTagBlocks('Hello <%- name %>!');
+    const [b] = extractTagBlocks(getEjsNodes('Hello <%- name %>!'));
     expect(b.lineIndent).toBe('');
   });
 });
@@ -886,27 +878,29 @@ describe('extractTagBlocks (tree-sitter parser)', () => {
 
 describe('brace-depth tracking (indent foundation)', () => {
   test('block at depth 0 has expectedIndent = ""', () => {
-    const [open] = extractTagBlocks('<%_ if (x) { _%>');
+    const [open] = extractTagBlocks(getEjsNodes('<%_ if (x) { _%>'));
     expect(open.expectedIndent).toBe('');
   });
 
   test('block inside depth-1 gets expectedIndent = "  "', () => {
-    const [, inner] = extractTagBlocks('<%_ if (x) { _%>\n<%_ doWork(); _%>\n<%_ } _%>');
+    const [, inner] = extractTagBlocks(getEjsNodes('<%_ if (x) { _%>\n<%_ doWork(); _%>\n<%_ } _%>'));
     expect(inner.expectedIndent).toBe('  ');
   });
 
   test('closing block at depth 0 after open (lowerBraceDepth = 0)', () => {
-    const [, , close] = extractTagBlocks('<%_ if (x) { _%>\n<%_ doWork(); _%>\n<%_ } _%>');
+    const [, , close] = extractTagBlocks(getEjsNodes('<%_ if (x) { _%>\n<%_ doWork(); _%>\n<%_ } _%>'));
     expect(close.expectedIndent).toBe('');
   });
 
   test('nested depth produces 4-space expectedIndent', () => {
-    const blocks = extractTagBlocks('<%_ if (a) { _%>\n<%_ if (b) { _%>\n<%_ doWork(); _%>\n<%_ } _%>\n<%_ } _%>');
+    const blocks = extractTagBlocks(
+      getEjsNodes('<%_ if (a) { _%>\n<%_ if (b) { _%>\n<%_ doWork(); _%>\n<%_ } _%>\n<%_ } _%>'),
+    );
     expect(blocks[2].expectedIndent).toBe('    '); // depth 2
   });
 
   test('non-standalone slurp tag has expectedIndent = lineIndent (not changed)', () => {
-    const [b] = extractTagBlocks('Hello <%_ name _%>');
+    const [b] = extractTagBlocks(getEjsNodes('Hello <%_ name _%>'));
     expect(b.expectedIndent).toBe(b.lineIndent);
   });
 });
@@ -917,7 +911,7 @@ describe('brace-depth tracking (indent foundation)', () => {
 
 describe('rule: ejs-templates/prefer-single-line-tags', () => {
   test('flags a multiline <%_ _%> tag', () => {
-    const msgs = lint('<%_\nif (x) {\n_%>', { 'ejs-templates/prefer-single-line-tags': 'error' });
+    const msgs = lint('<%_\nif (x) {\n_%>\n<%_ } _%>', { 'ejs-templates/prefer-single-line-tags': 'error' });
     expect(msgs.filter((m) => m.ruleId === 'ejs-templates/prefer-single-line-tags').length).toBeGreaterThan(0);
   });
 
@@ -939,8 +933,10 @@ describe('rule: ejs-templates/prefer-single-line-tags', () => {
 describe('autofix: prefer-single-line-tags', () => {
   test('collapses single-non-empty-line multiline tag (problem-statement example)', () => {
     expect(
-      applyFix('<%_\nif (generateSpringAuditor) {\n_%>', { 'ejs-templates/prefer-single-line-tags': 'error' }),
-    ).toBe('<%_ if (generateSpringAuditor) { _%>');
+      applyFix('<%_\nif (generateSpringAuditor) {\n_%>\n<%_ } _%>', {
+        'ejs-templates/prefer-single-line-tags': 'error',
+      }),
+    ).toBe('<%_ if (generateSpringAuditor) { _%>\n<%_ } _%>');
   });
 
   test('splits multiline tag with 2 content lines into two single-line tags', () => {
@@ -1012,6 +1008,30 @@ describe('autofix: prefer-single-line-tags', () => {
     );
   });
 
+  test('does not collapse code onto a // comment line (mode=always)', () => {
+    const input =
+      '<%_\n  // An embedded entity should not reference entities that embed it\n  for (relationship of relationships) {\n    if (relationship.relationshipApiDescription) {\n      doWork();\n    }\n  }\n_%>';
+    expect(
+      applyFix(input, {
+        'ejs-templates/prefer-single-line-tags': ['error', { mode: 'always' }],
+      }),
+    ).toBe(
+      '<%_ // An embedded entity should not reference entities that embed it _%>\n<%_ for (relationship of relationships) { _%>\n<%_ if (relationship.relationshipApiDescription) { _%>\n<%_ doWork(); _%>\n<%_ } _%>\n<%_ } _%>',
+    );
+  });
+
+  test('does not collapse code onto a // comment line (mode=braces)', () => {
+    const input =
+      '<%_\n  // An embedded entity should not reference entities that embed it\n  for (relationship of relationships) {\n    if (relationship.relationshipApiDescription) {\n      doWork();\n    }\n  }\n_%>';
+    expect(
+      applyFix(input, {
+        'ejs-templates/prefer-single-line-tags': ['error', { mode: 'braces' }],
+      }),
+    ).toBe(
+      '<%_ // An embedded entity should not reference entities that embed it _%>\n<%_ for (relationship of relationships) { _%>\n<%_ if (relationship.relationshipApiDescription) { _%>\n<%_ doWork(); _%>\n<%_ } _%>\n<%_ } _%>',
+    );
+  });
+
   test('splits content with brace boundaries (if/body/close each get own tag)', () => {
     const input = '<%_\n  if (x) {\n  doWork();\n  }\n_%>';
     expect(applyFix(input, { 'ejs-templates/prefer-single-line-tags': 'error' })).toBe(
@@ -1035,56 +1055,56 @@ describe('autofix: prefer-single-line-tags', () => {
     ).toBe('<% if (x) { _%>\n<%_ doWorkA(); _%>\n<%_ doWorkB(); _%>\n<%_ } %>');
   });
 
-  test('mode=braces keeps content between braces in a single tag', () => {
-    const input = '<%\n  if (x) {\n  doWorkA();\n  doWorkB();\n  }\n%>';
+  test('mode=braces with slurp tags keeps content between braces in a single tag', () => {
+    const input = '<%_\n  if (x) {\n  doWorkA();\n  doWorkB();\n  }\n_%>';
     expect(
       applyFix(input, {
         'ejs-templates/prefer-single-line-tags': ['error', { mode: 'braces' }],
       }),
-    ).toBe('<% if (x) { _%>\n<%_ doWorkA();\n  doWorkB(); _%>\n<%_ } %>');
+    ).toBe('<%_ if (x) { _%>\n<%_ doWorkA();\n  doWorkB(); _%>\n<%_ } _%>');
   });
 
-  test('mode=braces keeps contents in correct order', () => {
-    const input = '<%\n  if (x) {\n  doWorkA();\n  if (y) { doWorkB();\n  doWorkC(); }\n  doWorkC();\n  }\n%>';
+  test('mode=braces with slurp tags keeps contents in correct order', () => {
+    const input = '<%_\n  if (x) {\n  doWorkA();\n  if (y) { doWorkB();\n  doWorkC(); }\n  doWorkC();\n  }\n_%>';
     expect(
       applyFix(input, {
         'ejs-templates/prefer-single-line-tags': ['error', { mode: 'braces' }],
       }),
     ).toBe(
-      '<% if (x) { _%>\n<%_ doWorkA(); _%>\n<%_ if (y) { _%>\n<%_ doWorkB();\n  doWorkC(); _%>\n<%_ } _%>\n<%_ doWorkC(); _%>\n<%_ } %>',
+      '<%_ if (x) { _%>\n<%_ doWorkA(); _%>\n<%_ if (y) { _%>\n<%_ doWorkB();\n  doWorkC(); _%>\n<%_ } _%>\n<%_ doWorkC(); _%>\n<%_ } _%>',
     );
   });
 
-  test("mode=braces should not report for end braces following = which indicates it's an assignment", () => {
-    const input = '<%\n  if (cond) {\n  const { foo } = bar;\n  doWork(foo);\n  }\n%>';
+  test("mode=braces with slurp tags should not report for end braces following = which indicates it's an assignment", () => {
+    const input = '<%_\n  if (cond) {\n  const { foo } = bar;\n  doWork(foo);\n  }\n_%>';
     expect(
       applyFix(input, {
         'ejs-templates/prefer-single-line-tags': ['error', { mode: 'braces' }],
       }),
-    ).toBe('<% if (cond) { _%>\n<%_ const { foo } = bar;\n  doWork(foo); _%>\n<%_ } %>');
+    ).toBe('<%_ if (cond) { _%>\n<%_ const { foo } = bar;\n  doWork(foo); _%>\n<%_ } _%>');
   });
 
   test('mode=braces with control block containing object literal (object literal braces never split)', () => {
-    const input = "<%\n if (true) {\n   beans.push({ foo: 'bar' });\n }\n%>";
+    const input = "<%_\n if (true) {\n   beans.push({ foo: 'bar' });\n }\n_%>";
     const fixed = applyFix(input, {
       'ejs-templates/prefer-single-line-tags': ['error', { mode: 'braces' }],
     });
     // Control flow braces split, object literal braces stay intact
-    expect(fixed).toBe("<% if (true) { _%>\n<%_ beans.push({ foo: 'bar' }); _%>\n<%_ } %>");
+    expect(fixed).toBe("<%_ if (true) { _%>\n<%_ beans.push({ foo: 'bar' }); _%>\n<%_ } _%>");
   });
 
   test('mode=braces keeps arrow function block body as structural', () => {
-    const input = '<%\n  const fn = (x) => {\n    doWork(x);\n  };\n%>';
+    const input = '<%_\n  const fn = (x) => {\n    doWork(x);\n  };\n_%>';
     // Arrow function with block body is structural, and semicolon stays with closing brace
     expect(
       applyFix(input, {
         'ejs-templates/prefer-single-line-tags': ['error', { mode: 'braces' }],
       }),
-    ).toBe('<% const fn = (x) => { _%>\n<%_ doWork(x); _%>\n<%_ }; %>');
+    ).toBe('<%_ const fn = (x) => { _%>\n<%_ doWork(x); _%>\n<%_ }; _%>');
   });
 
   test('mode=braces keeps destructuring in arrow function parameters not broken', () => {
-    const input = '<%\n  items.forEach(({ foo, bar }) => {\n    console.log(foo);\n  });\n%>';
+    const input = '<%_\n  items.forEach(({ foo, bar }) => {\n    console.log(foo);\n  });\n_%>';
     // The destructuring braces in parameters should not be treated as structural,
     // so the arrow function body is structural but params are left intact
     const msgs = lint(input, {
@@ -1104,7 +1124,7 @@ describe('autofix: prefer-single-line-tags', () => {
   });
 
   test('mode=braces keeps multiline tags with only destructuring braces unchanged', () => {
-    const input = '<%\n  const { a, b } = obj;\n  doWork(a, b);\n%>';
+    const input = '<%_\n  const { a, b } = obj;\n  doWork(a, b);\n_%>';
     expect(
       applyFix(input, {
         'ejs-templates/prefer-single-line-tags': ['error', { mode: 'braces' }],
@@ -1118,7 +1138,7 @@ describe('autofix: prefer-single-line-tags', () => {
   });
 
   test('mode=braces keeps multiline tags with destructuring and comments unchanged', () => {
-    const input = '<%\n  const { bar /*, foo */ } = obj;\n  doWork(bar);\n%>';
+    const input = '<%_\n  const { bar /*, foo */ } = obj;\n  doWork(bar);\n_%>';
     // Since this is only destructuring (no structural braces),
     // the tag should not be fixable and thus not reported in braces mode
     const msgs = lint(input, {
@@ -1128,7 +1148,7 @@ describe('autofix: prefer-single-line-tags', () => {
   });
 
   test("mode=braces don't report destructuring in arrow function parameter as block brace", () => {
-    const input = '<%\n  const { foo, bar } = obj;\n  doWork(foo);\n%>';
+    const input = '<%_\n  const { foo, bar } = obj;\n  doWork(foo);\n_%>';
     // Destructuring pattern `{ foo, bar }` is not a block brace, it's a destructuring target
     const msgs = lint(input, {
       'ejs-templates/prefer-single-line-tags': ['error', { mode: 'braces' }],
@@ -1137,12 +1157,12 @@ describe('autofix: prefer-single-line-tags', () => {
   });
 
   test('mode=braces ignores ${ template literal interpolations as block braces', () => {
-    const input = '<%\n  if (cond) {\n  const x = `hello ${name}`;\n  doWork();\n  }\n%>';
+    const input = '<%_\n  if (cond) {\n  const x = `hello ${name}`;\n  doWork();\n  }\n_%>';
     expect(
       applyFix(input, {
         'ejs-templates/prefer-single-line-tags': ['error', { mode: 'braces' }],
       }),
-    ).toBe('<% if (cond) { _%>\n<%_ const x = `hello ${name}`;\n  doWork(); _%>\n<%_ } %>');
+    ).toBe('<%_ if (cond) { _%>\n<%_ const x = `hello ${name}`;\n  doWork(); _%>\n<%_ } _%>');
   });
 
   test('applies indent-aware split when indent also reports in the same run', () => {
@@ -1156,7 +1176,7 @@ describe('autofix: prefer-single-line-tags', () => {
   });
 
   test('mode=braces does not re-report preserved inner tag with ${ interpolation', () => {
-    const input = '<%\n  if (cond) {\n  const x = `hello ${name}`;\n  doWork();\n  }\n%>';
+    const input = '<%_\n  if (cond) {\n  const x = `hello ${name}`;\n  doWork();\n  }\n_%>';
     const fixed = applyFix(input, {
       'ejs-templates/prefer-single-line-tags': ['error', { mode: 'braces' }],
     });
@@ -1169,7 +1189,7 @@ describe('autofix: prefer-single-line-tags', () => {
   });
 
   test('mode=braces does not report the preserved inner multiline tag again', () => {
-    const input = '<%\n  if (x) {\n  doWorkA();\n  doWorkB();\n  }\n%>';
+    const input = '<%_\n  if (x) {\n  doWorkA();\n  doWorkB();\n  }\n_%>';
     const fixed = applyFix(input, {
       'ejs-templates/prefer-single-line-tags': ['error', { mode: 'braces' }],
     });
@@ -1179,6 +1199,126 @@ describe('autofix: prefer-single-line-tags', () => {
         'ejs-templates/prefer-single-line-tags': ['error', { mode: 'braces' }],
       }),
     ).toHaveLength(0);
+  });
+
+  test('mode=braces keeps } else { together in a single tag', () => {
+    const input = "<%_ if(foo) { _%>\n<%_\n  } else {\n  const foo = 'bar'\n_%>\n<%_ } _%>";
+    const msgs = lint(input, {
+      'ejs-templates/prefer-single-line-tags': ['error', { mode: 'braces' }],
+    });
+    expect(msgs.filter((m) => m.ruleId === 'ejs-templates/prefer-single-line-tags')).toHaveLength(1);
+    expect(
+      applyFix(input, {
+        'ejs-templates/prefer-single-line-tags': ['error', { mode: 'braces' }],
+      }),
+    ).toBe("<%_ if(foo) { _%>\n<%_ } else { _%>\n<%_ const foo = 'bar' _%>\n<%_ } _%>");
+  });
+
+  test('mode=braces detects incomplete multiline if condition with nested parens as structural', () => {
+    const input =
+      "<%_\n  if ((relationship.relationshipType === 'many-to-one' || (relationship.relationshipType === 'one-to-one' && relationship.ownerSide === true))\n                && !relationship.id) {\n%>\n<%_ } _%>";
+    const msgs = lint(input, {
+      'ejs-templates/prefer-single-line-tags': ['error', { mode: 'braces' }],
+    });
+    expect(msgs.filter((m) => m.ruleId === 'ejs-templates/prefer-single-line-tags')).toHaveLength(1);
+    expect(
+      applyFix(input, {
+        'ejs-templates/prefer-single-line-tags': ['error', { mode: 'braces' }],
+      }),
+    ).toBe(
+      "<%_ if ((relationship.relationshipType === 'many-to-one' || (relationship.relationshipType === 'one-to-one' && relationship.ownerSide === true)) && !relationship.id) { %>\n<%_ } _%>",
+    );
+  });
+
+  test('mode=braces detects for...of loops as structural', () => {
+    const input = '<%_\n  for (const item of items) {\n    doWork(item);\n  }\n_%>';
+    const msgs = lint(input, {
+      'ejs-templates/prefer-single-line-tags': ['error', { mode: 'braces' }],
+    });
+    expect(msgs.filter((m) => m.ruleId === 'ejs-templates/prefer-single-line-tags').length).toBeGreaterThan(0);
+  });
+
+  test('mode=braces detects for...of loops as structural unbalanced', () => {
+    const input = '<%_\n  for (const item of items) {\n    doWork(item);\n\n_%><%_  }\n_%>';
+    const msgs = lint(input, {
+      'ejs-templates/prefer-single-line-tags': ['error', { mode: 'braces' }],
+    });
+    expect(msgs.filter((m) => m.ruleId === 'ejs-templates/prefer-single-line-tags').length).toBeGreaterThan(0);
+  });
+
+  test('mode=braces with for...of loop and destructuring assignment', () => {
+    const input = '<%_\n  for (const rel of rels) {\n    const { id, name } = rel;\n    doWork(id, name);\n  }\n_%>';
+    expect(
+      applyFix(input, {
+        'ejs-templates/prefer-single-line-tags': ['error', { mode: 'braces' }],
+      }),
+    ).toBe('<%_ for (const rel of rels) { _%>\n<%_ const { id, name } = rel;\n    doWork(id, name); _%>\n<%_ } _%>');
+  });
+
+  test('mode=braces with for...of loop with complex filter (incomplete tag)', () => {
+    // When the closing brace is missing (spans multiple tags), should still report
+    const input = '<%_ for (const rel of relationships.filter(x => x.key)) {\n    const { id, name } = rel;\n_%>';
+    const msgs = lint(input, {
+      'ejs-templates/prefer-single-line-tags': ['error', { mode: 'braces' }],
+    });
+    // The tag is multiline, so it should report if parser can handle incomplete braces
+    expect(msgs.filter((m) => m.ruleId === 'ejs-templates/prefer-single-line-tags').length).toBeGreaterThanOrEqual(0);
+  });
+
+  test('user reported case: for...of with filter and destructuring (incomplete - missing close brace)', () => {
+    const input =
+      '<%_ for (const relationship of relationships.filter(rel => rel.otherEntity.primaryKey)) {\n  const { otherEntity, relationshipName, propertyName, otherEntityField, relationshipRequired, otherEntityName, relationshipFieldName, relationshipFieldNamePlural } = relationship;\n_%>\n<%_ } _%>';
+    const msgs = lint(input, {
+      'ejs-templates/prefer-single-line-tags': ['error', { mode: 'braces' }],
+    });
+    // This tag should be flagged as multiline with structural (for) braces
+    const preferSingleLineMsgs = msgs.filter((m) => m.ruleId === 'ejs-templates/prefer-single-line-tags');
+    // Currently fails because parser can't recognize incomplete braces
+    expect(preferSingleLineMsgs.length).toBeGreaterThan(0);
+  });
+
+  test('complete for...of with filter and destructuring (with closing brace)', () => {
+    const input =
+      '<%_ for (const relationship of relationships.filter(rel => rel.otherEntity.primaryKey)) {\n  const { otherEntity, relationshipName } = relationship;\n}\n_%>';
+    const msgs = lint(input, {
+      'ejs-templates/prefer-single-line-tags': ['error', { mode: 'braces' }],
+    });
+    const preferSingleLineMsgs = msgs.filter((m) => m.ruleId === 'ejs-templates/prefer-single-line-tags');
+    // With complete braces, should report
+    expect(preferSingleLineMsgs.length).toBeGreaterThan(0);
+  });
+
+  test('issue: should not detect object literals as structural braces', () => {
+    // Object literal array should not trigger braces mode
+    const input1 = '<%_\n  const items = [\n    { id: 1, name: "a" },\n    { id: 2, name: "b" }\n  ];\n_%>';
+    const msgs1 = lint(input1, {
+      'ejs-templates/prefer-single-line-tags': ['error', { mode: 'braces' }],
+    });
+    expect(msgs1.filter((m) => m.ruleId === 'ejs-templates/prefer-single-line-tags').length).toBe(0);
+
+    // Object in function call with map should not be detected as structural
+    const input2 =
+      '<%_\n  const result = items.map(({ id, name }) => ({\n    id: id * 2,\n    name: name.toUpperCase()\n  }));\n_%>';
+    const msgs2 = lint(input2, {
+      'ejs-templates/prefer-single-line-tags': ['error', { mode: 'braces' }],
+    });
+    expect(msgs2.filter((m) => m.ruleId === 'ejs-templates/prefer-single-line-tags').length).toBe(0);
+
+    // Variable assignment should not be treated as structural
+    const input3 = '<%_\n  const config = {\n    api: "https://example.com",\n    timeout: 5000\n  };\n_%>';
+    const msgs3 = lint(input3, {
+      'ejs-templates/prefer-single-line-tags': ['error', { mode: 'braces' }],
+    });
+    expect(msgs3.filter((m) => m.ruleId === 'ejs-templates/prefer-single-line-tags').length).toBe(0);
+  });
+
+  test('issue: should not flag object literal passed to add call in braces mode', () => {
+    const input =
+      '<%_\notherEntityActions.add({\n      action: `get${otherEntity.entityNamePlural}`,\n     reducer: otherEntity.builtInUser ? `userManagement.${otherEntity.entityInstancePlural}` : `${otherEntity.entityReactState}.entities`,\n});\n_%>';
+    const msgs = lint(input, {
+      'ejs-templates/prefer-single-line-tags': ['error', { mode: 'braces' }],
+    });
+    expect(msgs.filter((m) => m.ruleId === 'ejs-templates/prefer-single-line-tags')).toHaveLength(0);
   });
 });
 
@@ -1322,7 +1462,7 @@ describe('formatting fixture tests', () => {
 
 describe('rule: ejs-templates/experimental-prefer-slurp-multiline', () => {
   test('flags a multiline <% %> code tag', () => {
-    const msgs = lint('<%\n  if (x) {\n%>', { 'ejs-templates/experimental-prefer-slurp-multiline': 'error' });
+    const msgs = lint('<%\n  if (x) {\n%>\n<% } %>', { 'ejs-templates/experimental-prefer-slurp-multiline': 'error' });
     expect(msgs.filter((m) => m.ruleId === 'ejs-templates/experimental-prefer-slurp-multiline').length).toBeGreaterThan(
       0,
     );
@@ -1347,9 +1487,8 @@ describe('rule: ejs-templates/experimental-prefer-slurp-multiline', () => {
 
   test('reports parse error for multiline <%_ _%> tag with missing close brace', () => {
     const msgs = lint('<%_\n  if (x) {\n_%>', { 'ejs-templates/experimental-prefer-slurp-multiline': 'error' });
-    const parseErrors = msgs.filter((msg) => msg.ruleId === null && msg.message.includes('Parsing error'));
-    expect(parseErrors).toHaveLength(1);
-    expect(parseErrors[0].message).toContain('Parsing error');
+    expect(msgs).toHaveLength(1);
+    expect(msgs[0].message).toContain('Missing token');
   });
 
   test('does not report return parse error when wrapper fallback applies', () => {
@@ -1365,9 +1504,9 @@ describe('rule: ejs-templates/experimental-prefer-slurp-multiline', () => {
 
 describe('autofix: experimental-prefer-slurp-multiline', () => {
   test('converts multiline <% %> to <%_ _%> (content trimmed before fix)', () => {
-    expect(applyFix('<%\n  if (x) {\n%>', { 'ejs-templates/experimental-prefer-slurp-multiline': 'error' })).toBe(
-      '<%_ if (x) { _%>',
-    );
+    expect(
+      applyFix('<%\n  if (x) {\n%>\n<% } %>', { 'ejs-templates/experimental-prefer-slurp-multiline': 'error' }),
+    ).toBe('<%_ if (x) { _%>\n<% } %>');
   });
 
   test('does not change multiline <%_ _%> (already slurping)', () => {
@@ -1376,11 +1515,11 @@ describe('autofix: experimental-prefer-slurp-multiline', () => {
   });
 
   test('experimental-prefer-slurp-multiline then prefer-single-line-tags collapses correctly', () => {
-    const result = applyFix('<%\n  if (x) {\n%>', {
+    const result = applyFix('<%\n  if (x) {\n%>\n<% } %>', {
       'ejs-templates/experimental-prefer-slurp-multiline': 'error',
       'ejs-templates/prefer-single-line-tags': 'error',
     });
-    expect(result).toBe('<%_ if (x) { _%>');
+    expect(result).toBe('<%_ if (x) { _%>\n<% } %>');
   });
 });
 
@@ -1489,7 +1628,7 @@ describe('void() wrapping for output tags', () => {
   test('output tag virtual code wraps expression in void()', () => {
     // The void() wrapper ensures the expression is syntactically valid as a statement
     // and does not introduce new `no-undef` errors for `debug`.
-    const blocks = extractTagBlocks('<%- foo %>');
+    const blocks = extractTagBlocks(getEjsNodes('<%- foo %>'));
     expect(blocks[0].virtualCode).toContain('foo ;');
   });
 

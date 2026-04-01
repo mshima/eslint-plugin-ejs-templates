@@ -21,6 +21,7 @@ _%>
 <h1><%=
   title
 %></h1>
+<%_ } _%>
 `;
 
 export const expected = `<%_ if (generateSpringAuditor) { _%>
@@ -28,6 +29,7 @@ export const expected = `<%_ if (generateSpringAuditor) { _%>
 <%_ const y = 2; _%>
 <% doSomething(); %>
 <h1><%- title %></h1>
+<%_ } _%>
 `;
 
 export const rules = {
