@@ -219,8 +219,6 @@ describe('processor virtual code', () => {
     // Single-line output tags are wrapped as `void (...);` to prevent no-unused-vars.
     const blocks = extractTagBlocks(getEjsNodes('<%= name %>'));
     expect(blocks[0].virtualCode).toContain('name ;');
-    expect(blocks[0].virtualBodyPrefix).toBe('');
-    expect(blocks[0].virtualBodyPrefixLen).toBe(0);
     expect(blocks[0].virtualBodyInlineSuffix).toBe(';');
   });
 

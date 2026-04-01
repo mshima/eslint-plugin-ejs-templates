@@ -223,13 +223,6 @@ function hasCloseOpenTransition(text: string): boolean {
   return /^\s*\}\s*(?:else(?:\s+if\s*\([^\n]*\))?|catch\s*\([^\n]*\)|finally)\s*\{/u.test(text);
 }
 
-/**
- * Returns true if `text` contains structural control-flow braces or arrow function block bodies.
- */
-export function hasStructuralBraces(text: string): boolean {
-  return collectStructuralBracePositions(text).size > 0 || hasCloseOpenTransition(text);
-}
-
 // ---------------------------------------------------------------------------
 // Function-wrapper helpers
 // ---------------------------------------------------------------------------
@@ -290,8 +283,8 @@ export interface TagBlock {
    * Structure:
    * ```
    * Line 1:   //@ejs-tag:<type>               ← type marker comment
-  * Line 2:   <codeContent>[virtualBodyInlineSuffix]
-  *           ← block.originalLine
+   * Line 2:   <codeContent>[virtualBodyInlineSuffix]
+   *           ← block.originalLine
    * Line 2+n: <further JS lines>              ← block.originalLine + n
    * Line 2+m: [virtualBodyExtraLine]          ← optional extra line (e.g. `void 0;`)
    * ```
@@ -784,10 +777,17 @@ function buildCollapsedTagWithMode(
   mode: PreferSingleLineTagsMode,
   options?: { applyIndent?: boolean },
 ): string {
+  const { javascriptPartialNode } = block;
+  if (!javascriptPartialNode) {
+    // Should not happen since we only call this on blocks with a successful JS parse, but guard just in case.
+    throw new Error(
+      `Cannot build collapsed tag for block at line ${String(block.tagLine)} due to missing javascriptPartialNode.`,
+    );
+  }
   const applyIndent = options?.applyIndent ?? false;
   const rawLines = splitLines(block.codeContent);
 
-  const hasBraces = hasStructuralBraces(block.codeContent);
+  const hasBraces = javascriptPartialNode.hasStructuralBraces;
   if (mode === 'braces' && !hasBraces) {
     // In braces mode, multiline tags without braces are left unchanged.
     return `${block.openDelim}${block.codeContent}${block.closeDelim}`;
@@ -1192,6 +1192,13 @@ function translateFix(
   block: TagBlock,
   options?: { applyIndentForSingleLineTags?: boolean },
 ): { range: [number, number]; text: string } | null {
+  const { javascriptPartialNode } = block;
+  if (!javascriptPartialNode) {
+    // Should not happen since we only call this on blocks with a successful JS parse, but guard just in case.
+    throw new Error(
+      `Cannot translate fix for block at line ${String(block.tagLine)} due to missing javascriptPartialNode.`,
+    );
+  }
   const applyIndentForSingleLineTags = options?.applyIndentForSingleLineTags ?? false;
   const trimmedCodeContent = block.codeContent.trim();
   // ── Sentinel fix detection ─────────────────────────────────────────────
@@ -1253,7 +1260,7 @@ function translateFix(
     // prefer-single-line-tags (mode=braces): collapse multiline tag while
     // keeping content between braces in a single tag.
     if (block.tagType.endsWith('-multiline')) {
-      if (!hasStructuralBraces(block.codeContent)) {
+      if (!javascriptPartialNode.hasStructuralBraces) {
         return null;
       }
       const originalText = block.openDelim + block.codeContent + block.closeDelim;
@@ -1781,7 +1788,9 @@ export const processor: Linter.Processor = {
     const virtualCode = `${GLOBAL_VIRTUAL_OPEN}${globalBracePrefix}${joinedBlocksVirtualCode}${globalBraceSuffix}${GLOBAL_VIRTUAL_CLOSE}`;
     structuralControlByVirtualCodeMap.set(
       virtualCode,
-      blocks.filter((block) => !block.isDirectiveComment).map((block) => hasStructuralBraces(block.codeContent)),
+      blocks
+        .filter((block) => !block.isDirectiveComment)
+        .map((block) => block.javascriptPartialNode?.hasStructuralBraces ?? false),
     );
     tagFormatByVirtualCodeMap.set(
       virtualCode,
