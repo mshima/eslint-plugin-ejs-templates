@@ -11,7 +11,7 @@ import { existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Parser, Language } from 'web-tree-sitter';
-import type { Node as SyntaxNode } from 'web-tree-sitter';
+import type { Node as SyntaxNode, Tree } from 'web-tree-sitter';
 
 export type { SyntaxNode };
 
@@ -59,17 +59,17 @@ _javascriptParser.setLanguage(_javascriptLanguage);
  * when this module was first imported.  Returns the root {@link SyntaxNode}
  * of the parse tree.
  */
-export function parseEjs(text: string): SyntaxNode {
+export function parseEjs(text: string): Tree {
   const tree = _parser.parse(text);
   if (!tree) throw new Error('tree-sitter failed to parse EJS template');
-  return tree.rootNode;
+  return tree;
 }
 
 /**
  * Parse JavaScript source using tree-sitter-javascript.
  */
-export function parseJavaScript(text: string): SyntaxNode {
+export function parseJavaScript(text: string): Tree {
   const tree = _javascriptParser.parse(text);
   if (!tree) throw new Error('tree-sitter failed to parse JavaScript source');
-  return tree.rootNode;
+  return tree;
 }
