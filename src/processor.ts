@@ -52,28 +52,6 @@ const debug = createDebug('ejs-templates:processor');
 // ---------------------------------------------------------------------------
 
 /**
- * Returns `true` when a plain `<% … %>` tag can be safely promoted to
- * `<%_ … _%>`.  Conditions:
- *   - Balanced braces
- *   - Does not start with `}` (would close a preceding block)
- *   - Does not end with `{` (would open a block whose close lives elsewhere)
- */
-export function canConvertToSlurping(content: string): boolean {
-  const trimmed = content.trim();
-  if (trimmed.startsWith('}') || trimmed.endsWith('{')) return false;
-  return bracesDelta(trimmed) === 0;
-}
-
-// ---------------------------------------------------------------------------
-// Brace-depth helpers (ported from the original Prettier printer)
-// ---------------------------------------------------------------------------
-
-/** Net change in brace depth for a string (`{` count minus `}` count). */
-function bracesDelta(s: string): number {
-  return (s.match(/{/g) ?? []).length - (s.match(/}/g) ?? []).length;
-}
-
-/**
  * Count the number of `}` that appear at the very start of `str`
  * (before any non-whitespace, non-`}` character).  Used to determine the
  * "effective lower brace depth" for indentation.

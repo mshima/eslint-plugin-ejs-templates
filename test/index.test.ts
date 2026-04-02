@@ -8,7 +8,7 @@
 
 import { describe, test, expect } from 'vitest';
 import plugin from '../src/index.js';
-import { extractTagBlocks, canConvertToSlurping, getEjsNodes } from '../src/processor.js';
+import { extractTagBlocks, getEjsNodes } from '../src/processor.js';
 import * as fixture1 from './fixtures/1.js';
 import * as fixture2 from './fixtures/2.js';
 import * as fixture3 from './fixtures/3.js';
@@ -55,32 +55,6 @@ function applyFixWithUnusedDisableDirectivesError(
     { filename: 'template.ejs' },
   ).output;
 }
-
-// ---------------------------------------------------------------------------
-// canConvertToSlurping
-// ---------------------------------------------------------------------------
-
-describe('canConvertToSlurping', () => {
-  test('balanced braces with no leading } or trailing { → true', () => {
-    expect(canConvertToSlurping(' const x = 1; ')).toBe(true);
-    expect(canConvertToSlurping(' const obj = { a: 1 }; ')).toBe(true);
-    expect(canConvertToSlurping(' doWork(); ')).toBe(true);
-  });
-
-  test('unbalanced braces → false', () => {
-    expect(canConvertToSlurping(' if (foo) { ')).toBe(false); // trailing {
-    expect(canConvertToSlurping(' } ')).toBe(false); // leading }
-    expect(canConvertToSlurping(' } else { ')).toBe(false); // both
-  });
-
-  test('leading } → false even when braces are otherwise balanced', () => {
-    expect(canConvertToSlurping(' } else { x(); } ')).toBe(false);
-  });
-
-  test('trailing { → false even when braces are otherwise balanced', () => {
-    expect(canConvertToSlurping(' if (a) { ')).toBe(false);
-  });
-});
 
 // ---------------------------------------------------------------------------
 // extractTagBlocks
