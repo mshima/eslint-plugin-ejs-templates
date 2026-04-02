@@ -2,10 +2,8 @@
  * Fixture 4 – prefer-single-line-tags (porting ejsCollapseMultiline).
  *
  * Input contains multiline EJS tags in several forms.
- * Expected output collapses each tag to single-line tag(s):
- * - single-phrase content → one tag
- * - multi-phrase content (multiple logical lines) → one tag per phrase
- * - dot-continuation lines are joined to the preceding phrase before splitting
+ * Expected output collapses only structural slurp tags.
+ * Non-structural multiline tags remain unchanged.
  */
 
 export const input = `<%_
@@ -25,8 +23,10 @@ _%>
 `;
 
 export const expected = `<%_ if (generateSpringAuditor) { _%>
-<%_ const x = 1; _%>
-<%_ const y = 2; _%>
+<%_
+  const x = 1;
+  const y = 2;
+_%>
 <% doSomething(); %>
 <h1><%- title %></h1>
 <%_ } _%>

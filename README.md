@@ -176,9 +176,13 @@ _%>
 
 ### `ejs-templates/prefer-single-line-tags`
 
-Flags EJS tags whose content spans multiple lines. The autofix splits the content
-into separate single-line tags — one tag per statement boundary (`;`, `}`, `{`).
-Lines starting with `.` are joined to the preceding line (chained method calls).
+Flags multiline tags when either:
+
+- their content has structural braces, or
+- their content becomes a single line after trimming.
+
+For structural-brace cases, autofix keeps brace boundaries (`{` and `}`) as
+separate tags and keeps the content between them in a single tag.
 
 Keeping tags single-line avoids visual confusion between template output text
 and EJS control flow, making template intent easier to scan.
@@ -186,21 +190,6 @@ and EJS control flow, making template intent easier to scan.
 |             |                                        |
 | ----------- | -------------------------------------- |
 | **Fixable** | Yes — `eslint --fix` collapses the tag |
-
-Options:
-
-- `{ mode: 'always' }` (default) — always split by statement boundaries (`;`, `{`, `}`)
-- `{ mode: 'braces' }` — when braces are present, keep the content between `{` and `}` in a single tag without collapsing its inner lines; multiline tags without braces are left unchanged
-
-```js
-// eslint.config.js
-{
-  files: ['**/*.ejs'],
-  rules: {
-    'ejs-templates/prefer-single-line-tags': ['error', { mode: 'braces' }],
-  },
-}
-```
 
 ```ejs
 <!-- ✗ violation: single phrase split across lines -->
@@ -213,15 +202,13 @@ _%>
 ```
 
 ```ejs
-<!-- ✗ violation: multiple statements -->
+<!-- ✗ violation: multiline content that trims to one line -->
 <%_
-  const x = 1;
-  const y = 2;
+  code;
 _%>
 
-<!-- ✓ fixed: one tag per statement -->
-<%_ const x = 1; _%>
-<%_ const y = 2; _%>
+<!-- ✓ fixed -->
+<%_ code; _%>
 ```
 
 ```ejs

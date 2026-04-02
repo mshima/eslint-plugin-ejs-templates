@@ -37,6 +37,7 @@ type RelativeJavascriptNode = {
   missingOpenBracesCount: number;
   bracesDelta: number;
   hasStructuralBraces: boolean;
+  splitStatements: () => string[];
 };
 
 // ---------------------------------------------------------------------------
@@ -59,6 +60,11 @@ function splitLines(raw: string): string[] {
     .split('\n')
     .map((l) => l.trim())
     .filter((l) => l.length > 0);
+}
+
+function isSingleLineAfterTrim(content: string): boolean {
+  const trimmed = content.trim();
+  return trimmed.length > 0 && !trimmed.includes('\n');
 }
 
 function findErrorNode(node: SyntaxNode): SyntaxNode | null {
@@ -105,41 +111,40 @@ const collectNodesStartingInRange = (node: SyntaxNode, contentStart = 0, content
 /**
  * Tries to generate a approximate node for a Javascript partial code.
  */
-export function parseJavaScriptPartial(text: string, incrementalCode?: string): RelativeJavascriptNode {
+export function parseJavaScriptPartial(text: string, incrementalCode: string = ''): RelativeJavascriptNode {
   const contentTree = parseJavaScript(text);
   const isMissingCloseBrace = (n: SyntaxNode) =>
     (n.isError && n.text.trimEnd().endsWith('{')) || (n.isMissing && n.type === '}');
-  const isMissingOpenBrace = (n: SyntaxNode) => n.isError && (n.text.trimStart().startsWith('}') || n.type === '{');
+  const isMissingOpenBrace = (n: SyntaxNode) => n.isError && (n.text.trimStart().startsWith('}') || n.type === '}');
   const errorNodes = collectErrorNodes(contentTree.rootNode);
-  const missingCloseBracesCount = errorNodes.filter(isMissingCloseBrace).length;
-  const missingOpenBracesCount = errorNodes.filter(isMissingOpenBrace).length;
+  const missingCloseBracesCount =
+    errorNodes
+      .filter(isMissingCloseBrace)
+      .map((n) => (n.text ? n.text : '{'))
+      .join()
+      .match(/{/g)?.length ?? 0;
+  const missingOpenBracesCount =
+    errorNodes
+      .filter(isMissingOpenBrace)
+      .map((n) => (n.text ? n.text : n.type))
+      .join()
+      .match(/}/g)?.length ?? 0;
   let wrapperPrefix = '';
   let contentTreeBestGuess: Tree | undefined = undefined;
   if (contentTree.rootNode.hasError) {
     const ejsBaseWrapperPrefix = 'function __ejs_brace_probe__() {\n';
     const ejsBaseWrapperSuffix = '\n  foo(); \n}\n';
-    const ejsBracesPrefix = '  if (true) {\n';
-    const ejsBracesSuffix = '}\n';
-
-    wrapperPrefix = ejsBaseWrapperPrefix + ejsBracesPrefix;
-    let wrapperSuffix = ejsBaseWrapperSuffix + ejsBracesSuffix;
+    wrapperPrefix = ejsBaseWrapperPrefix + incrementalCode;
+    const wrapperSuffix = ejsBaseWrapperSuffix + '}\n'.repeat(missingCloseBracesCount);
     contentTreeBestGuess = parseJavaScript(`${wrapperPrefix}${text}${wrapperSuffix}`);
-
-    // Ignore node warnings
-    if (collectErrorNodes(contentTreeBestGuess.rootNode).some((n) => n.isError)) {
-      contentTreeBestGuess.delete();
-      wrapperPrefix = ejsBaseWrapperPrefix + ejsBracesPrefix.repeat(missingCloseBracesCount);
-      wrapperSuffix = ejsBaseWrapperSuffix + ejsBracesSuffix.repeat(missingOpenBracesCount);
-      contentTreeBestGuess = parseJavaScript(`${wrapperPrefix}${text}${wrapperSuffix}`);
+    /*
+    const nodesWithErrors = collectErrorNodes(contentTreeBestGuess.rootNode).filter((c) => c.isError);
+    if (nodesWithErrors.length > 0) {
+      console.log(text);
+      console.log(incrementalCode);
+      console.log(nodesWithErrors.map((n) => `${n.type}: ${n.text}`).join('\n'));
     }
-
-    // Fallback to incremental
-    if (incrementalCode !== undefined && collectErrorNodes(contentTreeBestGuess.rootNode).some((n) => n.isError)) {
-      contentTreeBestGuess.delete();
-      wrapperPrefix = ejsBaseWrapperPrefix + incrementalCode;
-      wrapperSuffix = ejsBaseWrapperSuffix;
-      contentTreeBestGuess = parseJavaScript(`${wrapperPrefix}${text}${wrapperSuffix}`);
-    }
+    */
   }
 
   const contentStart = wrapperPrefix.length;
@@ -151,7 +156,7 @@ export function parseJavaScriptPartial(text: string, incrementalCode?: string): 
     start: contentStart,
     missingCloseBracesCount,
     missingOpenBracesCount,
-    bracesDelta: missingOpenBracesCount - missingCloseBracesCount,
+    bracesDelta: missingCloseBracesCount - missingOpenBracesCount,
     hasStructuralBraces: nodes.some(
       (n) => n.type === 'statement_block' || missingCloseBracesCount > 0 || missingOpenBracesCount > 0,
     ),
@@ -159,32 +164,67 @@ export function parseJavaScriptPartial(text: string, incrementalCode?: string): 
       contentTreeBestGuess?.delete();
       contentTree.delete();
     },
-  };
-}
+    splitStatements: () => {
+      let cursor = 0;
+      let statements: string[] = [];
+      for (const n of nodes) {
+        /*
+        console.log('\n\n\n=====');
+        console.log(`Node: ${n.type} [${n.startIndex}, ${n.endIndex}] "${n.text}"`);
+        console.log(
+          `Simbling: ${n.type} [${n.nextSibling?.startIndex}, ${n.nextSibling?.endIndex}] "${n.nextSibling?.text}"`,
+        );
+        for (const c of n.children) {
+          console.log(`  Child: ${c.type} [${c.startIndex}, ${c.endIndex}] "${c.text}"`);
+        }
+        if (n.parent) {
+          console.log(`Parent: ${n.parent.type} [${n.parent.startIndex}, ${n.parent.endIndex}] "${n.parent.text}"`);
+          for (const c of n.parent.children) {
+            console.log(`  Parent Child: ${c.type} [${c.startIndex}, ${c.endIndex}] "${c.text}"`);
+          }
+        }
+        */
+        let lastCursor = cursor;
+        if ((n.type === '{' || n.type === '}') && n.parent?.type == 'statement_block') {
+          let maybeNonSplitableParent = n;
+          const nonSplitableNodeTypes = ['call_expression', 'try_statement'];
+          let nonSplitableParentFound = false;
+          while (maybeNonSplitableParent.parent) {
+            nonSplitableParentFound ||= nonSplitableNodeTypes.includes(maybeNonSplitableParent.type);
+            if (nonSplitableParentFound) {
+              break;
+            }
+            maybeNonSplitableParent = maybeNonSplitableParent.parent;
+          }
+          if (nonSplitableParentFound) {
+            continue;
+          }
 
-/**
- * Collect structural opening brace positions from JavaScript statement blocks.
- *
- * Tree-sitter uses `statement_block` for bodies such as `if (...) { ... }`,
- * `else { ... }`, loops, `try/catch/finally`, and arrow/function bodies.
- * It does not use `statement_block` for object literals, destructuring, or
- * template interpolations, so those braces are naturally excluded.
- */
-function collectStructuralBracePositions(text: string): Set<number> {
-  const collectStatementBlockPositions = (nodes: SyntaxNode[], contentStart: number): Set<number> => {
-    const positions = new Set<number>();
+          if (n.type === '{') {
+            cursor = n.endIndex - contentStart;
+            statements.push(text.slice(lastCursor, cursor));
+          } else {
+            cursor = n.startIndex - contentStart;
+            statements.push(text.slice(lastCursor, cursor));
+            lastCursor = cursor;
 
-    for (const node of nodes) {
-      if (node.type === 'statement_block') {
-        positions.add(node.startIndex - contentStart);
+            const { firstChild } = n.parent.nextSibling ?? {};
+            if (firstChild && ['else', 'elseif', 'catch', 'finally'].includes(firstChild.type)) {
+              if (firstChild.nextNamedSibling) {
+                cursor = firstChild.nextNamedSibling.endIndex - contentStart;
+              }
+            } else {
+              cursor = n.endIndex - contentStart;
+            }
+            statements.push(text.slice(lastCursor, cursor));
+          }
+        }
       }
-    }
-
-    return positions;
+      statements.push(text.slice(cursor));
+      statements = statements.map((s) => s.trim()).filter((s) => s.length > 0);
+      return statements;
+    },
   };
-
-  const parsed = parseJavaScriptPartial(text);
-  return collectStatementBlockPositions(parsed.nodes, parsed.start);
 }
 
 // ---------------------------------------------------------------------------
@@ -199,8 +239,7 @@ function collectStructuralBracePositions(text: string): Set<number> {
 export const SENTINEL_PREFER_SLURP_MULTILINE = 'PREFER_SLURP_MULTILINE';
 
 /**
- * Sentinel text written by `prefer-single-line-tags` when configured with
- * `{ mode: 'braces' }`.
+ * Sentinel text written by `prefer-single-line-tags`.
  */
 export const SENTINEL_PREFER_SINGLE_LINE_TAGS_BRACES = 'PREFER_SINGLE_LINE_TAGS_BRACES';
 /**
@@ -493,7 +532,16 @@ export function extractTagBlocks(nodes: EjsSyntaxNode[]): TagBlock[] {
     const codeContent: string = codeNode?.text ?? '';
     const javascriptPartialNode = parseJavaScriptPartial(codeContent, incrementalCode);
     const { contentNode } = javascriptPartialNode;
-    incrementalCode += codeContent;
+
+    // ── Brace-depth tracking (for indent) ─────────────────────────────────
+    // Updated for EVERY non-comment tag so structural `<% if %>` / `<% } %>`
+    // tags are included in the depth count even though we won't indent them.
+    const oldBraceDepth = braceDepth;
+    // If contentNode doesn't have errors, its a balanced snippet we can just use current depth.
+    if (contentNode.hasError) {
+      braceDepth += javascriptPartialNode.bracesDelta;
+      incrementalCode += codeContent + '\n';
+    }
 
     // tree-sitter gives us precise position info directly.
     const codeStartRow = codeNode ? codeNode.startPosition.row + 1 : tagLine;
@@ -517,39 +565,6 @@ export function extractTagBlocks(nodes: EjsSyntaxNode[]): TagBlock[] {
         }),
       );
     }
-
-    // ── Brace-depth tracking (for indent) ─────────────────────────────────
-    // Updated for EVERY non-comment tag so structural `<% if %>` / `<% } %>`
-    // tags are included in the depth count even though we won't indent them.
-    const oldBraceDepth = braceDepth;
-    // If contentNode doesn't have errors, its a balanced snippet we can just use current depth.
-    if (contentNode.hasError) {
-      const contentErrorNodes = collectErrorNodes(contentNode);
-      if (contentErrorNodes.some((c) => c.type === 'ERROR')) {
-        const incrementalTree = parseJavaScript(incrementalCode);
-        const incrementalNodes = collectNodesStartingInRange(incrementalTree.rootNode);
-        // If the incremental parse doesn't have errors, we can reset the brace depth to 0 since the virtual code will be fully balanced at this point.
-        if (incrementalTree.rootNode.hasError) {
-          if (incrementalNodes.some((c) => c.type === 'ERROR')) {
-            const contentNodes = collectNodesStartingInRange(contentNode);
-            // fallback to simple brace counting when the parse fails in ERROR
-            const openBracesNodes = contentNodes.filter((n) => n.type === '{');
-            const closeBracesNodes = contentNodes.filter((n) => n.type === '}');
-            braceDepth += openBracesNodes.length - closeBracesNodes.length;
-          } else {
-            const missingCloseBraceNode = incrementalNodes.filter((n) => n.isMissing && n.type === '}');
-            braceDepth = missingCloseBraceNode.length;
-          }
-        } else {
-          incrementalCode = '';
-          braceDepth = 0;
-        }
-      } else {
-        const missingCloseBraceNode = contentErrorNodes.filter((n) => n.type === '}');
-        braceDepth += missingCloseBraceNode.length;
-      }
-    }
-    braceDepth = Math.max(0, braceDepth);
 
     const lowerBraceDepth = Math.max(
       0,
@@ -734,16 +749,6 @@ function mapMessage(msg: Linter.LintMessage, block: TagBlock): Linter.LintMessag
  * → `<%_ const arr = 'foo'.split(); _%>`, `<%_ const y = 2; _%>`  (dot-continuation joined)
  */
 function buildCollapsedTag(block: TagBlock, options?: { applyIndent?: boolean }): string {
-  return buildCollapsedTagWithMode(block, 'always', options);
-}
-
-type PreferSingleLineTagsMode = 'always' | 'braces';
-
-function buildCollapsedTagWithMode(
-  block: TagBlock,
-  mode: PreferSingleLineTagsMode,
-  options?: { applyIndent?: boolean },
-): string {
   const { javascriptPartialNode } = block;
   if (!javascriptPartialNode) {
     // Should not happen since we only call this on blocks with a successful JS parse, but guard just in case.
@@ -752,31 +757,31 @@ function buildCollapsedTagWithMode(
     );
   }
   const applyIndent = options?.applyIndent ?? false;
-  const rawLines = splitLines(block.codeContent);
-
-  const hasBraces = javascriptPartialNode.hasStructuralBraces;
-  if (mode === 'braces' && !hasBraces) {
-    // In braces mode, multiline tags without braces are left unchanged.
-    return `${block.openDelim}${block.codeContent}${block.closeDelim}`;
+  // Also collapse multiline tags that become a single line after trim.
+  if (isSingleLineAfterTrim(block.codeContent)) {
+    const baseIndent = applyIndent ? block.expectedIndent : '';
+    return `${baseIndent}${block.openDelim} ${block.codeContent.trim()} ${block.closeDelim}`;
   }
 
-  const tags: string[] = [];
-  const collapseOnlyAtBraceBoundaries = mode === 'braces' && hasBraces;
+  const hasBraces = javascriptPartialNode.hasStructuralBraces;
+  if (!hasBraces) {
+    // For non-structural multiline content, keep original formatting.
+    return `${block.openDelim}${block.codeContent}${block.closeDelim}`;
+  }
+  const rawLines = splitLines(block.codeContent);
 
+  const tags: string[] = [];
+  const collapseOnlyAtBraceBoundaries = true;
+
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
   if (collapseOnlyAtBraceBoundaries) {
     const allLines = block.codeContent.split('\n');
     const bodyLines: string[] = [];
-    const structuralBracePositionsFromContentNode = block.javascriptPartialNode?.contentNode
-      ? new Set(
-          collectNodesStartingInRange(block.javascriptPartialNode.contentNode, 0, block.codeContent.length)
-            .filter((node) => node.type === 'statement_block')
-            .map((node) => node.startIndex),
-        )
-      : new Set<number>();
-    const structuralBracePositions =
-      structuralBracePositionsFromContentNode.size > 0
-        ? structuralBracePositionsFromContentNode
-        : collectStructuralBracePositions(block.codeContent);
+    const structuralBracePositions = new Set(
+      javascriptPartialNode.nodes
+        .filter((node) => node.type === 'statement_block')
+        .map((node) => node.startIndex - javascriptPartialNode.start),
+    );
 
     const collapseAccumulatedLines = (lines: string[]): string => {
       let accumulated = '';
@@ -1141,7 +1146,7 @@ function buildFormattedTag(block: TagBlock, options?: { multilineCloseOnNewLine?
  *   collision with `prefer-single-line-tags` for `code-multiline`/`code-slurpable-multiline`
  *   tag types.
  * - `SENTINEL_PREFER_SINGLE_LINE_TAGS_BRACES`: used by
- *   `prefer-single-line-tags` when configured with `{ mode: 'braces' }`.
+ *   `prefer-single-line-tags`.
  * - `SENTINEL_SLURP_NEWLINE`: used by `slurp-newline`.
  *
  * **General JS fixes** (from standard ESLint rules such as `no-var`,
@@ -1224,14 +1229,14 @@ function translateFix(
       text: fixedText,
     };
   } else if (fix.text === SENTINEL_PREFER_SINGLE_LINE_TAGS_BRACES) {
-    // prefer-single-line-tags (mode=braces): collapse multiline tag while
+    // prefer-single-line-tags: collapse multiline tag while
     // keeping content between braces in a single tag.
     if (block.tagType.endsWith('-multiline')) {
-      if (!javascriptPartialNode.hasStructuralBraces) {
+      if (!javascriptPartialNode.hasStructuralBraces && !isSingleLineAfterTrim(block.codeContent)) {
         return null;
       }
       const originalText = block.openDelim + block.codeContent + block.closeDelim;
-      const fixedText = buildCollapsedTagWithMode(block, 'braces', {
+      const fixedText = buildCollapsedTag(block, {
         applyIndent: applyIndentForSingleLineTags,
       });
       if (fixedText === originalText) {
@@ -1258,19 +1263,6 @@ function translateFix(
       return {
         range: [block.tagOffset, block.tagOffset + block.tagLength],
         text: `<%_ ${trimmedCodeContent} _%>`,
-      };
-    }
-
-    // prefer-single-line-tags: collapse multiline tag into single-line tag(s).
-    if (block.tagType.endsWith('-multiline')) {
-      const indentStart =
-        applyIndentForSingleLineTags && block.isStandalone ? block.tagOffset - block.tagColumn : block.tagOffset;
-      return {
-        range: [indentStart, block.tagOffset + block.tagLength],
-        text: buildCollapsedTag(
-          { ...block, codeContent: trimmedCodeContent },
-          { applyIndent: applyIndentForSingleLineTags },
-        ),
       };
     }
 
@@ -1340,6 +1332,7 @@ const fileBlocksMap = new Map<
   }
 >();
 const structuralControlByVirtualCodeMap = new Map<string, boolean[]>();
+const singleLineTrimByVirtualCodeMap = new Map<string, boolean[]>();
 
 interface TagFormatState {
   isFormattedDefault: boolean;
@@ -1349,6 +1342,10 @@ const tagFormatByVirtualCodeMap = new Map<string, TagFormatState[]>();
 
 export function getStructuralControlByVirtualCode(virtualCode: string): boolean[] | undefined {
   return structuralControlByVirtualCodeMap.get(virtualCode);
+}
+
+export function getSingleLineTrimByVirtualCode(virtualCode: string): boolean[] | undefined {
+  return singleLineTrimByVirtualCodeMap.get(virtualCode);
 }
 
 export function getTagFormatByVirtualCode(virtualCode: string): TagFormatState[] | undefined {
@@ -1724,6 +1721,10 @@ export const processor: Linter.Processor = {
         .filter((block) => !block.isDirectiveComment)
         .map((block) => block.javascriptPartialNode?.hasStructuralBraces ?? false),
     );
+    singleLineTrimByVirtualCodeMap.set(
+      virtualCode,
+      blocks.filter((block) => !block.isDirectiveComment).map((block) => isSingleLineAfterTrim(block.codeContent)),
+    );
     tagFormatByVirtualCodeMap.set(
       virtualCode,
       blocks
@@ -1789,6 +1790,7 @@ export const processor: Linter.Processor = {
     fileBlocksMap.delete(filename);
     const currentVirtualCode = `${GLOBAL_VIRTUAL_OPEN}${segments.map((s) => s.block.virtualCode).join('\n')}${GLOBAL_VIRTUAL_CLOSE}`;
     structuralControlByVirtualCodeMap.delete(currentVirtualCode);
+    singleLineTrimByVirtualCodeMap.delete(currentVirtualCode);
     tagFormatByVirtualCodeMap.delete(currentVirtualCode);
 
     if (segments.length === 0) {
