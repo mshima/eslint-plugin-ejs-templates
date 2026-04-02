@@ -142,6 +142,32 @@ describe('parseJavaScriptPartial', () => {
       }
     });
 
+    test('} else if (foo) {; pattern sets start, missingCloseBracesCount and missingOpenBracesCount greater than 0', () => {
+      const result = parseJavaScriptPartial('} else if (foo) { bar() }', 'if (true) {\n');
+      try {
+        expect(result.start).toBeGreaterThan(0);
+        // has both an un-opened close and an un-closed open
+        expect(result.missingCloseBracesCount).toBe(0);
+        expect(result.missingOpenBracesCount).toBe(1);
+        expect(result.splitStatements()).toMatchObject(['} else if (foo) {', 'bar()', '}']);
+      } finally {
+        result.cleanup();
+      }
+    });
+
+    test('} else { pattern is split in a statement', () => {
+      const result = parseJavaScriptPartial("\n  } else {\n  const foo = 'bar'\n}", 'if (foo) {\n');
+      try {
+        expect(result.start).toBeGreaterThan(0);
+        // has both an un-opened close and an un-closed open
+        expect(result.missingCloseBracesCount).toBe(0);
+        expect(result.missingOpenBracesCount).toBe(1);
+        expect(result.splitStatements()).toMatchObject(['} else {', "const foo = 'bar'", '}']);
+      } finally {
+        result.cleanup();
+      }
+    });
+
     test('} catch(e) { pattern sets start greater than 0', () => {
       const result = parseJavaScriptPartial('} catch(e) {', 'try {\n');
       try {
