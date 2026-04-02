@@ -219,10 +219,6 @@ function collectStructuralBracePositions(text: string): Set<number> {
   return collectStatementBlockPositions(parsed.nodes, parsed.start);
 }
 
-function hasCloseOpenTransition(text: string): boolean {
-  return /^\s*\}\s*(?:else(?:\s+if\s*\([^\n]*\))?|catch\s*\([^\n]*\)|finally)\s*\{/u.test(text);
-}
-
 // ---------------------------------------------------------------------------
 // Function-wrapper helpers
 // ---------------------------------------------------------------------------
@@ -1370,8 +1366,6 @@ const fileBlocksMap = new Map<
   {
     segments: VirtualBlockSegment[];
     rawSegments: VirtualBlockSegment[];
-    globalBracePrefix: string;
-    globalBraceSuffix: string;
   }
 >();
 const structuralControlByVirtualCodeMap = new Map<string, boolean[]>();
@@ -1390,11 +1384,7 @@ export function getTagFormatByVirtualCode(virtualCode: string): TagFormatState[]
   return tagFormatByVirtualCodeMap.get(virtualCode);
 }
 
-function translateRawParserFatalMessage(message: string, globalBraceSuffix: string): string {
-  if (globalBraceSuffix.length > 0 && /Parsing error: Unexpected token\s+\)/u.test(message)) {
-    return 'Parsing error';
-  }
-
+function translateRawParserFatalMessage(message: string): string {
   return message;
 }
 
@@ -1402,8 +1392,6 @@ function logVirtualCodeOnFatal(
   filename: string,
   virtualMessages: Linter.LintMessage[],
   segments: VirtualBlockSegment[],
-  globalBracePrefix: string,
-  globalBraceSuffix: string,
 ): void {
   const fatalMessages = virtualMessages.filter((msg) => msg.fatal);
   if (fatalMessages.length === 0) return;
@@ -1414,7 +1402,7 @@ function logVirtualCodeOnFatal(
         `- line ${String(msg.line)}, col ${String(msg.column)}: ${msg.message}${msg.ruleId ? ` [${msg.ruleId}]` : ''}`,
     )
     .join('\n');
-  const virtualCode = `${GLOBAL_VIRTUAL_OPEN}${globalBracePrefix}${segments.map((s) => s.block.virtualCode).join('\n')}${globalBraceSuffix}${GLOBAL_VIRTUAL_CLOSE}`;
+  const virtualCode = `${GLOBAL_VIRTUAL_OPEN}${segments.map((s) => s.block.virtualCode).join('\n')}${GLOBAL_VIRTUAL_CLOSE}`;
   debug(
     `[ejs-templates] ESLint fatal error while processing ${filename}:\n${renderedErrors}\nVirtual code:\n${virtualCode}`,
   );
@@ -1715,41 +1703,14 @@ export const processor: Linter.Processor = {
     });
     const blocks = extractTagBlocks(ejsNodes);
     if (blocks.length === 0) {
-      fileBlocksMap.set(filename, { segments: [], rawSegments: [], globalBracePrefix: '', globalBraceSuffix: '' });
+      fileBlocksMap.set(filename, { segments: [], rawSegments: [] });
       return [];
     }
 
-    let globalBraceDelta = 0;
-    let runningBraceDepth = 0;
-    let minimumBraceDepth = 0;
-    for (const block of blocks) {
-      for (const char of block.codeContent) {
-        if (char === '{') {
-          globalBraceDelta += 1;
-          runningBraceDepth += 1;
-        } else if (char === '}') {
-          globalBraceDelta -= 1;
-          runningBraceDepth -= 1;
-          minimumBraceDepth = Math.min(minimumBraceDepth, runningBraceDepth);
-        }
-      }
-    }
-    const globalBracePrefixCount = Math.max(0, -minimumBraceDepth);
-    const firstContentBlock = blocks.find((block) => !block.isDirectiveComment);
-    const syntheticIfPrefix =
-      globalBracePrefixCount > 0 && firstContentBlock && hasCloseOpenTransition(firstContentBlock.codeContent)
-        ? 'if (true) {\n'
-        : '';
-    const additionalBracePrefixCount = Math.max(0, globalBracePrefixCount - (syntheticIfPrefix === '' ? 0 : 1));
-    const globalBracePrefix = syntheticIfPrefix + '{\n'.repeat(additionalBracePrefixCount);
-    const rebalancedGlobalBraceDelta =
-      globalBraceDelta + additionalBracePrefixCount + (syntheticIfPrefix === '' ? 0 : 1);
-    const globalBraceSuffix = rebalancedGlobalBraceDelta > 0 ? '\n' + '}'.repeat(rebalancedGlobalBraceDelta) : '';
-
     const segments: VirtualBlockSegment[] = [];
     const rawSegments: VirtualBlockSegment[] = [];
-    let lineCursor = 2 + (globalBracePrefix.length > 0 ? globalBracePrefix.split('\n').length - 1 : 0);
-    let offsetCursor = GLOBAL_VIRTUAL_OPEN.length + globalBracePrefix.length;
+    let lineCursor = 2;
+    let offsetCursor = GLOBAL_VIRTUAL_OPEN.length;
     let rawLineCursor = 1;
     let rawOffsetCursor = 0;
 
@@ -1782,10 +1743,10 @@ export const processor: Linter.Processor = {
       rawOffsetCursor += block.virtualCode.length + 1;
     }
 
-    fileBlocksMap.set(filename, { segments, rawSegments, globalBracePrefix, globalBraceSuffix });
+    fileBlocksMap.set(filename, { segments, rawSegments });
 
     const joinedBlocksVirtualCode = blocks.map((b) => b.virtualCode).join('\n');
-    const virtualCode = `${GLOBAL_VIRTUAL_OPEN}${globalBracePrefix}${joinedBlocksVirtualCode}${globalBraceSuffix}${GLOBAL_VIRTUAL_CLOSE}`;
+    const virtualCode = `${GLOBAL_VIRTUAL_OPEN}${joinedBlocksVirtualCode}${GLOBAL_VIRTUAL_CLOSE}`;
     structuralControlByVirtualCodeMap.set(
       virtualCode,
       blocks
@@ -1853,14 +1814,9 @@ export const processor: Linter.Processor = {
     }
     fullTree.delete();
 
-    const {
-      segments = [],
-      rawSegments = [],
-      globalBracePrefix = '',
-      globalBraceSuffix = '',
-    } = fileBlocksMap.get(filename) ?? {};
+    const { segments = [], rawSegments = [] } = fileBlocksMap.get(filename) ?? {};
     fileBlocksMap.delete(filename);
-    const currentVirtualCode = `${GLOBAL_VIRTUAL_OPEN}${globalBracePrefix}${segments.map((s) => s.block.virtualCode).join('\n')}${globalBraceSuffix}${GLOBAL_VIRTUAL_CLOSE}`;
+    const currentVirtualCode = `${GLOBAL_VIRTUAL_OPEN}${segments.map((s) => s.block.virtualCode).join('\n')}${GLOBAL_VIRTUAL_CLOSE}`;
     structuralControlByVirtualCodeMap.delete(currentVirtualCode);
     tagFormatByVirtualCodeMap.delete(currentVirtualCode);
 
@@ -1874,7 +1830,7 @@ export const processor: Linter.Processor = {
     const suppressedRuleIds = new Set(['no-undef']);
 
     const virtualMessages = messages[0] ?? [];
-    logVirtualCodeOnFatal(filename, virtualMessages, segments, globalBracePrefix, globalBraceSuffix);
+    logVirtualCodeOnFatal(filename, virtualMessages, segments);
     const hasIndentMessages = virtualMessages.some((msg) => msg.ruleId === 'ejs-templates/indent');
 
     const mappedMessages = virtualMessages
@@ -2001,7 +1957,7 @@ export const processor: Linter.Processor = {
 
             const fatalMsg: Linter.LintMessage = {
               ...normalizedMsg,
-              message: translateRawParserFatalMessage(normalizedMsg.message, globalBraceSuffix),
+              message: translateRawParserFatalMessage(normalizedMsg.message),
               line,
               column,
             };
