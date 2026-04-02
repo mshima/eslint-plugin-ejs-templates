@@ -7,9 +7,11 @@
 //     http://www.apache.org/licenses/LICENSE-2.0
 
 import type { Rule } from 'eslint';
-import { SENTINEL_PREFER_SINGLE_LINE_TAGS_BRACES, getStructuralControlByVirtualCode } from '../processor.js';
-
-type PreferSingleLineTagsMode = 'always' | 'braces';
+import {
+  SENTINEL_PREFER_SINGLE_LINE_TAGS_BRACES,
+  getSingleLineTrimByVirtualCode,
+  getStructuralControlByVirtualCode,
+} from '../processor.js';
 
 /**
  * ESLint rule: collapse multiline EJS tags onto a single line.
@@ -30,23 +32,10 @@ export const preferSingleLineTags: Rule.RuleModule = {
     messages: {
       preferSingleLineTags: 'EJS tag content spans multiple lines; collapse to a single line.',
     },
-    schema: [
-      {
-        type: 'object',
-        properties: {
-          mode: {
-            enum: ['always', 'braces'],
-          },
-        },
-        additionalProperties: false,
-      },
-    ],
+    schema: [],
   },
 
   create(context) {
-    const configuredMode = (context.options[0] as { mode?: PreferSingleLineTagsMode } | undefined)?.mode;
-    const mode: PreferSingleLineTagsMode = configuredMode === 'braces' ? 'braces' : 'always';
-
     return {
       Program() {
         const sourceCode = context.sourceCode;
@@ -54,25 +43,19 @@ export const preferSingleLineTags: Rule.RuleModule = {
         const tagComments = comments.filter((c) => c.type === 'Line' && c.value.trim().startsWith('@ejs-tag:'));
 
         // Provided by the processor from tree-sitter AST analysis (same tag order as markers).
-        const structuralByTag = mode === 'braces' ? getStructuralControlByVirtualCode(sourceCode.text) : undefined;
+        const structuralByTag = getStructuralControlByVirtualCode(sourceCode.text);
+        const singleLineTrimByTag = getSingleLineTrimByVirtualCode(sourceCode.text);
 
         for (const comment of comments) {
           if (comment.type !== 'Line' || !comment.value.trim().includes('-multiline')) {
             continue;
           }
 
-          if (mode === 'braces') {
-            // Only apply braces mode to slurp tags
-            const marker = comment.value.trim();
-            if (!marker.includes('slurp')) {
-              continue;
-            }
-
-            const tagIndex = tagComments.indexOf(comment);
-            const hasStructuralInThisBlock = tagIndex !== -1 && structuralByTag?.[tagIndex] === true;
-            if (!hasStructuralInThisBlock) {
-              continue;
-            }
+          const tagIndex = tagComments.indexOf(comment);
+          const hasStructuralInThisBlock = tagIndex !== -1 && structuralByTag?.[tagIndex] === true;
+          const fitsSingleLineWhenTrimmed = tagIndex !== -1 && singleLineTrimByTag?.[tagIndex] === true;
+          if (!hasStructuralInThisBlock && !fitsSingleLineWhenTrimmed) {
+            continue;
           }
 
           const { range = [0, 0] } = comment;
@@ -80,10 +63,7 @@ export const preferSingleLineTags: Rule.RuleModule = {
             loc: comment.loc ?? { line: 0, column: 0 },
             messageId: 'preferSingleLineTags',
             fix(fixer) {
-              return fixer.replaceTextRange(
-                [range[0], range[1]],
-                mode === 'braces' ? SENTINEL_PREFER_SINGLE_LINE_TAGS_BRACES : '',
-              );
+              return fixer.replaceTextRange([range[0], range[1]], SENTINEL_PREFER_SINGLE_LINE_TAGS_BRACES);
             },
           });
         }
