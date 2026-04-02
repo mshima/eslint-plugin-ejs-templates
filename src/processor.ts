@@ -46,21 +46,24 @@ type RelativeJavascriptNode = {
 
 /** Indentation unit used by the ejsIndent brace-depth algorithm (2 spaces). */
 const INDENT_UNIT = '  ';
+const STATEMENT_OPEN_IN_SINGLE_LINE = [
+  'if_statement',
+  'for_statement',
+  'for_in_statement',
+  'do_statement',
+  'while_statement',
+  'switch_statement',
+  'try_statement',
+  'with_statement',
+];
 const debug = createDebug('ejs-templates:processor');
 
 // ---------------------------------------------------------------------------
 // Slurping eligibility check
 // ---------------------------------------------------------------------------
-
-/**
- * Split raw EJS tag content into individual non-empty trimmed lines.
- */
-function splitLines(raw: string): string[] {
-  return raw
-    .split('\n')
-    .map((l) => l.trim())
-    .filter((l) => l.length > 0);
-}
+const collectParentTypes = (node: SyntaxNode): string[] => {
+  return [node.type, ...(node.parent ? collectParentTypes(node.parent) : [])];
+};
 
 function isSingleLineAfterTrim(content: string): boolean {
   const trimmed = content.trim();
@@ -168,51 +171,48 @@ export function parseJavaScriptPartial(text: string, incrementalCode: string = '
       let cursor = 0;
       let statements: string[] = [];
       for (const n of nodes) {
-        /*
-        console.log('\n\n\n=====');
-        console.log(`Node: ${n.type} [${n.startIndex}, ${n.endIndex}] "${n.text}"`);
-        console.log(
-          `Simbling: ${n.type} [${n.nextSibling?.startIndex}, ${n.nextSibling?.endIndex}] "${n.nextSibling?.text}"`,
-        );
-        for (const c of n.children) {
-          console.log(`  Child: ${c.type} [${c.startIndex}, ${c.endIndex}] "${c.text}"`);
-        }
-        if (n.parent) {
-          console.log(`Parent: ${n.parent.type} [${n.parent.startIndex}, ${n.parent.endIndex}] "${n.parent.text}"`);
-          for (const c of n.parent.children) {
-            console.log(`  Parent Child: ${c.type} [${c.startIndex}, ${c.endIndex}] "${c.text}"`);
-          }
-        }
-        */
         let lastCursor = cursor;
-        if ((n.type === '{' || n.type === '}') && n.parent?.type == 'statement_block') {
-          let maybeNonSplitableParent = n;
-          const nonSplitableNodeTypes = ['call_expression', 'try_statement'];
-          let nonSplitableParentFound = false;
-          while (maybeNonSplitableParent.parent) {
-            nonSplitableParentFound ||= nonSplitableNodeTypes.includes(maybeNonSplitableParent.type);
-            if (nonSplitableParentFound) {
-              break;
-            }
-            maybeNonSplitableParent = maybeNonSplitableParent.parent;
+        if (STATEMENT_OPEN_IN_SINGLE_LINE.includes(n.type)) {
+          // else if (foo) {
+          if (n.parent?.type === 'else_clause') {
+            continue;
           }
-          if (nonSplitableParentFound) {
+          cursor = n.startIndex - contentStart;
+          statements.push(text.slice(lastCursor, cursor));
+        } else if ((n.type === '{' || n.type === '}') && n.parent?.type == 'statement_block') {
+          const parentTypes = collectParentTypes(n.parent);
+          if (parentTypes.includes('call_expression') || parentTypes.includes('try_statement')) {
             continue;
           }
 
           if (n.type === '{') {
             cursor = n.endIndex - contentStart;
-            statements.push(text.slice(lastCursor, cursor));
+            if (STATEMENT_OPEN_IN_SINGLE_LINE.includes(parentTypes[1])) {
+              statements.push(text.slice(lastCursor, cursor).replaceAll(/\n/g, ' ').replaceAll(/\s+/g, ' '));
+            } else {
+              statements.push(text.slice(lastCursor, cursor));
+            }
           } else {
+            // Add the content before }.
             cursor = n.startIndex - contentStart;
             statements.push(text.slice(lastCursor, cursor));
             lastCursor = cursor;
 
-            const { firstChild } = n.parent.nextSibling ?? {};
-            if (firstChild && ['else', 'elseif', 'catch', 'finally'].includes(firstChild.type)) {
-              if (firstChild.nextNamedSibling) {
-                cursor = firstChild.nextNamedSibling.endIndex - contentStart;
-              }
+            // Parent is a statement_block, an else/elseif/catch/finally may immediately follow the closing brace.
+            const { nextSibling } = n.parent;
+            if (nextSibling) {
+              continue;
+            }
+
+            // If } closes an arrow function body, a ; may follow on the same line, so include it in the statement.
+            if (
+              parentTypes.length > 4 &&
+              parentTypes[1] === 'arrow_function' &&
+              parentTypes[2] === 'variable_declarator' &&
+              parentTypes[3] === 'lexical_declaration'
+            ) {
+              // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+              cursor = n.parent.parent!.parent!.parent!.endIndex - contentStart;
             } else {
               cursor = n.endIndex - contentStart;
             }
@@ -768,264 +768,8 @@ function buildCollapsedTag(block: TagBlock, options?: { applyIndent?: boolean })
     // For non-structural multiline content, keep original formatting.
     return `${block.openDelim}${block.codeContent}${block.closeDelim}`;
   }
-  const rawLines = splitLines(block.codeContent);
 
-  const tags: string[] = [];
-  const collapseOnlyAtBraceBoundaries = true;
-
-  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-  if (collapseOnlyAtBraceBoundaries) {
-    const allLines = block.codeContent.split('\n');
-    const bodyLines: string[] = [];
-    const structuralBracePositions = new Set(
-      javascriptPartialNode.nodes
-        .filter((node) => node.type === 'statement_block')
-        .map((node) => node.startIndex - javascriptPartialNode.start),
-    );
-
-    const collapseAccumulatedLines = (lines: string[]): string => {
-      let accumulated = '';
-      for (const line of lines) {
-        const trimmedLine = line.trim();
-        if (trimmedLine.length === 0) {
-          continue;
-        }
-        if (accumulated.length === 0) {
-          accumulated = trimmedLine;
-        } else if (trimmedLine.startsWith('.')) {
-          accumulated += trimmedLine;
-        } else {
-          accumulated += ` ${trimmedLine}`;
-        }
-      }
-      return accumulated;
-    };
-
-    const flushBodyLines = () => {
-      if (bodyLines.length > 0) {
-        tags.push(bodyLines.join('\n'));
-        bodyLines.length = 0;
-      }
-    };
-
-    const findMatchingCloseIndex = (s: string, openIndex: number): number => {
-      let templateDepth = 0;
-      let nestedBraceDepth = 0;
-      for (let i = openIndex + 1; i < s.length; i++) {
-        if (templateDepth === 0) {
-          if (s[i] === '$' && i + 1 < s.length && s[i + 1] === '{') {
-            templateDepth++;
-            i++;
-          } else if (s[i] === '{') {
-            nestedBraceDepth++;
-          } else if (s[i] === '}') {
-            if (nestedBraceDepth > 0) {
-              nestedBraceDepth--;
-            } else {
-              return i;
-            }
-          }
-        } else if (s[i] === '$' && i + 1 < s.length && s[i + 1] === '{') {
-          templateDepth++;
-          i++;
-        } else if (s[i] === '{') {
-          nestedBraceDepth++;
-        } else if (s[i] === '}') {
-          if (nestedBraceDepth > 0) {
-            nestedBraceDepth--;
-          } else {
-            templateDepth--;
-          }
-        }
-      }
-      return -1;
-    };
-
-    const findNextBoundary = (s: string, absoluteOffset: number): { kind: 'open' | 'close'; index: number } | null => {
-      let templateDepth = 0;
-      for (let i = 0; i < s.length; i++) {
-        if (templateDepth === 0) {
-          if (s[i] === '$' && i + 1 < s.length && s[i + 1] === '{') {
-            templateDepth++;
-            i++;
-            continue;
-          }
-
-          if (s[i] === '{' && (i === 0 || s[i - 1] !== '$')) {
-            const braceAbsolutePos = absoluteOffset + i;
-            if (structuralBracePositions.has(braceAbsolutePos)) {
-              return { kind: 'open', index: i };
-            }
-
-            const matchingClose = findMatchingCloseIndex(s, i);
-            if (matchingClose === -1) {
-              return null;
-            }
-            i = matchingClose;
-            continue;
-          }
-
-          if (s[i] === '}') {
-            return { kind: 'close', index: i };
-          }
-        } else if (s[i] === '$' && i + 1 < s.length && s[i + 1] === '{') {
-          templateDepth++;
-          i++;
-        } else if (s[i] === '}') {
-          templateDepth--;
-        }
-      }
-
-      return null;
-    };
-
-    const processSegment = (segment: string, absoluteOffset: number) => {
-      const normalized = segment.replace(/\s+$/u, '');
-      if (normalized.trim().length === 0) {
-        return;
-      }
-
-      const boundary = findNextBoundary(normalized, absoluteOffset);
-      if (!boundary) {
-        bodyLines.push(normalized);
-        return;
-      }
-
-      if (boundary.kind === 'open') {
-        const openPart = normalized.slice(0, boundary.index + 1).trim();
-        const remainder = normalized.slice(boundary.index + 1);
-        const trimmedRemainder = remainder.trimStart();
-        const consumedWhitespace = remainder.length - trimmedRemainder.length;
-
-        const canMergeAccumulatedWithOpen =
-          bodyLines.length > 0 &&
-          bodyLines.every((line) => {
-            const trimmedLine = line.trim();
-            return (
-              !trimmedLine.startsWith('//') &&
-              !trimmedLine.endsWith(';') &&
-              !trimmedLine.endsWith('}') &&
-              !trimmedLine.endsWith('{')
-            );
-          });
-
-        if (canMergeAccumulatedWithOpen) {
-          const prefixPart = collapseAccumulatedLines(bodyLines);
-          bodyLines.length = 0;
-          const combinedOpenPart = prefixPart.length > 0 ? `${prefixPart} ${openPart}` : openPart;
-          if (combinedOpenPart.length > 0) {
-            tags.push(combinedOpenPart);
-          }
-        } else {
-          flushBodyLines();
-          if (openPart.length > 0) {
-            tags.push(openPart);
-          }
-        }
-        processSegment(trimmedRemainder, absoluteOffset + boundary.index + 1 + consumedWhitespace);
-        return;
-      }
-
-      const beforeClose = normalized.slice(0, boundary.index);
-      const remainder = normalized.slice(boundary.index + 1);
-      const trimmedRemainder = remainder.trimStart();
-      const consumedWhitespace = remainder.length - trimmedRemainder.length;
-
-      if (trimmedRemainder.length > 0) {
-        let nextIndex = 0;
-        while (nextIndex < trimmedRemainder.length && /\s/u.test(trimmedRemainder[nextIndex])) {
-          nextIndex += 1;
-        }
-
-        const looksLikeTransition =
-          trimmedRemainder.startsWith('else', nextIndex) ||
-          trimmedRemainder.startsWith('catch', nextIndex) ||
-          trimmedRemainder.startsWith('finally', nextIndex);
-
-        if (looksLikeTransition) {
-          let openBraceIndex = nextIndex;
-          while (openBraceIndex < trimmedRemainder.length && trimmedRemainder[openBraceIndex] !== '{') {
-            openBraceIndex += 1;
-          }
-
-          if (openBraceIndex < trimmedRemainder.length) {
-            const transitionBraceAbsolutePos =
-              absoluteOffset + boundary.index + 1 + consumedWhitespace + openBraceIndex;
-            if (structuralBracePositions.has(transitionBraceAbsolutePos)) {
-              const transitionPart = `} ${trimmedRemainder.slice(0, openBraceIndex + 1)}`.trim();
-              const transitionRemainder = trimmedRemainder.slice(openBraceIndex + 1).trimStart();
-              flushBodyLines();
-              tags.push(transitionPart);
-              processSegment(
-                transitionRemainder,
-                transitionBraceAbsolutePos +
-                  1 +
-                  (trimmedRemainder.slice(openBraceIndex + 1).length - transitionRemainder.length),
-              );
-              return;
-            }
-          }
-        }
-      }
-
-      if (beforeClose.trim().length > 0) {
-        bodyLines.push(beforeClose.replace(/\s+$/u, ''));
-      }
-      flushBodyLines();
-
-      if (trimmedRemainder.startsWith(';')) {
-        tags.push('};');
-        const afterSemicolon = trimmedRemainder.slice(1).trimStart();
-        const semicolonWhitespace = trimmedRemainder.slice(1).length - afterSemicolon.length;
-        processSegment(afterSemicolon, absoluteOffset + boundary.index + 2 + consumedWhitespace + semicolonWhitespace);
-      } else {
-        tags.push('}');
-        processSegment(trimmedRemainder, absoluteOffset + boundary.index + 1 + consumedWhitespace);
-      }
-    };
-
-    let currentOffset = 0;
-    for (const line of allLines) {
-      if (line.trim().length > 0) {
-        processSegment(line, currentOffset);
-      }
-      currentOffset += line.length + 1;
-    }
-
-    flushBodyLines();
-  } else {
-    let accumulated = '';
-    for (const line of rawLines) {
-      if (accumulated.length === 0) {
-        accumulated = line;
-      } else if (accumulated.trimStart().startsWith('//') || line.trimStart().startsWith('//')) {
-        // Never collapse code onto a line-comment line (or vice versa).
-        tags.push(accumulated);
-        accumulated = line;
-      } else if (line.startsWith('.')) {
-        // Dot-continuation: join without space (chained method / property access).
-        accumulated += line;
-      } else {
-        accumulated += ` ${line}`;
-      }
-
-      // Emit a tag whenever the accumulated content ends with a statement boundary.
-      if (accumulated.endsWith(';') || accumulated.endsWith('}') || accumulated.endsWith('{')) {
-        tags.push(accumulated);
-        accumulated = '';
-      }
-    }
-
-    // Flush any remaining content (lines that don't end with a boundary char).
-    if (accumulated.length > 0) {
-      tags.push(accumulated);
-    }
-  }
-
-  if (tags.length === 0) {
-    const baseIndent = applyIndent ? block.expectedIndent : '';
-    return `${baseIndent}${block.openDelim} ${block.closeDelim}`;
-  }
+  const tags = javascriptPartialNode.splitStatements();
 
   if (tags.length === 1) {
     const baseIndent = applyIndent ? block.expectedIndent : '';
