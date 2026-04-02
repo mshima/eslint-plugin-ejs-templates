@@ -555,7 +555,7 @@ describe('plugin shape', () => {
     expect(config.rules?.['ejs-templates/prefer-single-line-tags']).toBe('error');
     expect(config.rules?.['ejs-templates/format']).toBe('error');
     expect(config.rules?.['ejs-templates/slurp-newline']).toBe('error');
-    expect(config.rules?.['ejs-templates/indent']).toBe('error');
+    expect(config.rules?.['ejs-templates/indent']).toEqual(['error', { normalizeContent: true }]);
   });
 });
 
@@ -1380,6 +1380,29 @@ describe('autofix: indent', () => {
     expect(applyFix(input, { 'ejs-templates/indent': ['error', { normalizeContent: true }] })).toBe(
       '<%_ if (x) { %>\n  <%_ doWork();\n      doMore();\n  _%>\n<%_ } %>',
     );
+  });
+
+  test('normalizes content of already-correctly-indented multiline tag when normalizeContent=true', () => {
+    const input = '<%_ if (x) { _%>\n  <%_\n  doWork();\n  doMore();\n  _%>\n<%_ } _%>';
+    expect(applyFix(input, { 'ejs-templates/indent': ['error', { normalizeContent: true }] })).toBe(
+      '<%_ if (x) { _%>\n  <%_ doWork();\n      doMore();\n  _%>\n<%_ } _%>',
+    );
+  });
+
+  test('does not change already-correctly-indented multiline tag without normalizeContent', () => {
+    const input = '<%_ if (x) { _%>\n  <%_\n  doWork();\n  doMore();\n  _%>\n<%_ } _%>';
+    expect(applyFix(input, { 'ejs-templates/indent': 'error' })).toBe(input);
+  });
+
+  test('does not re-report already-normalized multiline tag when normalizeContent=true (idempotent)', () => {
+    const input = '<%_ if (x) { _%>\n  <%_ doWork();\n      doMore();\n  _%>\n<%_ } _%>';
+    expect(applyFix(input, { 'ejs-templates/indent': ['error', { normalizeContent: true }] })).toBe(input);
+  });
+
+  test('does not normalize slurp-multiline when close is on same content line (avoids conflict with format same-line)', () => {
+    // close on same line as last content → normalizeContent skips it to avoid circular fix
+    const input = '<%_ if (x) { _%>\n  <%_ doWork();\n  doMore(); _%>\n<%_ } _%>';
+    expect(applyFix(input, { 'ejs-templates/indent': ['error', { normalizeContent: true }] })).toBe(input);
   });
 });
 
