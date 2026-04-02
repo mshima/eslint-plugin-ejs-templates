@@ -67,3 +67,12 @@ export function parseJavaScript(text: string): Tree {
   if (!tree) throw new Error('tree-sitter failed to parse JavaScript source');
   return tree;
 }
+
+export function findErrorNode(node: SyntaxNode): SyntaxNode | null {
+  if (node.isError || node.isMissing) return node;
+  for (const child of node.children) {
+    const errorNode = findErrorNode(child);
+    if (errorNode) return errorNode;
+  }
+  return null;
+}

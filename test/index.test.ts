@@ -8,13 +8,13 @@
 
 import { describe, test, expect } from 'vitest';
 import plugin from '../src/index.js';
-import { extractTagBlocks, getEjsNodes } from '../src/processor.js';
 import * as fixture1 from './fixtures/1.js';
 import * as fixture2 from './fixtures/2.js';
 import * as fixture3 from './fixtures/3.js';
 import * as fixture4 from './fixtures/4.js';
 import * as fixture5 from './fixtures/5.js';
 import { lint, applyFix, makeLinter, makeConfig } from './helpers.js';
+import { extractTagBlocks, getEjsNodes } from '../src/ejs-parser.js';
 
 function lintWithUnusedDisableDirectivesError(
   ejsText: string,

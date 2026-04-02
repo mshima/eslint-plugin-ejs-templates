@@ -7,7 +7,7 @@
 //     http://www.apache.org/licenses/LICENSE-2.0
 
 import { describe, test, expect } from 'vitest';
-import { parseJavaScriptPartial } from '../src/processor.js';
+import { parseJavaScriptPartial } from '../src/javascript-parser.js';
 
 describe('parseJavaScriptPartial', () => {
   describe('valid / balanced JavaScript', () => {
