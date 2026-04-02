@@ -7,7 +7,7 @@
 //     http://www.apache.org/licenses/LICENSE-2.0
 
 import type { Rule } from 'eslint';
-import { SENTINEL_FORMAT, SENTINEL_FORMAT_MULTILINE_CLOSE, getTagFormatByVirtualCode } from '../processor.js';
+import { SENTINEL_FORMAT, SENTINEL_FORMAT_MULTILINE_CLOSE, getVirtualCodeMetadata } from '../processor.js';
 
 export const format: Rule.RuleModule = {
   meta: {
@@ -45,7 +45,8 @@ export const format: Rule.RuleModule = {
         const sourceCode = context.sourceCode;
         const comments = sourceCode.getAllComments();
         const tagComments = comments.filter((c) => c.type === 'Line' && c.value.trim().startsWith('@ejs-tag:'));
-        const tagFormatState = getTagFormatByVirtualCode(sourceCode.text);
+        const metadata = getVirtualCodeMetadata(sourceCode.text);
+        const tagFormatState = metadata?.tagFormat;
 
         for (let i = 0; i < tagComments.length; i++) {
           const comment = tagComments[i];

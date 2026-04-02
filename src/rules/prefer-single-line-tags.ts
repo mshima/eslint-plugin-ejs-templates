@@ -7,11 +7,7 @@
 //     http://www.apache.org/licenses/LICENSE-2.0
 
 import type { Rule } from 'eslint';
-import {
-  SENTINEL_PREFER_SINGLE_LINE_TAGS_BRACES,
-  getSingleLineTrimByVirtualCode,
-  getStructuralControlByVirtualCode,
-} from '../processor.js';
+import { SENTINEL_PREFER_SINGLE_LINE_TAGS_BRACES, getVirtualCodeMetadata } from '../processor.js';
 
 /**
  * ESLint rule: collapse multiline EJS tags onto a single line.
@@ -43,8 +39,9 @@ export const preferSingleLineTags: Rule.RuleModule = {
         const tagComments = comments.filter((c) => c.type === 'Line' && c.value.trim().startsWith('@ejs-tag:'));
 
         // Provided by the processor from tree-sitter AST analysis (same tag order as markers).
-        const structuralByTag = getStructuralControlByVirtualCode(sourceCode.text);
-        const singleLineTrimByTag = getSingleLineTrimByVirtualCode(sourceCode.text);
+        const metadata = getVirtualCodeMetadata(sourceCode.text);
+        const structuralByTag = metadata?.structuralControl;
+        const singleLineTrimByTag = metadata?.singleLineTrim;
 
         for (const comment of comments) {
           if (comment.type !== 'Line' || !comment.value.trim().includes('-multiline')) {
