@@ -52,16 +52,6 @@ const debug = createDebug('ejs-templates:processor');
 // ---------------------------------------------------------------------------
 
 /**
- * Count the number of `}` that appear at the very start of `str`
- * (before any non-whitespace, non-`}` character).  Used to determine the
- * "effective lower brace depth" for indentation.
- */
-function countLeadingCloseBraces(str: string): number {
-  const m = str.match(/^[\s}]*/);
-  return m?.[0] ? m[0].replace(/\s/g, '').length : 0;
-}
-
-/**
  * Split raw EJS tag content into individual non-empty trimmed lines.
  */
 function splitLines(raw: string): string[] {
@@ -561,7 +551,10 @@ export function extractTagBlocks(nodes: EjsSyntaxNode[]): TagBlock[] {
     }
     braceDepth = Math.max(0, braceDepth);
 
-    const lowerBraceDepth = Math.max(0, Math.min(oldBraceDepth - countLeadingCloseBraces(codeContent), braceDepth));
+    const lowerBraceDepth = Math.max(
+      0,
+      Math.min(oldBraceDepth - javascriptPartialNode.missingOpenBracesCount, braceDepth),
+    );
     // ── Base tag type ─────────────────────────────────────────────────────
     let baseType: string;
     if (openDelim === '<%=') {
