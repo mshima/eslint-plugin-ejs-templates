@@ -29,15 +29,16 @@
   "types": "dist/index.d.ts",
   "files": [
     "dist",
+    "wasm",
     "LICENSE",
     "README.md"
   ],
   "scripts": {
-    "build": "tsup",
-    "dev": "tsup --watch",
+    "build": "tsc",
+    "dev": "tsc --watch",
     "fix": "prettier . --write && eslint . --fix",
     "lint": "eslint .",
-    "prepare": "npm run build && cpy node_modules/tree-sitter-embedded-template/tree-sitter-embedded_template.wasm dist/tree-sitter-embedded_template.wasm && cpy node_modules/tree-sitter-javascript/tree-sitter-javascript.wasm dist/tree-sitter-javascript.wasm",
+    "prepare": "npm run build && cpy node_modules/tree-sitter-embedded-template/tree-sitter-embedded_template.wasm node_modules/tree-sitter-javascript/tree-sitter-javascript.wasm wasm --flat",
     "prepublishOnly": "npm run prepare",
     "pretest": "prettier . --check && eslint .",
     "test": "vitest run",
@@ -46,24 +47,24 @@
   },
   "dependencies": {
     "debug": "^4.4.3",
-    "web-tree-sitter": "^0.26.7"
+    "web-tree-sitter": "^0.26.8"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/debug": "^4.1.13",
-    "@types/node": "^24.0.0",
+    "@types/emscripten": "^1.41.5",
+    "@types/node": "^25.5.0",
     "cpy-cli": "^7.0.0",
-    "eslint": "^10.0.0",
-    "eslint-config-prettier": "^10.0.0",
+    "eslint": "^10.1.0",
+    "eslint-config-prettier": "^10.1.8",
     "jiti": "^2.6.1",
     "prettier": "^3.8.1",
     "prettier-plugin-packagejson": "^3.0.2",
     "tree-sitter-embedded-template": "0.25.0",
     "tree-sitter-javascript": "0.25.0",
-    "tsup": "^8.0.0",
-    "typescript": "^5.0.0",
-    "typescript-eslint": "^8.0.0",
-    "vitest": "^4.1.0"
+    "typescript": "^6.0.2",
+    "typescript-eslint": "^8.58.0",
+    "vitest": "^4.1.2"
   },
   "peerDependencies": {
     "eslint": ">=9.0.0"
