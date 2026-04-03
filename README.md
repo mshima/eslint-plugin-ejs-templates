@@ -15,6 +15,7 @@ EJS files are parsed by [tree-sitter-embedded-template](https://github.com/tree-
 - **`ejs-templates/format`** – normalizes spacing inside tags and multiline closing delimiter layout
 - **`ejs-templates/slurp-newline`** – ensures `<%_ … _%>` tags are on their own line
 - **`ejs-templates/indent`** – enforces brace-depth–based indentation on standalone `<%_ … _%>` tags
+- **`ejs-templates/no-global-function-call`** – disallows direct function calls in EJS tags (with `include()` allowed by default)
 
 ## Installation
 
@@ -49,6 +50,7 @@ export default defineConfig([
       'ejs-templates/indent': 'error',
       'ejs-templates/prefer-raw': 'error',
       'ejs-templates/format': 'error',
+      'ejs-templates/no-global-function-call': 'error',
     },
   },
 ]);
@@ -105,6 +107,7 @@ Apply rules in the following order for best results:
 5. `indent` — enforce brace-depth indentation
 6. `prefer-raw` — prefer `<%-` over `<%=`
 7. `format` — apply final whitespace/layout normalization
+8. `no-global-function-call` — disallow direct function calls in tags
 
 ### `ejs-templates/prefer-raw`
 
@@ -309,6 +312,54 @@ Consistent indentation improves readability of nested template logic.
   <%_ doWork(); _%>
 <%_ } _%>
 ```
+
+### `ejs-templates/no-function-call`
+
+Disallows direct function calls in EJS tags (`foo()`), while allowing
+`include()` by default. Method calls (`obj.foo()`) are ignored.
+
+If a function is passed through the template context, call it as a method such
+as `locals.method()`. This rule allows that form because it only blocks direct
+calls like `method()`.
+
+|             |                                             |
+| ----------- | ------------------------------------------- |
+| **Fixable** | No                                          |
+| **Default** | `include` is allowed (`allow: ['include']`) |
+
+```ejs
+<!-- ✗ violation -->
+<% doWork(); %>
+
+<!-- ✓ allowed by default -->
+<% include('partial.ejs'); %>
+
+<!-- ✓ not checked by this rule (method call) -->
+<% locals.save(); %>
+```
+
+Options:
+
+- `{ allow: ['name1', 'name2'] }` — adds direct function names to the allowlist
+
+```js
+// eslint.config.js
+{
+  files: ['**/*.ejs'],
+  rules: {
+    'ejs-templates/no-function-call': ['error', { allow: ['include'] }],
+  },
+}
+```
+
+Security implications:
+
+- Allowing dangerous direct calls (for example `exec()`) inside templates can
+  lead to command execution risks if arguments are user-controlled.
+- Prefer keeping the allowlist minimal and avoid granting process-execution
+  primitives to template code.
+- If your project must allow such calls, validate/sanitize all inputs and
+  isolate execution contexts.
 
 ## Supported EJS Delimiters
 
