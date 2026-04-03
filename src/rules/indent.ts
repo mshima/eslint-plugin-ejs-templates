@@ -7,7 +7,7 @@
 //     http://www.apache.org/licenses/LICENSE-2.0
 
 import type { Rule } from 'eslint';
-import { SENTINEL_INDENT, SENTINEL_INDENT_NORMALIZE } from '../processor.js';
+import { SENTINEL_INDENT, SENTINEL_INDENT_NORMALIZE, getVirtualCodeMetadata } from '../processor.js';
 
 /**
  * ESLint rule: enforce brace-depth–based indentation on standalone
@@ -63,29 +63,41 @@ export const indent: Rule.RuleModule = {
       Program() {
         const sourceCode = context.sourceCode;
         const comments = sourceCode.getAllComments();
+        const tagComments = comments.filter((c) => c.type === 'Line' && c.value.trim().startsWith('@ejs-tag:'));
+        const metadata = normalizeContent ? getVirtualCodeMetadata(sourceCode.text) : undefined;
+        const needsNormalizeByTag = metadata?.needsNormalize;
+
         for (const comment of comments) {
-          if (comment.type === 'Line' && comment.value.trim().startsWith('@ejs-tag:slurp-needs-indent')) {
-            const { range = [0, 0] } = comment;
-            context.report({
-              loc: comment.loc ?? { line: 0, column: 0 },
-              messageId: 'indent',
-              data: {
-                // The exact indent values are not available in the virtual
-                // code; use generic placeholders so the message is still
-                // meaningful.
-                expected: '?',
-                actual: '?',
-              },
-              fix(fixer) {
-                // Sentinel fix — the processor's postprocess translates this
-                // to replacing the line-prefix whitespace before the tag.
-                return fixer.replaceTextRange(
-                  [range[0], range[1]],
-                  normalizeContent ? SENTINEL_INDENT_NORMALIZE : SENTINEL_INDENT,
-                );
-              },
-            });
-          }
+          if (comment.type !== 'Line') continue;
+          const tagType = comment.value.trim().replace(/^@ejs-tag:/, '');
+          const needsIndent = tagType.startsWith('slurp-needs-indent');
+          const tagIndex = needsIndent ? -1 : tagComments.indexOf(comment);
+          const needsNormalize =
+            normalizeContent &&
+            tagType === 'slurp-multiline' &&
+            tagIndex !== -1 &&
+            needsNormalizeByTag?.[tagIndex] === true;
+          if (!needsIndent && !needsNormalize) continue;
+          const { range = [0, 0] } = comment;
+          context.report({
+            loc: comment.loc ?? { line: 0, column: 0 },
+            messageId: 'indent',
+            data: {
+              // The exact indent values are not available in the virtual
+              // code; use generic placeholders so the message is still
+              // meaningful.
+              expected: '?',
+              actual: '?',
+            },
+            fix(fixer) {
+              // Sentinel fix — the processor's postprocess translates this
+              // to replacing the line-prefix whitespace before the tag.
+              return fixer.replaceTextRange(
+                [range[0], range[1]],
+                normalizeContent ? SENTINEL_INDENT_NORMALIZE : SENTINEL_INDENT,
+              );
+            },
+          });
         }
       },
     };

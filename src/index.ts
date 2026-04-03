@@ -87,7 +87,7 @@ const all: Config[] = [
       [`${pluginName}/prefer-slurping-codeonly`]: 'error',
       [`${pluginName}/prefer-single-line-tags`]: 'error',
       [`${pluginName}/slurp-newline`]: 'error',
-      [`${pluginName}/indent`]: 'error',
+      [`${pluginName}/indent`]: ['error', { normalizeContent: true }],
       [`${pluginName}/prefer-raw`]: 'error',
       [`${pluginName}/format`]: 'error',
     },

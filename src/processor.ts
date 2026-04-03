@@ -358,11 +358,16 @@ function translateFix(
     return null;
   } else if (fix.text === SENTINEL_INDENT_NORMALIZE) {
     // indent (normalizeContent=true): normalize multiline content indentation too.
-    if (block.tagType.startsWith('slurp-needs-indent')) {
+    if (block.tagType.startsWith('slurp-needs-indent') || block.tagType === 'slurp-multiline') {
       const indentStart = block.tagOffset - block.tagColumn;
+      const normalizedText = buildIndentedTag(block, { normalizeContent: true });
+      const currentText = block.lineIndent + block.openDelim + block.codeContent + block.closeDelim;
+      if (normalizedText === currentText) {
+        return null;
+      }
       return {
         range: [indentStart, block.tagOffset + block.tagLength],
-        text: buildIndentedTag(block, { normalizeContent: true }),
+        text: normalizedText,
       };
     }
     return null;
@@ -524,6 +529,8 @@ interface VirtualCodeMetadata {
   structuralControl: boolean[];
   singleLineTrim: boolean[];
   tagFormat: TagFormatState[];
+  /** Index i is true when i-th non-directive slurp-multiline block needs content normalization. */
+  needsNormalize: boolean[];
 }
 
 /**
@@ -1023,6 +1030,18 @@ export const processor: Linter.Processor = {
           isFormattedDefault: originalText === buildFormattedTag(block, { multilineCloseOnNewLine: false }),
           isFormattedMultilineClose: originalText === buildFormattedTag(block, { multilineCloseOnNewLine: true }),
         };
+      }),
+      needsNormalize: nonDirectiveBlocks.map((block) => {
+        if (block.tagType !== 'slurp-multiline') return false;
+        // Only normalize when the close delimiter is already on its own line
+        // (last codeContent segment is all whitespace). If the close is on the
+        // same line as the last content line, normalizing it would conflict with
+        // `format: same-line`, causing a circular fix.
+        const lastSegment = block.codeContent.split('\n').pop() ?? '';
+        if (lastSegment.trim() !== '') return false;
+        const normalizedText = buildIndentedTag(block, { normalizeContent: true });
+        const currentText = block.lineIndent + block.openDelim + block.codeContent + block.closeDelim;
+        return normalizedText !== currentText;
       }),
     });
 
