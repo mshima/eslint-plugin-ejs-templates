@@ -531,6 +531,10 @@ describe('plugin shape', () => {
     expect(plugin.rules['no-global-function-call']).toBeDefined();
   });
 
+  test('plugin exposes no-function-block rule', () => {
+    expect(plugin.rules['no-function-block']).toBeDefined();
+  });
+
   test('plugin exposes base config', () => {
     expect(Array.isArray(plugin.configs.base)).toBe(true);
     expect(plugin.configs.base.length).toBeGreaterThan(0);
@@ -561,6 +565,7 @@ describe('plugin shape', () => {
     expect(config.rules?.['ejs-templates/slurp-newline']).toBe('error');
     expect(config.rules?.['ejs-templates/indent']).toEqual(['error', { normalizeContent: true }]);
     expect(config.rules?.['ejs-templates/no-global-function-call']).toBe('error');
+    expect(config.rules?.['ejs-templates/no-function-block']).toBe('error');
   });
 });
 
@@ -616,6 +621,37 @@ describe('rule: ejs-templates/no-global-function-call', () => {
   test('does not flag tag without function call', () => {
     const msgs = lint('<% const value = user.name; %>', { 'ejs-templates/no-global-function-call': 'error' });
     expect(msgs.filter((m) => m.ruleId === 'ejs-templates/no-global-function-call')).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Rule: no-function-block
+// ---------------------------------------------------------------------------
+
+describe('rule: ejs-templates/no-function-block', () => {
+  test('flags function declaration with statement block', () => {
+    const msgs = lint('<% function makeFoo() { return 1; } %>', { 'ejs-templates/no-function-block': 'error' });
+    expect(msgs.filter((m) => m.ruleId === 'ejs-templates/no-function-block')).toHaveLength(1);
+  });
+
+  test('flags function expression with statement block', () => {
+    const msgs = lint('<% const f = function () { return 1; }; %>', { 'ejs-templates/no-function-block': 'error' });
+    expect(msgs.filter((m) => m.ruleId === 'ejs-templates/no-function-block')).toHaveLength(1);
+  });
+
+  test('flags arrow function with statement block', () => {
+    const msgs = lint('<% foos.filter(foo => { return foo.ok; }); %>', { 'ejs-templates/no-function-block': 'error' });
+    expect(msgs.filter((m) => m.ruleId === 'ejs-templates/no-function-block')).toHaveLength(1);
+  });
+
+  test('allows concise arrow function in filter', () => {
+    const msgs = lint('<% foos.filter(foo => foo.ok); %>', { 'ejs-templates/no-function-block': 'error' });
+    expect(msgs.filter((m) => m.ruleId === 'ejs-templates/no-function-block')).toHaveLength(0);
+  });
+
+  test('allows concise arrow function in map', () => {
+    const msgs = lint('<% foos.map(foo => foo.name); %>', { 'ejs-templates/no-function-block': 'error' });
+    expect(msgs.filter((m) => m.ruleId === 'ejs-templates/no-function-block')).toHaveLength(0);
   });
 });
 
