@@ -15,6 +15,7 @@ import { slurpNewline } from './rules/slurp-newline.js';
 import { indent } from './rules/indent.js';
 import { format } from './rules/format.js';
 import { noGlobalFunctionCall } from './rules/no-global-function-call.js';
+import { noFunctionBlock } from './rules/no-function-block.js';
 import { type Config } from 'eslint/config';
 
 // ---------------------------------------------------------------------------
@@ -40,6 +41,7 @@ const pluginCore = {
     indent,
     format,
     'no-global-function-call': noGlobalFunctionCall,
+    'no-function-block': noFunctionBlock,
   },
 };
 
@@ -93,6 +95,7 @@ const all: Config[] = [
       [`${pluginName}/prefer-raw`]: 'error',
       [`${pluginName}/format`]: 'error',
       [`${pluginName}/no-global-function-call`]: 'error',
+      [`${pluginName}/no-function-block`]: 'error',
     },
   },
 ] as const satisfies Config[];
@@ -117,4 +120,5 @@ export {
   indent,
   format,
   noGlobalFunctionCall,
+  noFunctionBlock,
 };

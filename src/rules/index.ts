@@ -14,3 +14,4 @@ export { slurpNewline } from './slurp-newline.js';
 export { indent } from './indent.js';
 export { format } from './format.js';
 export { noGlobalFunctionCall } from './no-global-function-call.js';
+export { noFunctionBlock } from './no-function-block.js';

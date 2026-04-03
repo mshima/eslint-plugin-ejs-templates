@@ -16,6 +16,7 @@ EJS files are parsed by [tree-sitter-embedded-template](https://github.com/tree-
 - **`ejs-templates/slurp-newline`** – ensures `<%_ … _%>` tags are on their own line
 - **`ejs-templates/indent`** – enforces brace-depth–based indentation on standalone `<%_ … _%>` tags
 - **`ejs-templates/no-global-function-call`** – disallows direct function calls in EJS tags (with `include()` allowed by default)
+- **`ejs-templates/no-function-block`** – disallows function/arrow statement blocks in templates to keep logic simple
 
 ## Installation
 
@@ -51,6 +52,7 @@ export default defineConfig([
       'ejs-templates/prefer-raw': 'error',
       'ejs-templates/format': 'error',
       'ejs-templates/no-global-function-call': 'error',
+      'ejs-templates/no-function-block': 'error',
     },
   },
 ]);
@@ -108,6 +110,7 @@ Apply rules in the following order for best results:
 6. `prefer-raw` — prefer `<%-` over `<%=`
 7. `format` — apply final whitespace/layout normalization
 8. `no-global-function-call` — disallow direct function calls in tags
+9. `no-function-block` — disallow function/arrow statement blocks in templates
 
 ### `ejs-templates/prefer-raw`
 
@@ -360,6 +363,40 @@ Security implications:
   primitives to template code.
 - If your project must allow such calls, validate/sanitize all inputs and
   isolate execution contexts.
+
+### `ejs-templates/no-function-block`
+
+Disallows function bodies that use `statement_block` (`{ ... }`) in templates,
+including:
+
+- function declarations
+- function expressions
+- arrow functions with block bodies
+
+Reason: `statement_block` inside templates increases logic complexity and
+reduces readability/maintainability.
+
+|             |     |
+| ----------- | --- |
+| **Fixable** | No  |
+
+```ejs
+<!-- ✗ violation: arrow function with block body -->
+<% foos.filter(foo => { return foo.ok; }); %>
+
+<!-- ✓ allowed: concise arrow expression -->
+<% foos.filter(foo => foo.ok); %>
+
+<!-- ✓ allowed: concise arrow expression -->
+<% foos.map(foo => foo.name); %>
+```
+
+Alternatives when logic grows:
+
+- Prefer concise arrow expressions (`foo => foo.ok`) when possible.
+- Pass the function through template data/context and call it as a method.
+- Prefer `for...of` loops over `forEach` callback blocks for control flow.
+- Split complex template parts into partials and use `include`.
 
 ## Supported EJS Delimiters
 
