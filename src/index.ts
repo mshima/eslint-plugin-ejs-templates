@@ -14,6 +14,7 @@ import { preferSingleLineTags } from './rules/prefer-single-line-tags.js';
 import { slurpNewline } from './rules/slurp-newline.js';
 import { indent } from './rules/indent.js';
 import { format } from './rules/format.js';
+import { noGlobalFunctionCall } from './rules/no-global-function-call.js';
 import { type Config } from 'eslint/config';
 
 // ---------------------------------------------------------------------------
@@ -38,6 +39,7 @@ const pluginCore = {
     'slurp-newline': slurpNewline,
     indent,
     format,
+    'no-global-function-call': noGlobalFunctionCall,
   },
 };
 
@@ -90,6 +92,7 @@ const all: Config[] = [
       [`${pluginName}/indent`]: ['error', { normalizeContent: true }],
       [`${pluginName}/prefer-raw`]: 'error',
       [`${pluginName}/format`]: 'error',
+      [`${pluginName}/no-global-function-call`]: 'error',
     },
   },
 ] as const satisfies Config[];
@@ -105,4 +108,13 @@ const plugin = {
 
 export default plugin;
 export { processor };
-export { preferRaw, preferSlurpingCodeonly, preferSlurpMultiline, preferSingleLineTags, slurpNewline, indent, format };
+export {
+  preferRaw,
+  preferSlurpingCodeonly,
+  preferSlurpMultiline,
+  preferSingleLineTags,
+  slurpNewline,
+  indent,
+  format,
+  noGlobalFunctionCall,
+};

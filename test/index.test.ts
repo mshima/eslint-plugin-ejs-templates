@@ -527,6 +527,10 @@ describe('plugin shape', () => {
     expect(plugin.rules['prefer-slurping-codeonly']).toBeDefined();
   });
 
+  test('plugin exposes no-global-function-call rule', () => {
+    expect(plugin.rules['no-global-function-call']).toBeDefined();
+  });
+
   test('plugin exposes base config', () => {
     expect(Array.isArray(plugin.configs.base)).toBe(true);
     expect(plugin.configs.base.length).toBeGreaterThan(0);
@@ -556,6 +560,7 @@ describe('plugin shape', () => {
     expect(config.rules?.['ejs-templates/format']).toBe('error');
     expect(config.rules?.['ejs-templates/slurp-newline']).toBe('error');
     expect(config.rules?.['ejs-templates/indent']).toEqual(['error', { normalizeContent: true }]);
+    expect(config.rules?.['ejs-templates/no-global-function-call']).toBe('error');
   });
 });
 
@@ -578,6 +583,39 @@ describe('standard JS rules via processor', () => {
   test('eqeqeq detects == in EJS output tag', () => {
     const msgs = lint('<% if (a == b) {} %>', { eqeqeq: 'error' });
     expect(msgs.filter((m) => m.ruleId === 'eqeqeq').length).toBeGreaterThan(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Rule: no-global-function-call
+// ---------------------------------------------------------------------------
+
+describe('rule: ejs-templates/no-global-function-call', () => {
+  test('flags function call in code tag', () => {
+    const msgs = lint('<% doWork(); %>', { 'ejs-templates/no-global-function-call': 'error' });
+    expect(msgs.filter((m) => m.ruleId === 'ejs-templates/no-global-function-call')).toHaveLength(1);
+  });
+
+  test('does not flag method call in code tag', () => {
+    const msgs = lint('<% user.save(); %>', { 'ejs-templates/no-global-function-call': 'error' });
+    expect(msgs.filter((m) => m.ruleId === 'ejs-templates/no-global-function-call')).toHaveLength(0);
+  });
+
+  test('does not flag include call (allowed by default)', () => {
+    const msgs = lint("<% include('partial.ejs'); %>", { 'ejs-templates/no-global-function-call': 'error' });
+    expect(msgs.filter((m) => m.ruleId === 'ejs-templates/no-global-function-call')).toHaveLength(0);
+  });
+
+  test('allows explicitly configured direct calls', () => {
+    const msgs = lint('<% exec(cmd); %>', {
+      'ejs-templates/no-global-function-call': ['error', { allow: ['exec'] }],
+    });
+    expect(msgs.filter((m) => m.ruleId === 'ejs-templates/no-global-function-call')).toHaveLength(0);
+  });
+
+  test('does not flag tag without function call', () => {
+    const msgs = lint('<% const value = user.name; %>', { 'ejs-templates/no-global-function-call': 'error' });
+    expect(msgs.filter((m) => m.ruleId === 'ejs-templates/no-global-function-call')).toHaveLength(0);
   });
 });
 
