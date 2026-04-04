@@ -7,16 +7,18 @@ EJS files are parsed by [tree-sitter-embedded-template](https://github.com/tree-
 ## Features
 
 - **EJS processor** – extracts each EJS tag into its own virtual JS block so standard ESLint rules can inspect the embedded JavaScript
-- **Autofix support** – all plugin rules are fixable; run `eslint --fix` to automatically apply fixes
-- **`ejs-templates/prefer-raw`** – flags `<%= … %>` and suggests `<%- … %>`
-- **`ejs-templates/prefer-slurping-codeonly`** – flags `<% … %>` code tags that can be safely converted to `<%_ … _%>`
-- **`ejs-templates/experimental-prefer-slurp-multiline`** – converts multiline `<% … %>` to `<%_ … _%>`
-- **`ejs-templates/prefer-single-line-tags`** – collapses multiline EJS tags to single-line tags
-- **`ejs-templates/format`** – normalizes spacing inside tags and multiline closing delimiter layout
-- **`ejs-templates/slurp-newline`** – ensures `<%_ … _%>` tags are on their own line
-- **`ejs-templates/indent`** – enforces brace-depth–based indentation on standalone `<%_ … _%>` tags
-- **`ejs-templates/no-global-function-call`** – disallows direct function calls in EJS tags (with `include()` allowed by default)
-- **`ejs-templates/no-function-block`** – disallows function/arrow statement blocks in templates to keep logic simple
+- **Autofix support** – most rules support autofix; run `eslint --fix` to apply fixes (`no-global-function-call` and `no-function-block` have no autofix)
+- [`ejs-templates/no-comment-empty-line`](#ejs-templatesno-comment-empty-line) – flags comment tags that leave an empty line (missing `-%>` close)
+- [`ejs-templates/no-function-block`](#ejs-templatesno-function-block) – disallows function/arrow statement blocks in templates to keep logic simple
+- [`ejs-templates/no-global-function-call`](#ejs-templatesno-global-function-call) – disallows direct function calls in EJS tags (with `include()` allowed by default)
+- [`ejs-templates/prefer-encoded`](#ejs-templatespreferencoded) – flags `<%- … %>` and suggests `<%= … %>` (for HTML-output templates)
+- [`ejs-templates/prefer-raw`](#ejs-templatespreferraw) – flags `<%= … %>` and suggests `<%- … %>`
+- [`ejs-templates/prefer-single-line-tags`](#ejs-templatesprefer-single-line-tags) – collapses multiline EJS tags to single-line tags
+- [`ejs-templates/prefer-slurping-codeonly`](#ejs-templatespreferslurpingcodeonly) – flags `<% … %>` code tags that can be safely converted to `<%_ … _%>`
+- [`ejs-templates/experimental-prefer-slurp-multiline`](#ejs-templatesexperimental-prefer-slurp-multiline) – converts multiline `<% … %>` to `<%_ … _%>`
+- [`ejs-templates/format`](#ejs-templatesformat) – normalizes spacing inside tags and multiline closing delimiter layout
+- [`ejs-templates/indent`](#ejs-templatesindent) – enforces brace-depth–based indentation on standalone `<%_ … _%>` tags
+- [`ejs-templates/slurp-newline`](#ejs-templatesslurp-newline) – ensures `<%_ … _%>` tags are on their own line
 
 ## Installation
 
@@ -43,16 +45,19 @@ export default defineConfig([
   {
     files: ['**/*.ejs'],
     rules: {
-      // Enable EJS-specific rules (apply in this recommended order):
+      // No specific ordering requirement:
+      'ejs-templates/no-comment-empty-line': 'error',
+      'ejs-templates/no-function-block': 'error',
+      'ejs-templates/no-global-function-call': 'error',
+      'ejs-templates/prefer-encoded': 'error',
+      'ejs-templates/prefer-raw': 'error',
+      // Apply remaining rules in this order:
       'ejs-templates/experimental-prefer-slurp-multiline': 'error',
       'ejs-templates/prefer-slurping-codeonly': 'error',
       'ejs-templates/prefer-single-line-tags': 'error',
       'ejs-templates/slurp-newline': 'error',
       'ejs-templates/indent': 'error',
-      'ejs-templates/prefer-raw': 'error',
       'ejs-templates/format': 'error',
-      'ejs-templates/no-global-function-call': 'error',
-      'ejs-templates/no-function-block': 'error',
     },
   },
 ]);
@@ -100,63 +105,22 @@ npx eslint --fix "**/*.ejs"
 
 ## Rules
 
-Apply rules in the following order for best results:
+The following rules have no specific ordering requirement (they can appear in any position):
 
-1. `experimental-prefer-slurp-multiline` — convert multiline `<% %>` to `<%_ %>` first
-2. `prefer-slurping-codeonly` — convert single-line `<% %>` to `<%_ %>`
-3. `prefer-single-line-tags` — collapse remaining multiline tags
-4. `slurp-newline` — ensure slurp tags are on their own line
-5. `indent` — enforce brace-depth indentation
-6. `prefer-raw` — prefer `<%-` over `<%=`
-7. `format` — apply final whitespace/layout normalization
-8. `no-global-function-call` — disallow direct function calls in tags
-9. `no-function-block` — disallow function/arrow statement blocks in templates
+- [`no-comment-empty-line`](#ejs-templatesno-comment-empty-line)
+- [`no-function-block`](#ejs-templatesno-function-block)
+- [`no-global-function-call`](#ejs-templatesno-global-function-call)
+- [`prefer-encoded`](#ejs-templatespreferencoded)
+- [`prefer-raw`](#ejs-templatespreferraw)
 
-### `ejs-templates/prefer-raw`
+Apply the remaining rules in the following order for best results:
 
-Prefers `<%-` (raw / unescaped output) over `<%=` (HTML-escaped output).
-`<%=` is meant for HTML output; when the value is not expected to be rendered
-as HTML, prefer raw output with `<%-`.
-
-|             |                                              |
-| ----------- | -------------------------------------------- |
-| **Fixable** | Yes — `eslint --fix` converts `<%=` to `<%-` |
-
-```ejs
-<!-- ✗ violation -->
-<%= value %>
-
-<!-- ✓ fixed -->
-<%- value %>
-```
-
-### `ejs-templates/prefer-slurping-codeonly`
-
-Prefers `<%_ … _%>` (whitespace-slurping) over `<% … %>` for single-line code
-tags that are logic-only (no direct output), whose content has balanced braces,
-and does not open or close a brace block.
-
-Use this for code-only control logic; blocks that generate output should keep
-their output-specific delimiters.
-
-|             |                                                        |
-| ----------- | ------------------------------------------------------ |
-| **Fixable** | Yes — `eslint --fix` converts `<% … %>` to `<%_ … _%>` |
-
-```ejs
-<!-- ✗ violation -->
-<% const cssClass = active ? 'active' : ''; %>
-
-<!-- ✓ fixed -->
-<%_ const cssClass = active ? 'active' : ''; _%>
-```
-
-Tags that open or close brace depth are left unchanged:
-
-```ejs
-<% if (condition) { %>  ← not flagged (opens a block)
-<% } %>                 ← not flagged (closes a block)
-```
+1. [`experimental-prefer-slurp-multiline`](#ejs-templatesexperimental-prefer-slurp-multiline) — convert multiline `<% %>` to `<%_ %>` first
+2. [`prefer-slurping-codeonly`](#ejs-templatespreferslurpingcodeonly) — convert single-line `<% %>` to `<%_ %>`
+3. [`prefer-single-line-tags`](#ejs-templatesprefer-single-line-tags) — collapse remaining multiline tags
+4. [`slurp-newline`](#ejs-templatesslurp-newline) — ensure slurp tags are on their own line
+5. [`indent`](#ejs-templatesindent) — enforce brace-depth indentation
+6. [`format`](#ejs-templatesformat) — apply final whitespace/layout normalization
 
 ### `ejs-templates/experimental-prefer-slurp-multiline`
 
@@ -178,80 +142,6 @@ before being collapsed.
 <%_
   if (condition) {
 _%>
-```
-
-### `ejs-templates/prefer-single-line-tags`
-
-Flags multiline tags when either:
-
-- their content has structural braces, or
-- their content becomes a single line after trimming.
-
-For structural-brace cases, autofix keeps brace boundaries (`{` and `}`) as
-separate tags and keeps the content between them in a single tag.
-
-Keeping tags single-line avoids visual confusion between template output text
-and EJS control flow, making template intent easier to scan.
-
-|             |                                        |
-| ----------- | -------------------------------------- |
-| **Fixable** | Yes — `eslint --fix` collapses the tag |
-
-```ejs
-<!-- ✗ violation: single phrase split across lines -->
-<%_
-if (generateSpringAuditor) {
-_%>
-
-<!-- ✓ fixed -->
-<%_ if (generateSpringAuditor) { _%>
-```
-
-```ejs
-<!-- ✗ violation: multiline content that trims to one line -->
-<%_
-  code;
-_%>
-
-<!-- ✓ fixed -->
-<%_ code; _%>
-```
-
-```ejs
-<!-- ✗ violation: block with body and close -->
-<%_
-  if (x) {
-  doWork();
-  }
-_%>
-
-<!-- ✓ fixed: one tag per boundary -->
-<%_ if (x) { _%>
-<%_ doWork(); _%>
-<%_ } _%>
-```
-
-### `ejs-templates/slurp-newline`
-
-Ensures `<%_ … _%>` whitespace-slurping tags are on their own line. An inline
-slurp tag will not eat the preceding whitespace as intended. Apply this rule
-**after** `prefer-slurping-*` and **before** `indent`.
-
-Because slurp tags remove the newline/whitespace before them, placing each tag
-on its own line (then indenting it) makes the template easier to read and reason
-about.
-
-|             |                                                       |
-| ----------- | ----------------------------------------------------- |
-| **Fixable** | Yes — `eslint --fix` inserts a newline before the tag |
-
-```ejs
-<!-- ✗ violation: slurp tag is inline after other content -->
-some text<%_ doWork(); _%>
-
-<!-- ✓ fixed -->
-some text
-<%_ doWork(); _%>
 ```
 
 ### `ejs-templates/format`
@@ -316,53 +206,23 @@ Consistent indentation improves readability of nested template logic.
 <%_ } _%>
 ```
 
-### `ejs-templates/no-function-call`
+### `ejs-templates/no-comment-empty-line`
 
-Disallows direct function calls in EJS tags (`foo()`), while allowing
-`include()` by default. Method calls (`obj.foo()`) are ignored.
+Requires standalone EJS comment tags to use `-%>` (trim-newline close) to avoid
+leaving an empty line in the rendered output. A `<%# comment %>` tag that is on
+its own line emits a blank line; `<%# comment -%>` suppresses it.
 
-If a function is passed through the template context, call it as a method such
-as `locals.method()`. This rule allows that form because it only blocks direct
-calls like `method()`.
-
-|             |                                             |
-| ----------- | ------------------------------------------- |
-| **Fixable** | No                                          |
-| **Default** | `include` is allowed (`allow: ['include']`) |
+|             |                                            |
+| ----------- | ------------------------------------------ |
+| **Fixable** | Yes — `eslint --fix` changes `%>` to `-%>` |
 
 ```ejs
-<!-- ✗ violation -->
-<% doWork(); %>
+<!-- ✗ violation: leaves an empty line in output -->
+<%# This is a comment %>
 
-<!-- ✓ allowed by default -->
-<% include('partial.ejs'); %>
-
-<!-- ✓ not checked by this rule (method call) -->
-<% locals.save(); %>
+<!-- ✓ fixed: no empty line in output -->
+<%# This is a comment -%>
 ```
-
-Options:
-
-- `{ allow: ['name1', 'name2'] }` — adds direct function names to the allowlist
-
-```js
-// eslint.config.js
-{
-  files: ['**/*.ejs'],
-  rules: {
-    'ejs-templates/no-function-call': ['error', { allow: ['include'] }],
-  },
-}
-```
-
-Security implications:
-
-- Allowing dangerous direct calls (for example `exec()`) inside templates can
-  lead to command execution risks if arguments are user-controlled.
-- Prefer keeping the allowlist minimal and avoid granting process-execution
-  primitives to template code.
-- If your project must allow such calls, validate/sanitize all inputs and
-  isolate execution contexts.
 
 ### `ejs-templates/no-function-block`
 
@@ -397,6 +257,192 @@ Alternatives when logic grows:
 - Pass the function through template data/context and call it as a method.
 - Prefer `for...of` loops over `forEach` callback blocks for control flow.
 - Split complex template parts into partials and use `include`.
+
+### `ejs-templates/no-global-function-call`
+
+Disallows direct function calls in EJS tags (`foo()`), while allowing
+`include()` by default. Method calls (`obj.foo()`) are ignored.
+
+If a function is passed through the template context, call it as a method such
+as `locals.method()`. This rule allows that form because it only blocks direct
+calls like `method()`.
+
+|             |                                             |
+| ----------- | ------------------------------------------- |
+| **Fixable** | No                                          |
+| **Default** | `include` is allowed (`allow: ['include']`) |
+
+```ejs
+<!-- ✗ violation -->
+<% doWork(); %>
+
+<!-- ✓ allowed by default -->
+<% include('partial.ejs'); %>
+
+<!-- ✓ not checked by this rule (method call) -->
+<% locals.save(); %>
+```
+
+Options:
+
+- `{ allow: ['name1', 'name2'] }` — adds direct function names to the allowlist
+
+```js
+// eslint.config.js
+{
+  files: ['**/*.ejs'],
+  rules: {
+    'ejs-templates/no-global-function-call': ['error', { allow: ['include'] }],
+  },
+}
+```
+
+Security implications:
+
+- Allowing dangerous direct calls (for example `exec()`) inside templates can
+  lead to command execution risks if arguments are user-controlled.
+- Prefer keeping the allowlist minimal and avoid granting process-execution
+  primitives to template code.
+- If your project must allow such calls, validate/sanitize all inputs and
+  isolate execution contexts.
+
+### `ejs-templates/prefer-encoded`
+
+Prefers `<%=` (HTML-encoded output) over `<%-` (raw output). Use this rule in
+templates that render HTML where values must be escaped to prevent XSS
+vulnerabilities. It is the inverse of the `prefer-raw` rule.
+
+|             |                                              |
+| ----------- | -------------------------------------------- |
+| **Fixable** | Yes — `eslint --fix` converts `<%-` to `<%=` |
+
+```ejs
+<!-- ✗ violation -->
+<%- value %>
+
+<!-- ✓ fixed -->
+<%= value %>
+```
+
+### `ejs-templates/prefer-raw`
+
+Prefers `<%-` (raw / unescaped output) over `<%=` (HTML-escaped output).
+`<%=` is meant for HTML output; when the value is not expected to be rendered
+as HTML, prefer raw output with `<%-`.
+
+|             |                                              |
+| ----------- | -------------------------------------------- |
+| **Fixable** | Yes — `eslint --fix` converts `<%=` to `<%-` |
+
+```ejs
+<!-- ✗ violation -->
+<%= value %>
+
+<!-- ✓ fixed -->
+<%- value %>
+```
+
+### `ejs-templates/prefer-single-line-tags`
+
+Flags multiline tags when either:
+
+- their content has structural braces, or
+- their content becomes a single line after trimming.
+
+For structural-brace cases, autofix keeps brace boundaries (`{` and `}`) as
+separate tags and keeps the content between them in a single tag.
+
+Keeping tags single-line avoids visual confusion between template output text
+and EJS control flow, making template intent easier to scan.
+
+|             |                                        |
+| ----------- | -------------------------------------- |
+| **Fixable** | Yes — `eslint --fix` collapses the tag |
+
+```ejs
+<!-- ✗ violation: single phrase split across lines -->
+<%_
+if (generateSpringAuditor) {
+_%>
+
+<!-- ✓ fixed -->
+<%_ if (generateSpringAuditor) { _%>
+```
+
+```ejs
+<!-- ✗ violation: multiline content that trims to one line -->
+<%_
+  code;
+_%>
+
+<!-- ✓ fixed -->
+<%_ code; _%>
+```
+
+```ejs
+<!-- ✗ violation: block with body and close -->
+<%_
+  if (x) {
+  doWork();
+  }
+_%>
+
+<!-- ✓ fixed: one tag per boundary -->
+<%_ if (x) { _%>
+<%_ doWork(); _%>
+<%_ } _%>
+```
+
+### `ejs-templates/prefer-slurping-codeonly`
+
+Prefers `<%_ … _%>` (whitespace-slurping) over `<% … %>` for single-line code
+tags that are logic-only (no direct output), whose content has balanced braces,
+and does not open or close a brace block.
+
+Use this for code-only control logic; blocks that generate output should keep
+their output-specific delimiters.
+
+|             |                                                        |
+| ----------- | ------------------------------------------------------ |
+| **Fixable** | Yes — `eslint --fix` converts `<% … %>` to `<%_ … _%>` |
+
+```ejs
+<!-- ✗ violation -->
+<% const cssClass = active ? 'active' : ''; %>
+
+<!-- ✓ fixed -->
+<%_ const cssClass = active ? 'active' : ''; _%>
+```
+
+Tags that open or close brace depth are left unchanged:
+
+```ejs
+<% if (condition) { %>  ← not flagged (opens a block)
+<% } %>                 ← not flagged (closes a block)
+```
+
+### `ejs-templates/slurp-newline`
+
+Ensures `<%_ … _%>` whitespace-slurping tags are on their own line. An inline
+slurp tag will not eat the preceding whitespace as intended. Apply this rule
+**after** `prefer-slurping-*` and **before** `indent`.
+
+Because slurp tags remove the newline/whitespace before them, placing each tag
+on its own line (then indenting it) makes the template easier to read and reason
+about.
+
+|             |                                                       |
+| ----------- | ----------------------------------------------------- |
+| **Fixable** | Yes — `eslint --fix` inserts a newline before the tag |
+
+```ejs
+<!-- ✗ violation: slurp tag is inline after other content -->
+some text<%_ doWork(); _%>
+
+<!-- ✓ fixed -->
+some text
+<%_ doWork(); _%>
+```
 
 ## Supported EJS Delimiters
 

@@ -72,6 +72,11 @@ export const SENTINEL_FORMAT = 'FORMAT';
  */
 export const SENTINEL_FORMAT_MULTILINE_CLOSE = 'FORMAT_MULTILINE_CLOSE';
 
+/**
+ * Sentinel text written by the `no-comment-empty-line` fix.
+ */
+export const SENTINEL_COMMENT_EMPTY_LINE = 'COMMENT_EMPTY_LINE';
+
 /** Opening line of the function wrapper injected around the full virtual file. */
 const GLOBAL_VIRTUAL_OPEN = '(function() {\n';
 /** Closing line of the function wrapper injected around the full virtual file. */
@@ -313,6 +318,19 @@ function translateFix(
   block: TagBlock,
   options?: { applyIndentForSingleLineTags?: boolean },
 ): { range: [number, number]; text: string } | null {
+  // no-comment-empty-line sentinel: handled before the javascriptPartialNode guard
+  // because comment-empty-line blocks have no javascriptPartialNode.
+  if (fix.range[0] === 0 && fix.text === SENTINEL_COMMENT_EMPTY_LINE) {
+    if (block.tagType === 'comment-empty-line') {
+      const closeLen = block.closeDelim.length;
+      return {
+        range: [block.tagOffset + block.tagLength - closeLen, block.tagOffset + block.tagLength],
+        text: '-%>',
+      };
+    }
+    return null;
+  }
+
   const { javascriptPartialNode } = block;
   if (!javascriptPartialNode) {
     // Should not happen since we only call this on blocks with a successful JS parse, but guard just in case.
@@ -410,6 +428,11 @@ function translateFix(
     // prefer-raw: change `<%=` → `<%-`
     if (block.tagType === 'escaped-output') {
       return { range: [block.tagOffset + 2, block.tagOffset + 3], text: '-' };
+    }
+
+    // prefer-encoded: change `<%-` → `<%=`
+    if (block.tagType === 'raw-output') {
+      return { range: [block.tagOffset + 2, block.tagOffset + 3], text: '=' };
     }
 
     // prefer-slurping-codeonly: change `<% … %>` → `<%_ … _%>` (content unchanged)

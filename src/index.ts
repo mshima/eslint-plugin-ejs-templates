@@ -16,6 +16,8 @@ import { indent } from './rules/indent.js';
 import { format } from './rules/format.js';
 import { noGlobalFunctionCall } from './rules/no-global-function-call.js';
 import { noFunctionBlock } from './rules/no-function-block.js';
+import { noCommentEmptyLine } from './rules/no-comment-empty-line.js';
+import { preferEncoded } from './rules/prefer-encoded.js';
 import { type Config } from 'eslint/config';
 
 // ---------------------------------------------------------------------------
@@ -42,6 +44,8 @@ const pluginCore = {
     format,
     'no-global-function-call': noGlobalFunctionCall,
     'no-function-block': noFunctionBlock,
+    'no-comment-empty-line': noCommentEmptyLine,
+    'prefer-encoded': preferEncoded,
   },
 };
 
@@ -96,6 +100,8 @@ const all: Config[] = [
       [`${pluginName}/format`]: 'error',
       [`${pluginName}/no-global-function-call`]: 'error',
       [`${pluginName}/no-function-block`]: 'error',
+      [`${pluginName}/no-comment-empty-line`]: 'error',
+      [`${pluginName}/prefer-encoded`]: 'error',
     },
   },
 ] as const satisfies Config[];
@@ -121,4 +127,6 @@ export {
   format,
   noGlobalFunctionCall,
   noFunctionBlock,
+  noCommentEmptyLine,
+  preferEncoded,
 };
