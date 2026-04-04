@@ -252,6 +252,30 @@ export function extractTagBlocks(nodes: EjsSyntaxNode[]): TagBlock[] {
     if (node.type === 'comment_directive') {
       const directiveText = extractEslintDirectiveFromEjsComment(node.text);
       if (!directiveText) {
+        const closeDelim = extractCloseDelimFromEjsComment(node.text);
+        if (isStandalone && closeDelim !== '-%>') {
+          blocks.push({
+            ejsNode: node,
+            virtualCode: '//@ejs-comment-empty-line',
+            tagLine,
+            tagColumn,
+            tagOffset,
+            tagLength,
+            originalLine: tagLine,
+            originalColumn: tagColumn,
+            tagType: 'comment-empty-line',
+            codeContent: '',
+            javascriptPartialNode: undefined,
+            openDelim: '<%#',
+            closeDelim,
+            lineIndent,
+            expectedIndent: lineIndent,
+            virtualBodyInlineSuffix: '',
+            virtualBodyExtraLine: '',
+            isStandalone,
+            isDirectiveComment: true,
+          });
+        }
         continue;
       }
 
