@@ -74,37 +74,81 @@ const base: Config[] = [
   },
 ] as const satisfies Config[];
 
-/**
- * All config: applies the EJS processor to all `*.ejs` files and enables
- * every plugin rule as `'error'`.  Rules are listed in recommended order.
- *
- * @example
- * ```js
- * // eslint.config.js
- * import templates from 'eslint-plugin-ejs-templates';
- * export default [...templates.configs.all];
- * ```
- */
-const all: Config[] = [
+const stylistIgnoredRules = {
+  '@stylistic/block-spacing': 'off',
+  '@stylistic/brace-style': 'off',
+  '@stylistic/no-trailing-spaces': 'off',
+  '@stylistic/indent': 'off',
+  '@stylistic/multiline-ternary': 'off',
+  '@stylistic/padded-blocks': 'off',
+  '@stylistic/spaced-comment': 'off',
+  '@stylistic/semi-spacing': 'off',
+  '@stylistic/eol-last': 'off',
+  '@stylistic/semi': 'off',
+  '@stylistic/no-extra-semi': 'off',
+  // '@stylistic/template-tag-spacing': 'off',
+};
+
+const preferEncodedRule = (encoded: boolean) => ({
+  [`${pluginName}/prefer-encoded`]: encoded ? 'error' : 'off',
+  [`${pluginName}/prefer-raw`]: encoded ? 'off' : 'error',
+});
+
+export const customizeEjs = (
   {
-    files: ['**/*.ejs'],
-    plugins: { [pluginName]: pluginCore },
-    processor: `${pluginName}/ejs`,
-    rules: {
-      [`${pluginName}/experimental-prefer-slurp-multiline`]: 'error',
-      [`${pluginName}/prefer-slurping-codeonly`]: 'error',
-      [`${pluginName}/prefer-single-line-tags`]: 'error',
-      [`${pluginName}/slurp-newline`]: 'error',
-      [`${pluginName}/indent`]: ['error', { normalizeContent: true }],
-      [`${pluginName}/prefer-raw`]: 'error',
-      [`${pluginName}/format`]: 'error',
-      [`${pluginName}/no-global-function-call`]: 'error',
-      [`${pluginName}/no-function-block`]: 'error',
-      [`${pluginName}/no-comment-empty-line`]: 'error',
-      [`${pluginName}/prefer-encoded`]: 'error',
-    },
+    allowedGlobals,
+    experimental,
+    html = 'extension',
+    stylisticBlacklist = false,
+    prettierBlacklist = false,
+  }: {
+    allowedGlobals?: string[];
+    experimental?: boolean;
+    html?: 'always' | 'never' | 'extension';
+    stylisticBlacklist?: boolean;
+    prettierBlacklist?: boolean;
   },
-] as const satisfies Config[];
+  ...configs: Config[]
+): Config[] => {
+  return [
+    ...configs.map((c) => ({ ...c, files: ['**/*.ejs '] })),
+    {
+      ...base[0],
+      rules: {
+        [`${pluginName}/no-global-function-call`]: ['error', { allow: allowedGlobals ?? [] }],
+        [`${pluginName}/no-function-block`]: 'error',
+        [`${pluginName}/no-comment-empty-line`]: 'error',
+
+        [`${pluginName}/prefer-single-line-tags`]: 'error',
+        [`${pluginName}/slurp-newline`]: 'error',
+        [`${pluginName}/prefer-slurping-codeonly`]: 'error',
+        [`${pluginName}/experimental-prefer-slurp-multiline`]: experimental ? 'error' : 'off',
+        [`${pluginName}/indent`]: ['error', experimental ? { normalizeContent: true } : {}],
+        [`${pluginName}/format`]: 'error',
+        ...(stylisticBlacklist ? stylistIgnoredRules : {}),
+        ...(prettierBlacklist ? { 'prettier/prettier': 'off' } : {}),
+      },
+    },
+    ...(html === 'extension'
+      ? [
+          {
+            files: ['**/*.html.ejs'],
+            rules: preferEncodedRule(true),
+          },
+          {
+            files: ['**/*.ejs'],
+            ignores: ['**/*.html.ejs'],
+            rules: preferEncodedRule(false),
+          },
+        ]
+      : [
+          {
+            files: ['**/*.ejs'],
+            rules: preferEncodedRule(html === 'always'),
+          },
+        ]),
+  ] as Config[];
+};
 
 // ---------------------------------------------------------------------------
 // Final plugin export
@@ -112,7 +156,7 @@ const all: Config[] = [
 
 const plugin = {
   ...pluginCore,
-  configs: { base, all },
+  configs: { base },
 };
 
 export default plugin;
