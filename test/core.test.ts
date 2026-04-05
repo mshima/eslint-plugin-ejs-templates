@@ -7,7 +7,7 @@
 //     http://www.apache.org/licenses/LICENSE-2.0
 
 import { describe, test, expect } from 'vitest';
-import plugin from '../src/index.js';
+import plugin, { customizeEjs } from '../src/index.js';
 import { lint, applyFix, makeLinter, makeConfig } from './helpers.js';
 import { extractTagBlocks, getEjsNodes } from '../src/ejs-parser.js';
 
@@ -461,26 +461,28 @@ describe('plugin shape', () => {
     expect(config.files).toEqual(['**/*.ejs']);
   });
 
-  test('plugin exposes all config', () => {
-    expect(Array.isArray(plugin.configs.all)).toBe(true);
-    expect(plugin.configs.all.length).toBeGreaterThan(0);
+  test('plugin exposes configure', () => {
+    expect(typeof customizeEjs).toBe('function');
+    expect(customizeEjs({}).length).toBeGreaterThan(0);
   });
 
   test('all config targets *.ejs files', () => {
-    const config = plugin.configs.all[0];
+    const config = customizeEjs({})[0];
     expect(config.files).toEqual(['**/*.ejs']);
   });
 
   test('all config enables all rules as error', () => {
-    const config = plugin.configs.all[0];
-    expect(config.rules?.['ejs-templates/prefer-raw']).toBe('error');
+    const configs = customizeEjs({});
+    expect(configs[1].rules?.['ejs-templates/prefer-encoded']).toBe('error');
+    expect(configs[1].rules?.['ejs-templates/prefer-raw']).toBe('off');
+    const config = configs[0];
     expect(config.rules?.['ejs-templates/prefer-slurping-codeonly']).toBe('error');
-    expect(config.rules?.['ejs-templates/experimental-prefer-slurp-multiline']).toBe('error');
+    expect(config.rules?.['ejs-templates/experimental-prefer-slurp-multiline']).toBe('off');
     expect(config.rules?.['ejs-templates/prefer-single-line-tags']).toBe('error');
     expect(config.rules?.['ejs-templates/format']).toBe('error');
     expect(config.rules?.['ejs-templates/slurp-newline']).toBe('error');
-    expect(config.rules?.['ejs-templates/indent']).toEqual(['error', { normalizeContent: true }]);
-    expect(config.rules?.['ejs-templates/no-global-function-call']).toBe('error');
+    expect(config.rules?.['ejs-templates/indent']).toEqual(['error', {}]);
+    expect(config.rules?.['ejs-templates/no-global-function-call']).toEqual(['error', { allow: [] }]);
     expect(config.rules?.['ejs-templates/no-function-block']).toBe('error');
   });
 });

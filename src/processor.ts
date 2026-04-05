@@ -331,13 +331,6 @@ function translateFix(
     return null;
   }
 
-  const { javascriptPartialNode } = block;
-  if (!javascriptPartialNode) {
-    // Should not happen since we only call this on blocks with a successful JS parse, but guard just in case.
-    throw new Error(
-      `Cannot translate fix for block at line ${String(block.tagLine)} due to missing javascriptPartialNode.`,
-    );
-  }
   const applyIndentForSingleLineTags = options?.applyIndentForSingleLineTags ?? false;
   const trimmedCodeContent = block.codeContent.trim();
   // ── Sentinel fix detection ─────────────────────────────────────────────
@@ -404,6 +397,13 @@ function translateFix(
     // prefer-single-line-tags: collapse multiline tag while
     // keeping content between braces in a single tag.
     if (block.tagType.endsWith('-multiline')) {
+      const { javascriptPartialNode } = block;
+      if (!javascriptPartialNode) {
+        // Should not happen since we only call this on blocks with a successful JS parse, but guard just in case.
+        throw new Error(
+          `Cannot translate fix for block at line ${String(block.tagLine)} due to missing javascriptPartialNode.`,
+        );
+      }
       if (!javascriptPartialNode.hasStructuralBraces && !isSingleLineAfterTrim(block.codeContent)) {
         return null;
       }

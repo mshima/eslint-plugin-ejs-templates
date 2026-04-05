@@ -63,14 +63,46 @@ export default defineConfig([
 ]);
 ```
 
-Or use `configs.all` to enable every rule in one step:
+Or use the `customizeEjs` helper to enable all rules with a single call and convenient options:
 
 ```js
 import { defineConfig } from 'eslint/config';
-import templates from 'eslint-plugin-ejs-templates';
+import { customizeEjs } from 'eslint-plugin-ejs-templates';
 
-export default defineConfig([...templates.configs.all]);
+export default defineConfig([
+  ...customizeEjs({
+    // allowedGlobals: ['include'],   // extra global functions to allow (default: [])
+    // experimental: true,            // enable experimental rules (default: false)
+    // html: 'extension',             // 'always' | 'never' | 'extension' (default)
+    // stylisticBlacklist: false,     // disable conflicting @stylistic rules (default: false)
+    // prettierBlacklist: false,      // disable prettier/prettier rule (default: false)
+  }),
+]);
 ```
+
+`customizeEjs` also accepts additional ESLint `Config` entries (spread after the options object)
+that will be scoped to `**/*.ejs` files:
+
+```js
+export default defineConfig([
+  ...customizeEjs(
+    { allowedGlobals: ['include'] },
+    { rules: { 'no-var': 'error' } },
+    js.configs.recommended,
+    stylish.configs.recommented,
+  ),
+]);
+```
+
+#### Options
+
+| Option               | Type                                 | Default       | Description                                                                                                      |
+| -------------------- | ------------------------------------ | ------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `allowedGlobals`     | `string[]`                           | `[]`          | Extra global function names that `no-global-function-call` will not flag                                         |
+| `experimental`       | `boolean`                            | `false`       | Enables `experimental-prefer-slurp-multiline` and sets `indent` `normalizeContent: true`                         |
+| `html`               | `'always' \| 'never' \| 'extension'` | `'extension'` | Controls which output rule is applied: `prefer-encoded` for HTML files, `prefer-raw` for others, or always/never |
+| `stylisticBlacklist` | `boolean`                            | `false`       | Turns off `@stylistic` rules that conflict with EJS formatting (e.g. `@stylistic/indent`, `@stylistic/semi`, …)  |
+| `prettierBlacklist`  | `boolean`                            | `false`       | Turns off the `prettier/prettier` rule when Prettier is also configured                                          |
 
 Then run ESLint as usual:
 
