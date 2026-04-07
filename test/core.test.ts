@@ -507,7 +507,7 @@ describe('plugin shape', () => {
     expect(config.rules?.['ejs-templates/prefer-single-line-tags']).toBe('error');
     expect(config.rules?.['ejs-templates/format']).toBe('error');
     expect(config.rules?.['ejs-templates/slurp-newline']).toBe('error');
-    expect(config.rules?.['ejs-templates/indent']).toEqual(['error', {}]);
+    expect(config.rules?.['ejs-templates/indent']).toBe('error');
     expect(config.rules?.['ejs-templates/no-global-function-call']).toEqual(['error', { allow: [] }]);
     expect(config.rules?.['ejs-templates/no-function-block']).toBe('error');
   });

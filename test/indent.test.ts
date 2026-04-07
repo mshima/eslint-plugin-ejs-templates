@@ -105,7 +105,7 @@ describe('autofix: indent', () => {
 
   test('indents multiline slurp tag and its content', () => {
     const input = '<%_ if (x) { %>\n<%_\ndoWork();\ndoMore();\n_%>\n<%_ } %>';
-    expect(applyFix(input, { 'ejs-templates/indent': 'error' })).toBe(
+    expect(applyFix(input, { 'ejs-templates/indent': ['error', { normalizeContent: false }] })).toBe(
       '<%_ if (x) { %>\n  <%_ doWork();\ndoMore();\n  _%>\n<%_ } %>',
     );
   });
@@ -126,7 +126,7 @@ describe('autofix: indent', () => {
 
   test('does not change already-correctly-indented multiline tag without normalizeContent', () => {
     const input = '<%_ if (x) { _%>\n  <%_\n  doWork();\n  doMore();\n  _%>\n<%_ } _%>';
-    expect(applyFix(input, { 'ejs-templates/indent': 'error' })).toBe(input);
+    expect(applyFix(input, { 'ejs-templates/indent': ['error', { normalizeContent: false }] })).toBe(input);
   });
 
   test('does not re-report already-normalized multiline tag when normalizeContent=true (idempotent)', () => {
