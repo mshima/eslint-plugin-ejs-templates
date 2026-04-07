@@ -91,20 +91,23 @@ export default defineConfig([
     { allowedGlobals: ['include'] },
     { rules: { 'no-var': 'error' } },
     js.configs.recommended,
-    stylish.configs.recommented,
+    stylistic.configs.customize({
+      jsx: false,
+      semi: true, // This plugin is optimized for 'semi: true' configuration.
+    }),
   ),
 ]);
 ```
 
 #### Options
 
-| Option               | Type                                 | Default       | Description                                                                                                                           |
-| -------------------- | ------------------------------------ | ------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `allowedGlobals`     | `string[]`                           | `[]`          | Extra global function names that `no-global-function-call` will not flag                                                              |
-| `experimental`       | `boolean`                            | `false`       | Enables `experimental-prefer-slurp-multiline` and sets `indent` `normalizeContent: true`                                              |
-| `html`               | `'always' \| 'never' \| 'extension'` | `'extension'` | Controls which output rule is applied: `prefer-encoded` for HTML files, `prefer-raw` for others, or always/never                      |
-| `stylisticBlacklist` | `boolean`                            | `false`       | Turns off `@stylistic` rules that still conflict with EJS formatting (for example `@stylistic/indent` and `@stylistic/no-extra-semi`) |
-| `prettierBlacklist`  | `boolean`                            | `false`       | Turns off the `prettier/prettier` rule when Prettier is also configured                                                               |
+| Option               | Type                                 | Default       | Description                                                                                                                              |
+| -------------------- | ------------------------------------ | ------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `allowedGlobals`     | `string[]`                           | `[]`          | Extra global function names that `no-global-function-call` will not flag                                                                 |
+| `experimental`       | `boolean`                            | `false`       | Enables `experimental-prefer-slurp-multiline` and sets `indent` `normalizeContent: true`                                                 |
+| `html`               | `'always' \| 'never' \| 'extension'` | `'extension'` | Controls which output rule is applied: `prefer-encoded` for HTML files, `prefer-raw` for others, or always/never                         |
+| `stylisticBlacklist` | `boolean`                            | `false`       | Turns off `@stylistic` rules that conflict with EJS formatting (for example `eol-last`, `indent`, `brace-style` and `multiline-ternary`) |
+| `prettierBlacklist`  | `boolean`                            | `false`       | Turns off the `prettier/prettier` rule when Prettier is also configured                                                                  |
 
 Then run ESLint as usual:
 
