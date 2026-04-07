@@ -463,10 +463,12 @@ function translateFix(
   // where markerLen = '//@ejs-tag:'.length + tagType.length + 1  (+1 for '\n')
   const markerLen = '//@ejs-tag:'.length + block.tagType.length + 1;
   const codeContentStart = markerLen;
-  const codeContentEnd = codeContentStart + block.codeContent.length;
+  const codeContentEnd = codeContentStart + block.lintCodeContent.length;
 
   // Guard: only translate fixes that target the actual codeContent region.
-  if (fix.range[0] < codeContentStart || fix.range[0] >= codeContentEnd) {
+  // Allow pure insertions at codeContentEnd so rules like `@stylistic/semi`
+  // can insert text immediately before the EJS closing delimiter.
+  if (fix.range[0] < codeContentStart || fix.range[0] > codeContentEnd || fix.range[1] > codeContentEnd) {
     return null;
   }
 
