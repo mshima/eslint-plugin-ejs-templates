@@ -76,7 +76,7 @@ const base: Config[] = [
   },
 ] as const satisfies Config[];
 
-const stylistIgnoredRules = {
+const stylisticIgnoredRules = {
   // Not compatible / not applicable
   // New line should be added to the EJS file itself, not virtual code.
   '@stylistic/eol-last': 'off',
@@ -84,21 +84,12 @@ const stylistIgnoredRules = {
   // Not recommended
   // Generates multi-line tags that are not easily readable.
   '@stylistic/multiline-ternary': 'off',
-  // Default value of "stroustrup" is not ideal for EJS code blocks, it splits else in a multiline tag.
+  // Default value of "1tbs" splits `}}` in multiples lines, this is useful for improvements, but cannot be enabled by default.
+  // Default value in recommended, "stroustrup" is not ideal for EJS code blocks, it splits else in a multiline tag.
   '@stylistic/brace-style': 'off',
 
   // Interoperability issues
   '@stylistic/indent': 'off',
-  // Semicolons are added to virtual code for linting purposes. Needs adjusts.
-  '@stylistic/semi-spacing': 'off',
-  // Semicolons are added to virtual code for linting purposes. Needs adjusts.
-  '@stylistic/semi': 'off',
-  // Semicolons are added to virtual code for linting purposes. Needs adjusts.
-  '@stylistic/no-extra-semi': 'off',
-
-  // Unknown
-  // Block padding is controlled by ejs plugin.
-  // '@stylistic/padded-blocks': 'off',
 };
 
 const preferEncodedRule = (encoded: boolean) => ({
@@ -138,7 +129,7 @@ export const customizeEjs = (
         [`${pluginName}/experimental-prefer-slurp-multiline`]: experimental ? 'error' : 'off',
         [`${pluginName}/indent`]: ['error', experimental ? { normalizeContent: true } : {}],
         [`${pluginName}/format`]: 'error',
-        ...(stylisticBlacklist ? stylistIgnoredRules : {}),
+        ...(stylisticBlacklist ? stylisticIgnoredRules : {}),
         ...(prettierBlacklist ? { 'prettier/prettier': 'off' } : {}),
       },
     },
