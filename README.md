@@ -11,6 +11,7 @@ EJS files are parsed by [tree-sitter-embedded-template](https://github.com/tree-
 - [`ejs-templates/no-comment-empty-line`](#ejs-templatesno-comment-empty-line) – flags comment tags that leave an empty line (missing `-%>` close)
 - [`ejs-templates/no-function-block`](#ejs-templatesno-function-block) – disallows function/arrow statement blocks in templates to keep logic simple
 - [`ejs-templates/no-global-function-call`](#ejs-templatesno-global-function-call) – disallows direct function calls in EJS tags (with `include()` allowed by default)
+- [`ejs-templates/output-semi`](#ejs-templatesoutput-semi) – enforces semicolon style for output tags (`<%= %>`, `<%- %>`) (default: `never`)
 - [`ejs-templates/prefer-encoded`](#ejs-templatespreferencoded) – flags `<%- … %>` and suggests `<%= … %>` (for HTML-output templates)
 - [`ejs-templates/prefer-raw`](#ejs-templatespreferraw) – flags `<%= … %>` and suggests `<%- … %>`
 - [`ejs-templates/prefer-single-line-tags`](#ejs-templatesprefer-single-line-tags) – collapses multiline EJS tags to single-line tags
@@ -49,6 +50,7 @@ export default defineConfig([
       'ejs-templates/no-comment-empty-line': 'error',
       'ejs-templates/no-function-block': 'error',
       'ejs-templates/no-global-function-call': 'error',
+      'ejs-templates/output-semi': ['error', 'never'],
       'ejs-templates/prefer-encoded': 'error',
       'ejs-templates/prefer-raw': 'error',
       // Apply remaining rules in this order:
@@ -142,6 +144,7 @@ The following rules have no specific ordering requirement (they can appear in an
 - [`no-comment-empty-line`](#ejs-templatesno-comment-empty-line)
 - [`no-function-block`](#ejs-templatesno-function-block)
 - [`no-global-function-call`](#ejs-templatesno-global-function-call)
+- [`output-semi`](#ejs-templatesoutput-semi)
 - [`prefer-encoded`](#ejs-templatespreferencoded)
 - [`prefer-raw`](#ejs-templatespreferraw)
 
@@ -318,6 +321,47 @@ calls like `method()`.
 Options:
 
 - `{ allow: ['name1', 'name2'] }` — adds direct function names to the allowlist
+
+### `ejs-templates/output-semi`
+
+Enforces semicolon style at the end of single-line output tag content in
+`<%= ... %>` and `<%- ... %>`.
+
+This rule is independent from the ordered formatting pipeline
+(`experimental-prefer-slurp-multiline` → `format`) and does not affect the
+behavior of the other plugin rules.
+
+|             |                                                      |
+| ----------- | ---------------------------------------------------- |
+| **Fixable** | Yes — `eslint --fix` adds/removes trailing semicolon |
+| **Default** | `never`                                              |
+
+Options:
+
+- `'never'` (default) — disallow trailing semicolon
+- `'always'` — require trailing semicolon
+
+```js
+// eslint.config.js
+{
+  files: ['**/*.ejs'],
+  rules: {
+    'ejs-templates/output-semi': ['error', 'never'],
+  },
+}
+```
+
+```ejs
+<!-- with 'never' (default) -->
+<%= value; %>
+<!-- fixed -->
+<%= value %>
+
+<!-- with 'always' -->
+<%= value %>
+<!-- fixed -->
+<%= value; %>
+```
 
 ```js
 // eslint.config.js
