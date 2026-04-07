@@ -1174,6 +1174,18 @@ export const processor: Linter.Processor = {
         }
         const segment = segments[segmentIndex];
 
+        // The first line of each virtual block is the `//@ejs-tag:<type>` marker comment.
+        // It is generated code, not real JS — suppress lint errors from external rules
+        // reported on that line. ejs-templates rules and ESLint system messages (ruleId
+        // === null, e.g. unused-disable-directives) are intentional and kept intact.
+        if (
+          normalizedMsg.line === segment.startLine &&
+          normalizedMsg.ruleId !== null &&
+          !normalizedMsg.ruleId.startsWith('ejs-templates/')
+        ) {
+          return [];
+        }
+
         // Convert global (combined-file) positions to per-block positions.
         const localMsg: Linter.LintMessage = {
           ...normalizedMsg,
@@ -1293,6 +1305,18 @@ export const processor: Linter.Processor = {
             delete fatalMsg.fix;
             return [fatalMsg];
           }
+          return [];
+        }
+
+        // The first line of each virtual block is the `//@ejs-tag:<type>` marker comment.
+        // It is generated code, not real JS — suppress lint errors from external rules
+        // reported on that line. ejs-templates rules and ESLint system messages (ruleId
+        // === null, e.g. unused-disable-directives) are intentional and kept intact.
+        if (
+          normalizedMsg.line === segment.startLine &&
+          normalizedMsg.ruleId !== null &&
+          !normalizedMsg.ruleId.startsWith('ejs-templates/')
+        ) {
           return [];
         }
 

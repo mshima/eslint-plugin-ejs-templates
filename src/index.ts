@@ -86,9 +86,6 @@ const stylistIgnoredRules = {
   '@stylistic/brace-style': 'off',
 
   // Interoperability issues
-  // The plugin injects comment nodes that are just for linting purposes and not actually present in the source code, so these rules would cause false positives.
-  // A marker can be added to custom config to fix this rule.
-  '@stylistic/spaced-comment': 'off',
   '@stylistic/indent': 'off',
   // Semicolons are added to virtual code for linting purposes. Needs adjusts.
   '@stylistic/semi-spacing': 'off',

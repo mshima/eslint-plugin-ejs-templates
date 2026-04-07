@@ -671,6 +671,15 @@ describe('interoperability: @stylistic/eslint-plugin', () => {
 
     expect(messages.some((message) => message.ruleId === '@stylistic/block-spacing')).toBe(true);
   });
+
+  test('@stylistic/spaced-comment does not report errors on @ejs-tag: marker comments', () => {
+    const messages = lintWithStylistic('<% const x = 1; %>', {
+      '@stylistic/spaced-comment': ['error', 'always'],
+    });
+
+    // The //@ejs-tag: marker line is generated code; all errors on it are suppressed.
+    expect(messages.filter((m) => m.ruleId === '@stylistic/spaced-comment')).toHaveLength(0);
+  });
 });
 
 // ---------------------------------------------------------------------------
