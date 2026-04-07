@@ -18,6 +18,7 @@ import { noGlobalFunctionCall } from './rules/no-global-function-call.js';
 import { noFunctionBlock } from './rules/no-function-block.js';
 import { noCommentEmptyLine } from './rules/no-comment-empty-line.js';
 import { preferEncoded } from './rules/prefer-encoded.js';
+import { outputSemi } from './rules/output-semi.js';
 import { type Config } from 'eslint/config';
 
 // ---------------------------------------------------------------------------
@@ -46,6 +47,7 @@ const pluginCore = {
     'no-function-block': noFunctionBlock,
     'no-comment-empty-line': noCommentEmptyLine,
     'prefer-encoded': preferEncoded,
+    'output-semi': outputSemi,
   },
 };
 
@@ -128,6 +130,7 @@ export const customizeEjs = (
         [`${pluginName}/no-global-function-call`]: ['error', { allow: allowedGlobals ?? [] }],
         [`${pluginName}/no-function-block`]: 'error',
         [`${pluginName}/no-comment-empty-line`]: 'error',
+        [`${pluginName}/output-semi`]: 'error',
 
         [`${pluginName}/prefer-single-line-tags`]: 'error',
         [`${pluginName}/slurp-newline`]: 'error',
@@ -183,4 +186,5 @@ export {
   noFunctionBlock,
   noCommentEmptyLine,
   preferEncoded,
+  outputSemi,
 };

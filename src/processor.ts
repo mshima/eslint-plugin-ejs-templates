@@ -77,6 +77,18 @@ export const SENTINEL_FORMAT_MULTILINE_CLOSE = 'FORMAT_MULTILINE_CLOSE';
  */
 export const SENTINEL_COMMENT_EMPTY_LINE = 'COMMENT_EMPTY_LINE';
 
+/**
+ * Sentinel text written by the `output-semi` fix when `always` is enabled.
+ * Inserts `;` at the end of the output tag content (before `%>`).
+ */
+export const SENTINEL_OUTPUT_SEMI_ADD = 'OUTPUT_SEMI_ADD';
+
+/**
+ * Sentinel text written by the `output-semi` fix when `never` is enabled.
+ * Removes the trailing `;` from the output tag content.
+ */
+export const SENTINEL_OUTPUT_SEMI_REMOVE = 'OUTPUT_SEMI_REMOVE';
+
 /** Opening line of the function wrapper injected around the full virtual file. */
 const GLOBAL_VIRTUAL_OPEN = '(function() {\n';
 /** Closing line of the function wrapper injected around the full virtual file. */
@@ -420,6 +432,23 @@ function translateFix(
         range: [bracesModeIndentStart, block.tagOffset + block.tagLength],
         text: fixedText,
       };
+    }
+    return null;
+  } else if (fix.text === SENTINEL_OUTPUT_SEMI_ADD) {
+    // output-semi (always): insert `;` at the end of the trimmed code content
+    if (block.tagType === 'escaped-output' || block.tagType === 'raw-output') {
+      const insertPos = block.tagOffset + block.openDelim.length + block.codeContent.trimEnd().length;
+      return { range: [insertPos, insertPos], text: ';' };
+    }
+    return null;
+  } else if (fix.text === SENTINEL_OUTPUT_SEMI_REMOVE) {
+    // output-semi (never): remove the trailing `;` from the code content
+    if (block.tagType === 'escaped-output' || block.tagType === 'raw-output') {
+      const trimmedContent = block.codeContent.trimEnd();
+      if (trimmedContent.endsWith(';')) {
+        const semiPos = block.tagOffset + block.openDelim.length + trimmedContent.length - 1;
+        return { range: [semiPos, semiPos + 1], text: '' };
+      }
     }
     return null;
   } else if (fix.text === '') {
