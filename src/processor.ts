@@ -237,8 +237,8 @@ function buildCollapsedTag(block: TagBlock, options?: { applyIndent?: boolean })
   return resultParts.join('\n');
 }
 
-function buildIndentedTag(block: TagBlock, options?: { normalizeContent?: boolean }): string {
-  const normalizeContent = options?.normalizeContent ?? false;
+function buildIndentedTag(block: TagBlock, options: { normalizeContent: boolean }): string {
+  const normalizeContent = options.normalizeContent;
   const tagText = `${block.openDelim}${block.codeContent}${block.closeDelim}`;
 
   if (!tagText.includes('\n')) {
@@ -258,13 +258,33 @@ function buildIndentedTag(block: TagBlock, options?: { normalizeContent?: boolea
   const firstLine = contentLines[0].trimStart();
   lines.push(`${block.expectedIndent}${block.openDelim} ${firstLine}`);
 
+  const isOpenBlock = (line: string) =>
+    line.endsWith('{') || line.endsWith('(') || line.endsWith('[') || line.endsWith('=>');
+  const isCloseBlock = (line: string) => line.startsWith('}') || line.startsWith(')') || line.startsWith(']');
+  const isContinueStatement = (line: string) => /^\.[^.]/.test(line);
+  let relativeBlockIndent = isOpenBlock(firstLine) ? 1 : 0;
+  const relativeStatementIndentStack: number[] = [];
   // Middle lines:
   // - normalizeContent=true  -> normalize each line to content-level indentation
   // - normalizeContent=false -> preserve internal line indentation
   for (let i = 1; i < contentLines.length; i++) {
     if (normalizeContent) {
       const trimmedLine = contentLines[i].trimStart();
-      lines.push(`${normalizedContentIndent}${trimmedLine}`);
+      const relativeStatementIndent = isContinueStatement(trimmedLine) ? 1 : 0;
+
+      if (isCloseBlock(trimmedLine)) {
+        relativeBlockIndent = Math.max(0, relativeBlockIndent - 1);
+      }
+      lines.push(
+        `${normalizedContentIndent}${'  '.repeat(relativeBlockIndent + relativeStatementIndent + (relativeStatementIndentStack.at(-1) ?? 0))}${trimmedLine}`.trimEnd(),
+      );
+      if (isCloseBlock(trimmedLine)) {
+        relativeStatementIndentStack.pop();
+      }
+      if (isOpenBlock(trimmedLine)) {
+        relativeStatementIndentStack.push(relativeStatementIndent);
+        relativeBlockIndent++;
+      }
     } else {
       lines.push(contentLines[i]);
     }

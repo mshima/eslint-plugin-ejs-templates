@@ -127,7 +127,7 @@ export const customizeEjs = (
         [`${pluginName}/slurp-newline`]: 'error',
         [`${pluginName}/prefer-slurping-codeonly`]: 'error',
         [`${pluginName}/experimental-prefer-slurp-multiline`]: experimental ? 'error' : 'off',
-        [`${pluginName}/indent`]: ['error', experimental ? { normalizeContent: true } : {}],
+        [`${pluginName}/indent`]: 'error',
         [`${pluginName}/format`]: 'error',
         ...(stylisticBlacklist ? stylisticIgnoredRules : {}),
         ...(prettierBlacklist ? { 'prettier/prettier': 'off' } : {}),

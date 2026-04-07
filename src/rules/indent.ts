@@ -57,7 +57,7 @@ export const indent: Rule.RuleModule = {
 
   create(context) {
     const normalizeContent =
-      (context.options[0] as { normalizeContent?: boolean } | undefined)?.normalizeContent ?? false;
+      (context.options[0] as { normalizeContent?: boolean } | undefined)?.normalizeContent ?? true;
 
     return {
       Program() {
