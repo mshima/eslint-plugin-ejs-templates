@@ -75,18 +75,31 @@ const base: Config[] = [
 ] as const satisfies Config[];
 
 const stylistIgnoredRules = {
-  '@stylistic/block-spacing': 'off',
-  '@stylistic/brace-style': 'off',
-  '@stylistic/no-trailing-spaces': 'off',
-  '@stylistic/indent': 'off',
-  '@stylistic/multiline-ternary': 'off',
-  '@stylistic/padded-blocks': 'off',
-  '@stylistic/spaced-comment': 'off',
-  '@stylistic/semi-spacing': 'off',
+  // Not compatible / not applicable
+  // New line should be added to the EJS file itself, not virtual code.
   '@stylistic/eol-last': 'off',
+
+  // Not recommended
+  // Generates multi-line tags that are not easily readable.
+  '@stylistic/multiline-ternary': 'off',
+  // Default value of "stroustrup" is not ideal for EJS code blocks, it splits else in a multiline tag.
+  '@stylistic/brace-style': 'off',
+
+  // Interoperability issues
+  // The plugin injects comment nodes that are just for linting purposes and not actually present in the source code, so these rules would cause false positives.
+  // A marker can be added to custom config to fix this rule.
+  '@stylistic/spaced-comment': 'off',
+  '@stylistic/indent': 'off',
+  // Semicolons are added to virtual code for linting purposes. Needs adjusts.
+  '@stylistic/semi-spacing': 'off',
+  // Semicolons are added to virtual code for linting purposes. Needs adjusts.
   '@stylistic/semi': 'off',
+  // Semicolons are added to virtual code for linting purposes. Needs adjusts.
   '@stylistic/no-extra-semi': 'off',
-  // '@stylistic/template-tag-spacing': 'off',
+
+  // Unknown
+  // Block padding is controlled by ejs plugin.
+  // '@stylistic/padded-blocks': 'off',
 };
 
 const preferEncodedRule = (encoded: boolean) => ({
@@ -111,7 +124,7 @@ export const customizeEjs = (
   ...configs: Config[]
 ): Config[] => {
   return [
-    ...configs.map((c) => ({ ...c, files: ['**/*.ejs '] })),
+    ...configs.map((c) => ({ ...c, files: ['**/*.ejs'] })),
     {
       ...base[0],
       rules: {

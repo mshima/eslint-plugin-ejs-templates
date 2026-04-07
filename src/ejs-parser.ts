@@ -48,6 +48,14 @@ export interface TagBlock {
   tagType: string;
   /** Raw JS content captured between the delimiters. */
   codeContent: string;
+  /**
+   * JS content used in the virtual file sent to ESLint rules.
+   *
+   * We remove a trailing empty line (or a single trailing blank character) to avoid
+   * conflicts with `@stylistic/no-trailing-spaces` against the delimiter
+   * boundary, while keeping `codeContent` untouched for source-accurate fixes.
+   */
+  lintCodeContent: string;
   javascriptPartialNode?: RelativeJavascriptNode;
   /** Full opening delimiter string (e.g. `<%`, `<%_`, `<%=`, `<%-`). */
   openDelim: string;
@@ -85,6 +93,20 @@ export interface TagBlock {
 }
 
 const INDENT_UNIT = '  ';
+
+function normalizeLintCodeContent(codeContent: string): string {
+  // Remove a single trailing empty line (optionally with indentation).
+  if (/(?:\r?\n)[ \t]*$/u.test(codeContent)) {
+    return codeContent.replace(/(?:\r?\n)[ \t]*$/u, '');
+  }
+
+  // Otherwise remove a single trailing blank character.
+  if (/[ \t]$/u.test(codeContent)) {
+    return codeContent.slice(0, -1);
+  }
+
+  return codeContent;
+}
 
 /**
  * Parse an EJS template and extract syntax nodes for tag block extraction.
@@ -180,6 +202,7 @@ function createDirectiveCommentBlock(params: {
     tagLength,
     tagType: 'directive-comment',
     codeContent: directiveText,
+    lintCodeContent: directiveText,
     openDelim: '<%#',
     closeDelim: closeDelim ?? '%>',
     lineIndent,
@@ -265,6 +288,7 @@ export function extractTagBlocks(nodes: EjsSyntaxNode[]): TagBlock[] {
             originalColumn: tagColumn,
             tagType: 'comment-empty-line',
             codeContent: '',
+            lintCodeContent: '',
             javascriptPartialNode: undefined,
             openDelim: '<%#',
             closeDelim,
@@ -315,7 +339,8 @@ export function extractTagBlocks(nodes: EjsSyntaxNode[]): TagBlock[] {
     const closeDelim: string = node.children[node.childCount - 1]?.text ?? '%>';
     const codeNode = node.namedChildren.find((c) => c.type === 'code');
     const codeContent: string = codeNode?.text ?? '';
-    const javascriptPartialNode = parseJavaScriptPartial(codeContent, incrementalCode);
+    const lintCodeContent = normalizeLintCodeContent(codeContent);
+    const javascriptPartialNode = parseJavaScriptPartial(lintCodeContent, incrementalCode);
     const { contentNode } = javascriptPartialNode;
 
     // ── Brace-depth tracking (for indent) ─────────────────────────────────
@@ -325,7 +350,7 @@ export function extractTagBlocks(nodes: EjsSyntaxNode[]): TagBlock[] {
     // If contentNode doesn't have errors, its a balanced snippet we can just use current depth.
     if (contentNode.hasError) {
       braceDepth += javascriptPartialNode.bracesDelta;
-      incrementalCode += codeContent + '\n';
+      incrementalCode += lintCodeContent + '\n';
     }
 
     // tree-sitter gives us precise position info directly.
@@ -394,7 +419,7 @@ export function extractTagBlocks(nodes: EjsSyntaxNode[]): TagBlock[] {
     // For code/slurp tags ending with `{`: append `void 0;` to suppress
     // `no-empty` errors on the opened block.
     const isOutputTag = baseType === 'escaped-output' || baseType === 'raw-output';
-    const endsWithOpenBrace = !isMultiline && codeContent.trim().endsWith('{');
+    const endsWithOpenBrace = !isMultiline && lintCodeContent.trim().endsWith('{');
 
     let virtualBodyInlineSuffix = '';
     let virtualBodyExtraLine = '';
@@ -411,7 +436,8 @@ export function extractTagBlocks(nodes: EjsSyntaxNode[]): TagBlock[] {
     // `[`/`]`, so it would BREAK cross-tag constructs like
     // `forEach(x => { ... })`.  Global brace balancing is applied in
     // `preprocess` instead.
-    const virtualCode = `//@ejs-tag:${tagType}\n` + `${codeContent}${virtualBodyInlineSuffix}${virtualBodyExtraLine}`;
+    const virtualCode =
+      `//@ejs-tag:${tagType}\n` + `${lintCodeContent}${virtualBodyInlineSuffix}${virtualBodyExtraLine}`;
 
     blocks.push({
       ejsNode: node,
@@ -424,6 +450,7 @@ export function extractTagBlocks(nodes: EjsSyntaxNode[]): TagBlock[] {
       tagLength,
       tagType,
       codeContent,
+      lintCodeContent,
       javascriptPartialNode,
       openDelim,
       closeDelim,

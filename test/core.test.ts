@@ -7,9 +7,35 @@
 //     http://www.apache.org/licenses/LICENSE-2.0
 
 import { describe, test, expect } from 'vitest';
+import stylistic from '@stylistic/eslint-plugin';
+import { Linter } from 'eslint';
 import plugin, { customizeEjs } from '../src/index.js';
 import { lint, applyFix, makeLinter, makeConfig } from './helpers.js';
 import { extractTagBlocks, getEjsNodes } from '../src/ejs-parser.js';
+import { type Config } from 'eslint/config';
+
+type RuleConfigMap = Record<string, Linter.RuleSeverityAndOptions | Linter.RuleSeverity>;
+
+function makeStylisticConfig(rules: RuleConfigMap, ...configs: Config[]): Config[] {
+  return [
+    ...configs,
+    {
+      files: ['**/*.ejs'],
+      plugins: { 'ejs-templates': plugin, '@stylistic': stylistic },
+      processor: 'ejs-templates/ejs',
+      rules,
+    },
+  ] as const satisfies Config[];
+}
+
+function lintWithStylistic(ejsText: string, rules: RuleConfigMap, ...configs: Config[]): ReturnType<typeof lint> {
+  return makeLinter().verify(ejsText, makeStylisticConfig(rules, ...configs), { filename: 'template.ejs' });
+}
+
+function applyFixWithStylistic(ejsText: string, rules: RuleConfigMap, ...configs: Config[]): string {
+  return makeLinter().verifyAndFix(ejsText, makeStylisticConfig(rules, ...configs), { filename: 'template.ejs' })
+    .output;
+}
 
 function lintWithUnusedDisableDirectivesError(
   ejsText: string,
@@ -84,7 +110,7 @@ describe('extractTagBlocks', () => {
     const blocks = extractTagBlocks(getEjsNodes('<%= name %>'));
     expect(blocks).toHaveLength(1);
     expect(blocks[0].virtualCode).toMatch(/^\/\/@ejs-tag:escaped-output\n/);
-    expect(blocks[0].virtualCode).toContain(' name ');
+    expect(blocks[0].virtualCode).toContain(' name');
   });
 
   test('extracts a raw-output tag (<%- %>)', () => {
@@ -172,13 +198,13 @@ describe('processor virtual code', () => {
   test('virtual code line 2 is the tag code (no per-tag function wrapper)', () => {
     const blocks = extractTagBlocks(getEjsNodes('<% const x = 1; %>'));
     const lines = blocks[0].virtualCode.split('\n');
-    expect(lines[1]).toBe(' const x = 1; ');
+    expect(lines[1]).toBe(' const x = 1;');
   });
 
   test('virtual code contains tag JS content directly after marker', () => {
     const blocks = extractTagBlocks(getEjsNodes('<% const x = 1; %>'));
     const lines = blocks[0].virtualCode.split('\n');
-    expect(lines[1]).toBe(' const x = 1; ');
+    expect(lines[1]).toBe(' const x = 1;');
     expect(lines).not.toContain('})()');
   });
 
@@ -193,19 +219,19 @@ describe('processor virtual code', () => {
     const lines = blocks[0].virtualCode.split('\n');
     expect(lines[0]).toBe('//@ejs-tag:slurp-multiline');
     expect(lines[1]).toBe(' const x = 1;');
-    expect(lines[lines.length - 1]).toBe('const y = 2; ');
+    expect(lines[lines.length - 1]).toBe('const y = 2;');
   });
 
   test('output tag virtual code wraps content in void()', () => {
     // Single-line output tags are wrapped as `void (...);` to prevent no-unused-vars.
     const blocks = extractTagBlocks(getEjsNodes('<%= name %>'));
-    expect(blocks[0].virtualCode).toContain('name ;');
+    expect(blocks[0].virtualCode).toContain('name;');
     expect(blocks[0].virtualBodyInlineSuffix).toBe(';');
   });
 
   test('raw output tag virtual code wraps content in void()', () => {
     const blocks = extractTagBlocks(getEjsNodes('<%- name %>'));
-    expect(blocks[0].virtualCode).toContain('name ;');
+    expect(blocks[0].virtualCode).toContain('name;');
   });
 
   test('code tag ending with { gets void 0 appended', () => {
@@ -485,6 +511,18 @@ describe('plugin shape', () => {
     expect(config.rules?.['ejs-templates/no-global-function-call']).toEqual(['error', { allow: [] }]);
     expect(config.rules?.['ejs-templates/no-function-block']).toBe('error');
   });
+
+  test('customizeEjs scopes extra configs to *.ejs without trailing whitespace in the glob', () => {
+    const [extraConfig] = customizeEjs(
+      {},
+      {
+        plugins: { '@stylistic': stylistic },
+        rules: { '@stylistic/semi': ['error', 'always'] },
+      },
+    );
+
+    expect(extraConfig.files).toEqual(['**/*.ejs']);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -546,6 +584,92 @@ describe('autofix: general JS rules via processor', () => {
     expect(result).not.toContain('var');
     expect(result.startsWith('<%_')).toBe(true);
     expect(result.endsWith('_%>')).toBe(true);
+  });
+});
+
+describe('interoperability: @stylistic/eslint-plugin', () => {
+  test('@stylistic/block-spacing fixes content inside EJS tags', () => {
+    const result = applyFixWithStylistic('<% if (foo) {bar();} %>', {
+      '@stylistic/block-spacing': ['error', 'always'],
+    });
+
+    expect(result).toBe('<% if (foo) { bar(); } %>');
+  });
+
+  test('@stylistic/brace-style fixes multiline tags without corrupting delimiters', () => {
+    const result = applyFixWithStylistic('<% if (foo) {\n  bar();\n}\nelse {\n  baz();\n} %>', {
+      '@stylistic/brace-style': ['error', '1tbs'],
+    });
+
+    expect(result).toContain('} else {');
+    expect(result.startsWith('<%')).toBe(true);
+    expect(result.endsWith('%>')).toBe(true);
+  });
+
+  test('@stylistic/no-trailing-spaces removes trailing spaces inside multiline tags', () => {
+    const result = applyFixWithStylistic('<% const foo = 1;   \nconst bar = 2; \n %>', {
+      '@stylistic/no-trailing-spaces': 'error',
+    });
+
+    expect(result).toBe('<% const foo = 1;\nconst bar = 2;\n %>');
+  });
+
+  test('@stylistic/semi inserts a semicolon at the end of code content', () => {
+    const result = applyFixWithStylistic('<% const foo = 1 %>', {
+      '@stylistic/semi': ['error', 'always'],
+    });
+
+    expect(result).toBe('<% const foo = 1; %>');
+  });
+
+  test('@stylistic/semi does not insert a semicolon at the end of code content when not needed', () => {
+    const result = applyFixWithStylistic('<%- foo %>', {
+      '@stylistic/semi': ['error', 'always'],
+    });
+
+    expect(result).toBe('<%- foo %>');
+  });
+
+  test('@stylistic/semi does not insert a semicolon at the end of code content when not needed', () => {
+    const result = applyFixWithStylistic('<%_ if (buildToolUnknown) { _%>\n<%_ } _%>', {
+      '@stylistic/semi': ['error', 'always'],
+    });
+
+    expect(result).toBe('<%_ if (buildToolUnknown) { _%>\n<%_ } _%>');
+  });
+
+  test('@stylistic/semi keeps multiline content unchanged when semicolons already exist', () => {
+    const input =
+      "<%_ const { fieldName/* , fieldValidationRequired */, id } = field;\n      const tsType = `${field.fieldIsEnum ? 'keyof typeof ' : ''}${field.tsType}`; _%>";
+    const result = applyFixWithStylistic(input, {
+      '@stylistic/semi': 'error',
+    });
+
+    expect(result).toBe(input);
+  });
+
+  test('customizeEjs can apply extra Stylistic configs to EJS files', () => {
+    const result = makeLinter().verifyAndFix(
+      '<% const foo = 1 %>',
+      customizeEjs(
+        {},
+        {
+          plugins: { '@stylistic': stylistic },
+          rules: { '@stylistic/semi': ['error', 'always'] },
+        },
+      ),
+      { filename: 'template.ejs' },
+    ).output;
+
+    expect(result).toContain('const foo = 1;');
+  });
+
+  test('stylistic rules report diagnostics through the processor', () => {
+    const messages = lintWithStylistic('<% if (foo) {bar();} %>', {
+      '@stylistic/block-spacing': ['error', 'always'],
+    });
+
+    expect(messages.some((message) => message.ruleId === '@stylistic/block-spacing')).toBe(true);
   });
 });
 
@@ -619,6 +743,18 @@ describe('extractTagBlocks (tree-sitter parser)', () => {
     expect(b.codeContent).toBe(' name ');
   });
 
+  test('lintCodeContent removes one trailing blank char', () => {
+    const [b] = extractTagBlocks(getEjsNodes('<%= name   %>'));
+    expect(b.codeContent).toBe(' name   ');
+    expect(b.lintCodeContent).toBe(' name  ');
+  });
+
+  test('lintCodeContent removes trailing empty last line', () => {
+    const [b] = extractTagBlocks(getEjsNodes('<%_ const x = 1;\n_%>'));
+    expect(b.codeContent).toBe(' const x = 1;\n');
+    expect(b.lintCodeContent).toBe(' const x = 1;');
+  });
+
   test('standalone tag has lineIndent equal to whitespace before it', () => {
     const [b] = extractTagBlocks(getEjsNodes('  <%_ if (x) { _%>'));
     expect(b.lineIndent).toBe('  ');
@@ -673,7 +809,7 @@ describe('void() wrapping for output tags', () => {
     // The void() wrapper ensures the expression is syntactically valid as a statement
     // and does not introduce new `no-undef` errors for `debug`.
     const blocks = extractTagBlocks(getEjsNodes('<%- foo %>'));
-    expect(blocks[0].virtualCode).toContain('foo ;');
+    expect(blocks[0].virtualCode).toContain('foo;');
   });
 
   test('void() wrapping does not introduce debug-related no-undef errors', () => {
