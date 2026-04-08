@@ -1,1 +1,37 @@
-- split test files by rules
+- add rule prefer-output
+<% if (foo) { %>bar<% } %> => <%- foo ? bar : '' %>
+
+- add tests for ident:
+```
+foo
+  .bar
+```
+```
+const foo = [
+...foo,
+bar
+]
+```
+````
+const foo = {
+    bar,
+}
+```
+````
+const foo
+  = bar;
+```
+````
+const foo = (
+    bar
+) => bar;
+```
+````
+const foo = () =>
+   bar;
+```
+````
+foo.filter(foo => 
+   foo
+   );
+````

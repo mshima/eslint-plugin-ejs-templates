@@ -19,7 +19,8 @@ import { noFunctionBlock } from './rules/no-function-block.js';
 import { noCommentEmptyLine } from './rules/no-comment-empty-line.js';
 import { preferEncoded } from './rules/prefer-encoded.js';
 import { outputSemi } from './rules/output-semi.js';
-import { type Config } from 'eslint/config';
+import { type Config, defineConfig } from 'eslint/config';
+import { type ESLint } from 'eslint';
 
 // ---------------------------------------------------------------------------
 // Plugin definition (without configs, to avoid circular reference)
@@ -49,7 +50,7 @@ const pluginCore = {
     'prefer-encoded': preferEncoded,
     'output-semi': outputSemi,
   },
-};
+} satisfies ESLint.Plugin;
 
 // ---------------------------------------------------------------------------
 // Built-in flat configs
@@ -97,7 +98,7 @@ const preferEncodedRule = (encoded: boolean) => ({
   [`${pluginName}/prefer-raw`]: encoded ? 'off' : 'error',
 });
 
-export const customizeEjs = (
+const customize = (
   {
     allowedGlobals,
     experimental,
@@ -111,10 +112,18 @@ export const customizeEjs = (
     stylisticBlacklist?: boolean;
     prettierBlacklist?: boolean;
   },
-  ...configs: Config[]
+  ...configs: Parameters<typeof defineConfig>
 ): Config[] => {
+  let otherConfigs: Config[] = [];
+  if (configs.length > 0) {
+    otherConfigs = defineConfig(...configs.flat());
+    otherConfigs = defineConfig({
+      files: ['**/*.ejs'],
+      extends: otherConfigs,
+    });
+  }
   return [
-    ...configs.map((c) => ({ ...c, files: ['**/*.ejs'] })),
+    ...otherConfigs,
     {
       ...base[0],
       rules: {
@@ -158,9 +167,11 @@ export const customizeEjs = (
 // Final plugin export
 // ---------------------------------------------------------------------------
 
+const configs = { base, customize } as const;
+
 const plugin = {
   ...pluginCore,
-  configs: { base },
+  configs: configs as ESLint.Plugin['configs'] & typeof configs,
 };
 
 export default plugin;

@@ -65,14 +65,14 @@ export default defineConfig([
 ]);
 ```
 
-Or use the `customizeEjs` helper to enable all rules with a single call and convenient options:
+Or use the `customize` helper to enable all rules with a single call and convenient options:
 
 ```js
 import { defineConfig } from 'eslint/config';
-import { customizeEjs } from 'eslint-plugin-ejs-templates';
+import ejs from 'eslint-plugin-ejs-templates';
 
 export default defineConfig([
-  ...customizeEjs({
+  ...ejs.configs.customize({
     // allowedGlobals: ['include'],   // extra global functions to allow (default: [])
     // experimental: true,            // enable experimental rules (default: false)
     // html: 'extension',             // 'always' | 'never' | 'extension' (default)
@@ -82,12 +82,12 @@ export default defineConfig([
 ]);
 ```
 
-`customizeEjs` also accepts additional ESLint `Config` entries (spread after the options object)
+`customize` also accepts additional ESLint `Config` entries (spread after the options object)
 that will be scoped to `**/*.ejs` files:
 
 ```js
 export default defineConfig([
-  ...customizeEjs(
+  ...ejs.configs.customize(
     { allowedGlobals: ['include'] },
     { rules: { 'no-var': 'error' } },
     js.configs.recommended,
