@@ -9,7 +9,7 @@
 import { describe, test, expect } from 'vitest';
 import stylistic from '@stylistic/eslint-plugin';
 import { Linter } from 'eslint';
-import plugin, { customizeEjs } from '../src/index.js';
+import plugin from '../src/index.js';
 import { lint, applyFix, makeLinter, makeConfig } from './helpers.js';
 import { extractTagBlocks, getEjsNodes } from '../src/ejs-parser.js';
 import { type Config } from 'eslint/config';
@@ -488,17 +488,19 @@ describe('plugin shape', () => {
   });
 
   test('plugin exposes configure', () => {
-    expect(typeof customizeEjs).toBe('function');
-    expect(customizeEjs({}).length).toBeGreaterThan(0);
+    expect(typeof plugin.configs.customize).toBe('function');
+    expect(plugin.configs.customize({}).length).toBeGreaterThan(0);
   });
 
   test('all config targets *.ejs files', () => {
-    const config = customizeEjs({})[0];
-    expect(config.files).toEqual(['**/*.ejs']);
+    const config = plugin.configs.customize({});
+    for (const cfg of config) {
+      expect(cfg.files?.every((f) => (f as string).endsWith('.ejs'))).toBe(true);
+    }
   });
 
   test('all config enables all rules as error', () => {
-    const configs = customizeEjs({});
+    const configs = plugin.configs.customize({});
     expect(configs[1].rules?.['ejs-templates/prefer-encoded']).toBe('error');
     expect(configs[1].rules?.['ejs-templates/prefer-raw']).toBe('off');
     const config = configs[0];
@@ -512,8 +514,8 @@ describe('plugin shape', () => {
     expect(config.rules?.['ejs-templates/no-function-block']).toBe('error');
   });
 
-  test('customizeEjs scopes extra configs to *.ejs without trailing whitespace in the glob', () => {
-    const [extraConfig] = customizeEjs(
+  test('customize scopes extra configs to *.ejs without trailing whitespace in the glob', () => {
+    const configs = plugin.configs.customize(
       {},
       {
         plugins: { '@stylistic': stylistic },
@@ -521,7 +523,9 @@ describe('plugin shape', () => {
       },
     );
 
-    expect(extraConfig.files).toEqual(['**/*.ejs']);
+    for (const cfg of configs) {
+      expect(cfg.files?.every((f) => (f as string).endsWith('.ejs'))).toBe(true);
+    }
   });
 });
 
@@ -648,10 +652,10 @@ describe('interoperability: @stylistic/eslint-plugin', () => {
     expect(result).toBe(input);
   });
 
-  test('customizeEjs can apply extra Stylistic configs to EJS files', () => {
+  test('customize can apply extra Stylistic configs to EJS files', () => {
     const result = makeLinter().verifyAndFix(
       '<% const foo = 1 %>',
-      customizeEjs(
+      plugin.configs.customize(
         {},
         {
           plugins: { '@stylistic': stylistic },
