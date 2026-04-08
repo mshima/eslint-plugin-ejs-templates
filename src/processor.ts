@@ -261,7 +261,7 @@ function buildIndentedTag(block: TagBlock, options: { normalizeContent: boolean 
   const isOpenBlock = (line: string) =>
     line.endsWith('{') || line.endsWith('(') || line.endsWith('[') || line.endsWith('=>');
   const isCloseBlock = (line: string) => line.startsWith('}') || line.startsWith(')') || line.startsWith(']');
-  const isContinueStatement = (line: string) => /^\.[^.]/.test(line);
+  const isContinueStatement = (line: string) => /^[=?:|&><]/.test(line) || /^\.[^.]/.test(line);
   let relativeBlockIndent = isOpenBlock(firstLine) ? 1 : 0;
   const relativeStatementIndentStack: number[] = [];
   // Middle lines:
