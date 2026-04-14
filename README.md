@@ -9,6 +9,7 @@ EJS files are parsed by [tree-sitter-embedded-template](https://github.com/tree-
 - **EJS processor** – extracts each EJS tag into its own virtual JS block so standard ESLint rules can inspect the embedded JavaScript
 - **Autofix support** – most rules support autofix; run `eslint --fix` to apply fixes (`no-global-function-call` and `no-function-block` have no autofix)
 - [`ejs-templates/no-comment-empty-line`](#ejs-templatesno-comment-empty-line) – flags comment tags that leave an empty line (missing `-%>` close)
+- [`ejs-templates/no-complex-statements`](#ejs-templatesno-complex-statements) – disallows complex statements (try, while, switch, etc.) in templates to keep them simple
 - [`ejs-templates/no-function-block`](#ejs-templatesno-function-block) – disallows function/arrow statement blocks in templates to keep logic simple
 - [`ejs-templates/no-global-function-call`](#ejs-templatesno-global-function-call) – disallows direct function calls in EJS tags (with `include()` allowed by default)
 - [`ejs-templates/output-semi`](#ejs-templatesoutput-semi) – enforces semicolon style for output tags (`<%= %>`, `<%- %>`) (default: `never`)
@@ -143,6 +144,7 @@ npx eslint --fix "**/*.ejs"
 The following rules have no specific ordering requirement (they can appear in any position):
 
 - [`no-comment-empty-line`](#ejs-templatesno-comment-empty-line)
+- [`no-complex-statements`](#ejs-templatesno-complex-statements)
 - [`no-function-block`](#ejs-templatesno-function-block)
 - [`no-global-function-call`](#ejs-templatesno-global-function-call)
 - [`output-semi`](#ejs-templatesoutput-semi)
@@ -257,6 +259,89 @@ its own line emits a blank line; `<%# comment -%>` suppresses it.
 
 <!-- ✓ fixed: no empty line in output -->
 <%# This is a comment -%>
+```
+
+### `ejs-templates/no-complex-statements`
+
+Disallows complex statements in EJS tags that increase logic complexity and
+reduce maintainability. By default, forbidden statement types include:
+
+- `TryStatement` (try/catch)
+- `WhileStatement`, `DoWhileStatement` (while/do-while loops)
+- `SwitchStatement` (switch)
+- `FunctionDeclaration` (function declarations)
+- `ClassDeclaration` (class declarations)
+- `LabeledStatement` (labeled blocks)
+- `DebuggerStatement` (debugger)
+- `WithStatement` (with statements)
+
+These statements encourage moving logic outside of templates. Use simpler
+constructs like `if/else`, `for/for-of` loops, and array methods instead.
+
+|             |     |
+| ----------- | --- |
+| **Fixable** | No  |
+
+```ejs
+<!-- ✗ violation: try/catch statements -->
+<% try {
+  const result = JSON.parse(data);
+} catch (e) {
+  console.error(e);
+} %>
+
+<!-- ✓ better: handle errors in the controller, pass clean data to template -->
+<% const result = data; %>
+
+<!-- ✗ violation: while loop -->
+<% let i = 0;
+while (i < items.length) {
+  console.log(items[i]);
+  i++;
+} %>
+
+<!-- ✓ better: use for-of -->
+<% for (const item of items) {
+  console.log(item);
+} %>
+
+<!-- ✗ violation: switch statement -->
+<% switch (statusCode) {
+  case 200:
+    message = 'OK';
+    break;
+  case 404:
+    message = 'Not Found';
+    break;
+} %>
+
+<!-- ✓ better: use simple conditional or pass logic from controller -->
+<% const message = statusCode === 200 ? 'OK' : statusCode === 404 ? 'Not Found' : 'Unknown'; %>
+```
+
+**Options:**
+
+- `{ disallow: ['TryStatement', 'SwitchStatement'] }` — customize which statement types are forbidden
+- Each item can be a string (statement type) or an object `{ type: 'StatementType', message: 'Custom message' }`
+
+```js
+// eslint.config.js
+{
+  files: ['**/*.ejs'],
+  rules: {
+    'ejs-templates/no-complex-statements': [
+      'error',
+      {
+        disallow: [
+          'TryStatement',
+          'SwitchStatement',
+          { type: 'WhileStatement', message: 'Use for-of loops instead of while loops' },
+          { type: 'FunctionDeclaration', message: 'Declare functions outside templates' },
+        ],
+      },
+    ],
+  },
+}
 ```
 
 ### `ejs-templates/no-function-block`
