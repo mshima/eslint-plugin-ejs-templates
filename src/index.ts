@@ -15,6 +15,7 @@ import { indent } from './rules/indent.js';
 import { format } from './rules/format.js';
 import { noGlobalFunctionCall } from './rules/no-global-function-call.js';
 import { noFunctionBlock } from './rules/no-function-block.js';
+import { noComplexStatements } from './rules/no-complex-statements.js';
 import { noCommentEmptyLine } from './rules/no-comment-empty-line.js';
 import { preferEncoded } from './rules/prefer-encoded.js';
 import { outputSemi } from './rules/output-semi.js';
@@ -44,6 +45,7 @@ const pluginCore = {
     format,
     'no-global-function-call': noGlobalFunctionCall,
     'no-function-block': noFunctionBlock,
+    'no-complex-statements': noComplexStatements,
     'no-comment-empty-line': noCommentEmptyLine,
     'prefer-encoded': preferEncoded,
     'output-semi': outputSemi,
@@ -126,6 +128,7 @@ const customize = (
       rules: {
         [`${pluginName}/no-global-function-call`]: ['error', { allow: allowedGlobals ?? [] }],
         [`${pluginName}/no-function-block`]: 'error',
+        [`${pluginName}/no-complex-statements`]: 'error',
         [`${pluginName}/no-comment-empty-line`]: 'error',
         [`${pluginName}/output-semi`]: 'error',
 
@@ -182,6 +185,7 @@ export {
   format,
   noGlobalFunctionCall,
   noFunctionBlock,
+  noComplexStatements,
   noCommentEmptyLine,
   preferEncoded,
   outputSemi,
