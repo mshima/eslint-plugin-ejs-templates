@@ -7,7 +7,6 @@
 //     http://www.apache.org/licenses/LICENSE-2.0
 
 import { processor } from './processor.js';
-import { preferRaw } from './rules/prefer-raw.js';
 import { preferSlurpingCodeonly } from './rules/prefer-slurping-codeonly.js';
 import { preferSlurpMultiline } from './rules/prefer-slurp-multiline.js';
 import { preferSingleLineTags } from './rules/prefer-single-line-tags.js';
@@ -37,7 +36,6 @@ const pluginCore = {
     ejs: processor,
   },
   rules: {
-    'prefer-raw': preferRaw,
     'prefer-slurping-codeonly': preferSlurpingCodeonly,
     'experimental-prefer-slurp-multiline': preferSlurpMultiline,
     'prefer-single-line-tags': preferSingleLineTags,
@@ -94,8 +92,7 @@ const stylisticIgnoredRules = {
 };
 
 const preferEncodedRule = (encoded: boolean) => ({
-  [`${pluginName}/prefer-encoded`]: encoded ? 'error' : 'off',
-  [`${pluginName}/prefer-raw`]: encoded ? 'off' : 'error',
+  [`${pluginName}/prefer-encoded`]: ['error', encoded ? 'always' : 'never'] as const,
 });
 
 const customize = (
@@ -177,7 +174,6 @@ const plugin = {
 export default plugin;
 export { processor };
 export {
-  preferRaw,
   preferSlurpingCodeonly,
   preferSlurpMultiline,
   preferSingleLineTags,

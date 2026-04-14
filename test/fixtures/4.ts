@@ -34,5 +34,5 @@ _%>
 
 export const rules = {
   'ejs-templates/prefer-single-line-tags': 'error' as const,
-  'ejs-templates/prefer-raw': 'error' as const,
+  'ejs-templates/prefer-encoded': ['error', 'never'] as ['error', 'never'],
 };

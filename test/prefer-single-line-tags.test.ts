@@ -59,7 +59,7 @@ describe('autofix: prefer-single-line-tags', () => {
   });
 
   test('collapses multiline <%= %> output tag (keeps delimiter unchanged)', () => {
-    // prefer-single-line-tags only collapses; prefer-raw is a separate rule
+    // prefer-single-line-tags only collapses; prefer-encoded (never) is a separate rule
     expect(applyFix('<%=\n  value\n%>', { 'ejs-templates/prefer-single-line-tags': 'error' })).toBe('<%= value %>');
   });
 
@@ -87,10 +87,10 @@ describe('autofix: prefer-single-line-tags', () => {
     expect(applyFix(input, { 'ejs-templates/prefer-single-line-tags': 'error' })).toBe(input);
   });
 
-  test('combined with prefer-raw: multiline <%= %> is both collapsed and converted', () => {
+  test('combined with prefer-encoded (never): multiline <%= %> is both collapsed and converted', () => {
     const result = applyFix('<%=\n  value\n%>', {
       'ejs-templates/prefer-single-line-tags': 'error',
-      'ejs-templates/prefer-raw': 'error',
+      'ejs-templates/prefer-encoded': ['error', 'never'],
     });
     expect(result).toBe('<%- value %>');
   });
