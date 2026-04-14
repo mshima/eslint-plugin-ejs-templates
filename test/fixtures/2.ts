@@ -1,7 +1,7 @@
 /**
  * Real-world EJS template fixture 2.
  * All tags already use correct delimiters (`<%-`, `<%_`, `_%>`).
- * No violations expected with `prefer-raw` or `prefer-slurping` rules.
+ * No violations expected with `prefer-encoded: never` or `prefer-slurping` rules.
  * `input` and `expected` are identical (idempotency: already formatted).
  */
 export const input = `  "devDependencies": {

@@ -326,7 +326,7 @@ function buildFormattedTag(block: TagBlock, options?: { multilineCloseOnNewLine?
  * offset 0.  They are translated using the `TagBlock` metadata to produce a
  * meaningful replacement in the original EJS source.
  *
- * - Generic sentinel (`text === ''`): used by `prefer-raw`, `prefer-slurping-codeonly`,
+ * - Generic sentinel (`text === ''`): used by `prefer-encoded`, `prefer-slurping-codeonly`,
  *   `prefer-single-line-tags`, `indent`.
  * - `SENTINEL_PREFER_SLURP_MULTILINE`: used by `experimental-prefer-slurp-multiline` to avoid
  *   collision with `prefer-single-line-tags` for `code-multiline`/`code-slurpable-multiline`
@@ -474,7 +474,7 @@ function translateFix(
   } else if (fix.text === '') {
     // ── Generic sentinel (fix.text === '') ────────────────────────────────
 
-    // prefer-raw: change `<%=` → `<%-`
+    // prefer-encoded (never): change `<%=` → `<%-`
     if (block.tagType === 'escaped-output') {
       return { range: [block.tagOffset + 2, block.tagOffset + 3], text: '-' };
     }

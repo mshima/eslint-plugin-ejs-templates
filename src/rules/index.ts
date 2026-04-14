@@ -6,7 +6,6 @@
 //
 //     http://www.apache.org/licenses/LICENSE-2.0
 
-export { preferRaw } from './prefer-raw.js';
 export { preferSlurpingCodeonly } from './prefer-slurping-codeonly.js';
 export { preferSlurpMultiline } from './prefer-slurp-multiline.js';
 export { preferSingleLineTags } from './prefer-single-line-tags.js';

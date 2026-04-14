@@ -368,10 +368,10 @@ describe('processor position mapping', () => {
 
   test("reportUnusedDisableDirectives='error': ignores ejs-templates/* in unused-directive diagnostics", () => {
     const msgs = lintWithUnusedDisableDirectivesError(
-      '<%# eslint-disable eqeqeq, ejs-templates/prefer-raw %>\n<%= a == b %>',
+      '<%# eslint-disable eqeqeq, ejs-templates/prefer-encoded %>\n<%= a == b %>',
       {
         eqeqeq: 'error',
-        'ejs-templates/prefer-raw': 'error',
+        'ejs-templates/prefer-encoded': ['error', 'never'],
       },
     );
     const unusedDirectiveMsgs = msgs.filter(
@@ -382,14 +382,17 @@ describe('processor position mapping', () => {
   });
 
   test("reportUnusedDisableDirectives='error': reports unused directive for ejs-templates/* when truly unused", () => {
-    const msgs = lintWithUnusedDisableDirectivesError('<%# eslint-disable ejs-templates/prefer-raw %>\n<%- value %>', {
-      'ejs-templates/prefer-raw': 'error',
-    });
+    const msgs = lintWithUnusedDisableDirectivesError(
+      '<%# eslint-disable ejs-templates/prefer-encoded %>\n<%- value %>',
+      {
+        'ejs-templates/prefer-encoded': ['error', 'never'],
+      },
+    );
     const unusedDirectiveMsgs = msgs.filter(
       (msg) =>
         msg.ruleId === null &&
         msg.message.includes('Unused eslint-disable directive') &&
-        msg.message.includes('ejs-templates/prefer-raw'),
+        msg.message.includes('ejs-templates/prefer-encoded'),
     );
     expect(unusedDirectiveMsgs).toHaveLength(1);
   });
@@ -461,8 +464,8 @@ describe('plugin shape', () => {
     expect(typeof plugin.processors.ejs.postprocess).toBe('function');
   });
 
-  test('plugin exposes prefer-raw rule', () => {
-    expect(plugin.rules['prefer-raw']).toBeDefined();
+  test('plugin exposes prefer-encoded rule', () => {
+    expect(plugin.rules['prefer-encoded']).toBeDefined();
   });
 
   test('plugin exposes prefer-slurping-codeonly rule', () => {
@@ -501,8 +504,8 @@ describe('plugin shape', () => {
 
   test('all config enables all rules as error', () => {
     const configs = plugin.configs.customize({});
-    expect(configs[1].rules?.['ejs-templates/prefer-encoded']).toBe('error');
-    expect(configs[1].rules?.['ejs-templates/prefer-raw']).toBe('off');
+    expect(configs[1].rules?.['ejs-templates/prefer-encoded']).toEqual(['error', 'always']);
+    expect(configs[2].rules?.['ejs-templates/prefer-encoded']).toEqual(['error', 'never']);
     const config = configs[0];
     expect(config.rules?.['ejs-templates/prefer-slurping-codeonly']).toBe('error');
     expect(config.rules?.['ejs-templates/experimental-prefer-slurp-multiline']).toBe('off');

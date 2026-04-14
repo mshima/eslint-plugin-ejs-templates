@@ -12,8 +12,7 @@ EJS files are parsed by [tree-sitter-embedded-template](https://github.com/tree-
 - [`ejs-templates/no-function-block`](#ejs-templatesno-function-block) – disallows function/arrow statement blocks in templates to keep logic simple
 - [`ejs-templates/no-global-function-call`](#ejs-templatesno-global-function-call) – disallows direct function calls in EJS tags (with `include()` allowed by default)
 - [`ejs-templates/output-semi`](#ejs-templatesoutput-semi) – enforces semicolon style for output tags (`<%= %>`, `<%- %>`) (default: `never`)
-- [`ejs-templates/prefer-encoded`](#ejs-templatespreferencoded) – flags `<%- … %>` and suggests `<%= … %>` (for HTML-output templates)
-- [`ejs-templates/prefer-raw`](#ejs-templatespreferraw) – flags `<%= … %>` and suggests `<%- … %>`
+- [`ejs-templates/prefer-encoded`](#ejs-templatespreferencoded) – flags `<%- … %>` and suggests `<%= … %>` (`always`, default), or flags `<%= … %>` and suggests `<%- … %>` (`never`)
 - [`ejs-templates/prefer-single-line-tags`](#ejs-templatesprefer-single-line-tags) – collapses multiline EJS tags to single-line tags
 - [`ejs-templates/prefer-slurping-codeonly`](#ejs-templatespreferslurpingcodeonly) – flags `<% … %>` code tags that can be safely converted to `<%_ … _%>`
 - [`ejs-templates/experimental-prefer-slurp-multiline`](#ejs-templatesexperimental-prefer-slurp-multiline) – converts multiline `<% … %>` to `<%_ … _%>`
@@ -51,8 +50,7 @@ export default defineConfig([
       'ejs-templates/no-function-block': 'error',
       'ejs-templates/no-global-function-call': 'error',
       'ejs-templates/output-semi': ['error', 'never'],
-      'ejs-templates/prefer-encoded': 'error',
-      'ejs-templates/prefer-raw': 'error',
+      'ejs-templates/prefer-encoded': 'error', // 'always' (default) or 'never'
       // Apply remaining rules in this order:
       'ejs-templates/experimental-prefer-slurp-multiline': 'error',
       'ejs-templates/prefer-slurping-codeonly': 'error',
@@ -101,13 +99,13 @@ export default defineConfig([
 
 #### Options
 
-| Option               | Type                                 | Default       | Description                                                                                                                              |
-| -------------------- | ------------------------------------ | ------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `allowedGlobals`     | `string[]`                           | `[]`          | Extra global function names that `no-global-function-call` will not flag                                                                 |
-| `experimental`       | `boolean`                            | `false`       | Enables experimental features                                                                                                            |
-| `html`               | `'always' \| 'never' \| 'extension'` | `'extension'` | Controls which output rule is applied: `prefer-encoded` for HTML files, `prefer-raw` for others, or always/never                         |
-| `stylisticBlacklist` | `boolean`                            | `false`       | Turns off `@stylistic` rules that conflict with EJS formatting (for example `eol-last`, `indent`, `brace-style` and `multiline-ternary`) |
-| `prettierBlacklist`  | `boolean`                            | `false`       | Turns off the `prettier/prettier` rule when Prettier is also configured                                                                  |
+| Option               | Type                                 | Default       | Description                                                                                                                                              |
+| -------------------- | ------------------------------------ | ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `allowedGlobals`     | `string[]`                           | `[]`          | Extra global function names that `no-global-function-call` will not flag                                                                                 |
+| `experimental`       | `boolean`                            | `false`       | Enables experimental features                                                                                                                            |
+| `html`               | `'always' \| 'never' \| 'extension'` | `'extension'` | Controls the `prefer-encoded` option: `always` for all `.ejs` files, `never` for all `.ejs` files, or `always` for `*.html.ejs` and `never` for the rest |
+| `stylisticBlacklist` | `boolean`                            | `false`       | Turns off `@stylistic` rules that conflict with EJS formatting (for example `eol-last`, `indent`, `brace-style` and `multiline-ternary`)                 |
+| `prettierBlacklist`  | `boolean`                            | `false`       | Turns off the `prettier/prettier` rule when Prettier is also configured                                                                                  |
 
 Then run ESLint as usual:
 
@@ -149,7 +147,6 @@ The following rules have no specific ordering requirement (they can appear in an
 - [`no-global-function-call`](#ejs-templatesno-global-function-call)
 - [`output-semi`](#ejs-templatesoutput-semi)
 - [`prefer-encoded`](#ejs-templatespreferencoded)
-- [`prefer-raw`](#ejs-templatespreferraw)
 
 Apply the remaining rules in the following order for best results:
 
@@ -387,37 +384,39 @@ Security implications:
 
 ### `ejs-templates/prefer-encoded`
 
-Prefers `<%=` (HTML-encoded output) over `<%-` (raw output). Use this rule in
-templates that render HTML where values must be escaped to prevent XSS
-vulnerabilities. It is the inverse of the `prefer-raw` rule.
+Enforces a consistent output-tag style across the template.
 
-|             |                                              |
-| ----------- | -------------------------------------------- |
-| **Fixable** | Yes — `eslint --fix` converts `<%-` to `<%=` |
+- `'always'` (default): prefer `<%=` (HTML-encoded) over `<%-` (raw).
+  Flags every `<%- … %>` tag. Use this when templates render HTML and you want XSS-safe defaults.
+- `'never'`: prefer `<%-` (raw / unescaped) over `<%=` (HTML-encoded).
+  Flags every `<%= … %>` tag. Use this when output is already trusted or escaped by other means.
 
-```ejs
-<!-- ✗ violation -->
-<%- value %>
+|             |                                                                           |
+| ----------- | ------------------------------------------------------------------------- |
+| **Fixable** | Yes — `eslint --fix` converts between `<%-` and `<%=` based on the option |
 
-<!-- ✓ fixed -->
-<%= value %>
+```js
+// eslint.config.js
+{
+  files: ['**/*.ejs'],
+  rules: {
+    // 'always' (default) — prefer HTML-encoded output:
+    'ejs-templates/prefer-encoded': 'error',
+    // 'never' — prefer raw output:
+    'ejs-templates/prefer-encoded': ['error', 'never'],
+  },
+}
 ```
 
-### `ejs-templates/prefer-raw`
-
-Prefers `<%-` (raw / unescaped output) over `<%=` (HTML-escaped output).
-`<%=` is meant for HTML output; when the value is not expected to be rendered
-as HTML, prefer raw output with `<%-`.
-
-|             |                                              |
-| ----------- | -------------------------------------------- |
-| **Fixable** | Yes — `eslint --fix` converts `<%=` to `<%-` |
-
 ```ejs
-<!-- ✗ violation -->
+<!-- with 'always' (default) -->
+<%- value %>
+<!-- fixed -->
 <%= value %>
 
-<!-- ✓ fixed -->
+<!-- with 'never' -->
+<%= value %>
+<!-- fixed -->
 <%- value %>
 ```
 

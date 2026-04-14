@@ -9,45 +9,67 @@
 import type { Rule } from 'eslint';
 
 /**
- * ESLint rule: prefer `<%=` (HTML-escaped output) over `<%-` (raw output).
+ * ESLint rule: enforce a consistent output-tag style.
  *
- * Use this rule when your templates output HTML and you want to ensure values
- * are HTML-encoded to prevent XSS vulnerabilities.  It is the inverse of the
- * `prefer-raw` rule.
+ * - `'always'` (default): prefer `<%=` (HTML-encoded) over `<%-` (raw).
+ *   Flags every `<%- … %>` tag and offers an autofix that changes `-` → `=`.
+ *   Use this when templates render HTML and you want XSS-safe defaults.
  *
- * The rule detects `//@ejs-tag:raw-output` marker comments that the EJS
- * processor inserts at the start of every virtual block extracted from a
- * `<%- … %>` tag.
+ * - `'never'`: prefer `<%-` (raw / unescaped) over `<%=` (HTML-encoded).
+ *   Flags every `<%= … %>` tag and offers an autofix that changes `=` → `-`.
+ *   Use this when output is already trusted or escaped by other means.
+ *
+ * The rule reads the `//@ejs-tag:raw-output` or `//@ejs-tag:escaped-output`
+ * marker comments that the EJS processor injects into each virtual block.
  */
 export const preferEncoded: Rule.RuleModule = {
   meta: {
     type: 'suggestion',
     fixable: 'code',
     docs: {
-      description: 'Prefer `<%=` (HTML-encoded output) over `<%-` (raw output)',
+      description: 'Prefer `<%=` (HTML-encoded) or `<%-` (raw) output tags consistently',
       url: 'https://github.com/mshima/eslint-plugin-ejs-templates#prefer-encoded',
     },
     messages: {
       preferEncoded: 'Prefer `<%=` (HTML-encoded output) over `<%-` (raw / unescaped output).',
+      preferRaw: 'Prefer `<%-` (raw / unescaped output) over `<%=` (HTML-encoded output).',
     },
-    schema: [],
+    schema: [
+      {
+        type: 'string',
+        enum: ['always', 'never'],
+      },
+    ],
   },
 
   create(context) {
+    const when = (context.options[0] as 'always' | 'never' | undefined) ?? 'always';
+
     return {
       Program() {
         const sourceCode = context.sourceCode;
         const comments = sourceCode.getAllComments();
         for (const comment of comments) {
-          if (comment.type === 'Line' && comment.value.trim() === '@ejs-tag:raw-output') {
+          if (comment.type !== 'Line') continue;
+          const marker = comment.value.trim();
+
+          if (when === 'always' && marker === '@ejs-tag:raw-output') {
             const { range = [0, 0] } = comment;
             context.report({
               loc: comment.loc ?? { line: 0, column: 0 },
               messageId: 'preferEncoded',
               fix(fixer) {
-                // Provide a sentinel fix (empty string). The processor's postprocess
-                // recognises the raw-output block type and replaces `-` with `=`
-                // in the `<%-` opening delimiter.
+                // Sentinel fix: the processor replaces `-` with `=` in `<%-`.
+                return fixer.replaceTextRange([range[0], range[1]], '');
+              },
+            });
+          } else if (when === 'never' && marker === '@ejs-tag:escaped-output') {
+            const { range = [0, 0] } = comment;
+            context.report({
+              loc: comment.loc ?? { line: 0, column: 0 },
+              messageId: 'preferRaw',
+              fix(fixer) {
+                // Sentinel fix: the processor replaces `=` with `-` in `<%=`.
                 return fixer.replaceTextRange([range[0], range[1]], '');
               },
             });
