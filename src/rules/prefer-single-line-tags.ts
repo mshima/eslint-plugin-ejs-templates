@@ -8,6 +8,7 @@
 
 import type { Rule } from 'eslint';
 import { SENTINEL_PREFER_SINGLE_LINE_TAGS_BRACES, getVirtualCodeMetadata } from '../processor.js';
+import { EJS_MARKER_PREFIX } from '../ejs-parser.js';
 
 /**
  * ESLint rule: collapse multiline EJS tags onto a single line.
@@ -36,7 +37,7 @@ export const preferSingleLineTags: Rule.RuleModule = {
       Program() {
         const sourceCode = context.sourceCode;
         const comments = sourceCode.getAllComments();
-        const tagComments = comments.filter((c) => c.type === 'Line' && c.value.trim().startsWith('@ejs-tag:'));
+        const tagComments = comments.filter((c) => c.type === 'Line' && c.value.trim().startsWith(EJS_MARKER_PREFIX));
 
         // Provided by the processor from tree-sitter AST analysis (same tag order as markers).
         const metadata = getVirtualCodeMetadata(sourceCode.text);

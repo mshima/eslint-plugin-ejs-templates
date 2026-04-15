@@ -7,6 +7,7 @@
 //     http://www.apache.org/licenses/LICENSE-2.0
 
 import type { Rule } from 'eslint';
+import { getTagTypeFromLine } from '../ejs-parser.js';
 
 /**
  * ESLint rule: enforce a consistent output-tag style.
@@ -51,9 +52,9 @@ export const preferEncoded: Rule.RuleModule = {
         const comments = sourceCode.getAllComments();
         for (const comment of comments) {
           if (comment.type !== 'Line') continue;
-          const marker = comment.value.trim();
+          const tagType = getTagTypeFromLine(comment.value);
 
-          if (when === 'always' && marker === '@ejs-tag:raw-output') {
+          if (when === 'always' && tagType === 'raw-output') {
             const { range = [0, 0] } = comment;
             context.report({
               loc: comment.loc ?? { line: 0, column: 0 },
@@ -63,7 +64,7 @@ export const preferEncoded: Rule.RuleModule = {
                 return fixer.replaceTextRange([range[0], range[1]], '');
               },
             });
-          } else if (when === 'never' && marker === '@ejs-tag:escaped-output') {
+          } else if (when === 'never' && tagType === 'escaped-output') {
             const { range = [0, 0] } = comment;
             context.report({
               loc: comment.loc ?? { line: 0, column: 0 },

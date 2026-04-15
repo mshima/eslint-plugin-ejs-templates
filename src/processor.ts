@@ -9,7 +9,7 @@
 import type { Linter } from 'eslint';
 import createDebug from 'debug';
 import { findErrorNode, parseJavaScript, type SyntaxNode } from './ts-parser.js';
-import { EjsSyntaxNode, extractTagBlocks, getEjsNodes, TagBlock } from './ejs-parser.js';
+import { EJS_MARKER_PREFIX, EjsSyntaxNode, extractTagBlocks, getEjsNodes, TagBlock } from './ejs-parser.js';
 
 type VitualJavascriptCode = {
   virtualCode: string;
@@ -510,7 +510,7 @@ function translateFix(
   //   codeContentStart = markerLen
   //
   // where markerLen = '//@ejs-tag:'.length + tagType.length + 1  (+1 for '\n')
-  const markerLen = '//@ejs-tag:'.length + block.tagType.length + 1;
+  const markerLen = '//'.length + EJS_MARKER_PREFIX.length + block.tagType.length + 1;
   const codeContentStart = markerLen;
   const codeContentEnd = codeContentStart + block.lintCodeContent.length;
 

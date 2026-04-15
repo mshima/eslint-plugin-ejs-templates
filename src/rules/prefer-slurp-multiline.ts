@@ -8,6 +8,7 @@
 
 import type { Rule } from 'eslint';
 import { SENTINEL_PREFER_SLURP_MULTILINE } from '../processor.js';
+import { commentTagTypeIsOneOf } from '../ejs-parser.js';
 
 /**
  * ESLint rule: convert multiline `<% … %>` tags to `<%_ … _%>`.
@@ -58,8 +59,7 @@ export const preferSlurpMultiline: Rule.RuleModule = {
         for (const comment of comments) {
           if (
             comment.type === 'Line' &&
-            (comment.value.trim() === '@ejs-tag:code-multiline' ||
-              comment.value.trim() === '@ejs-tag:code-slurpable-multiline')
+            commentTagTypeIsOneOf(comment.value, ['code-multiline', 'code-slurpable-multiline'])
           ) {
             const { range = [0, 0] } = comment;
             context.report({
