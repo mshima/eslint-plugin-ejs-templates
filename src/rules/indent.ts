@@ -8,7 +8,7 @@
 
 import type { Rule } from 'eslint';
 import { SENTINEL_INDENT, SENTINEL_INDENT_NORMALIZE, getVirtualCodeMetadata } from '../processor.js';
-import { EJS_MARKER_PREFIX, getTagTypeFromLine } from '../ejs-parser.js';
+import { getTagTypeComments } from '../utils.js';
 
 /**
  * ESLint rule: enforce brace-depth–based indentation on standalone
@@ -63,18 +63,14 @@ export const indent: Rule.RuleModule = {
     return {
       Program() {
         const sourceCode = context.sourceCode;
-        const comments = sourceCode.getAllComments();
-        const tagComments = comments.filter((c) => c.type === 'Line' && c.value.trim().startsWith(EJS_MARKER_PREFIX));
+        const tagTypeComments = getTagTypeComments(sourceCode.getAllComments());
         const metadata = normalizeContent ? getVirtualCodeMetadata(sourceCode.text) : undefined;
         const needsNormalizeByTag = metadata?.needsNormalize;
 
-        for (const comment of tagComments) {
-          const tagType = getTagTypeFromLine(comment.value);
-          if (!tagType) {
-            continue;
-          }
+        for (const tagComment of tagTypeComments) {
+          const { comment, tagType } = tagComment;
           const needsIndent = tagType.startsWith('slurp-needs-indent');
-          const tagIndex = needsIndent ? -1 : tagComments.indexOf(comment);
+          const tagIndex = needsIndent ? -1 : tagTypeComments.indexOf(tagComment);
           const needsNormalize =
             normalizeContent &&
             tagType === 'slurp-multiline' &&

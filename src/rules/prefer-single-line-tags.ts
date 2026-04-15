@@ -8,7 +8,7 @@
 
 import type { Rule } from 'eslint';
 import { SENTINEL_PREFER_SINGLE_LINE_TAGS_BRACES, getVirtualCodeMetadata } from '../processor.js';
-import { EJS_MARKER_PREFIX } from '../ejs-parser.js';
+import { getTagTypeComments } from '../utils.js';
 
 /**
  * ESLint rule: collapse multiline EJS tags onto a single line.
@@ -36,20 +36,20 @@ export const preferSingleLineTags: Rule.RuleModule = {
     return {
       Program() {
         const sourceCode = context.sourceCode;
-        const comments = sourceCode.getAllComments();
-        const tagComments = comments.filter((c) => c.type === 'Line' && c.value.trim().startsWith(EJS_MARKER_PREFIX));
+        const tagTypeComments = getTagTypeComments(sourceCode.getAllComments());
 
         // Provided by the processor from tree-sitter AST analysis (same tag order as markers).
         const metadata = getVirtualCodeMetadata(sourceCode.text);
         const structuralByTag = metadata?.structuralControl;
         const singleLineTrimByTag = metadata?.singleLineTrim;
 
-        for (const comment of comments) {
-          if (comment.type !== 'Line' || !comment.value.trim().includes('-multiline')) {
+        for (const tagTypeComment of tagTypeComments) {
+          const { comment, tagType } = tagTypeComment;
+          if (!tagType.includes('-multiline')) {
             continue;
           }
 
-          const tagIndex = tagComments.indexOf(comment);
+          const tagIndex = tagTypeComments.indexOf(tagTypeComment);
           const hasStructuralInThisBlock = tagIndex !== -1 && structuralByTag?.[tagIndex] === true;
           const fitsSingleLineWhenTrimmed = tagIndex !== -1 && singleLineTrimByTag?.[tagIndex] === true;
           if (!hasStructuralInThisBlock && !fitsSingleLineWhenTrimmed) {

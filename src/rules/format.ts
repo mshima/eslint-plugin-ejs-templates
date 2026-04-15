@@ -8,7 +8,7 @@
 
 import type { Rule } from 'eslint';
 import { SENTINEL_FORMAT, SENTINEL_FORMAT_MULTILINE_CLOSE, getVirtualCodeMetadata } from '../processor.js';
-import { EJS_MARKER_PREFIX } from '../ejs-parser.js';
+import { getTagTypeComments } from '../utils.js';
 
 export const format: Rule.RuleModule = {
   meta: {
@@ -44,13 +44,12 @@ export const format: Rule.RuleModule = {
     return {
       Program() {
         const sourceCode = context.sourceCode;
-        const comments = sourceCode.getAllComments();
-        const tagComments = comments.filter((c) => c.type === 'Line' && c.value.trim().startsWith(EJS_MARKER_PREFIX));
+        const tagTypeComments = getTagTypeComments(sourceCode.getAllComments());
         const metadata = getVirtualCodeMetadata(sourceCode.text);
         const tagFormatState = metadata?.tagFormat;
 
-        for (let i = 0; i < tagComments.length; i++) {
-          const comment = tagComments[i];
+        for (let i = 0; i < tagTypeComments.length; i++) {
+          const { comment } = tagTypeComments[i];
           const state = tagFormatState?.[i];
           const needsFormat =
             multilineClose === 'new-line'

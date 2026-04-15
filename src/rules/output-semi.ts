@@ -8,7 +8,7 @@
 
 import type { Rule } from 'eslint';
 import { SENTINEL_OUTPUT_SEMI_ADD, SENTINEL_OUTPUT_SEMI_REMOVE } from '../processor.js';
-import { getTagTypeFromLine } from '../ejs-parser.js';
+import { getTagTypeComments } from '../utils.js';
 
 /**
  * ESLint rule: enforce or disallow semicolons at the end of output tag content.
@@ -50,12 +50,10 @@ export const outputSemi: Rule.RuleModule = {
     return {
       Program() {
         const sourceCode = context.sourceCode;
-        const comments = sourceCode.getAllComments();
+        const tagTypeComments = getTagTypeComments(sourceCode.getAllComments());
         const text = sourceCode.text;
 
-        for (const comment of comments) {
-          if (comment.type !== 'Line') continue;
-          const tagType = getTagTypeFromLine(comment.value);
+        for (const { comment, tagType } of tagTypeComments) {
           if (tagType !== 'escaped-output' && tagType !== 'raw-output') continue;
 
           // The virtual code line after the marker is: <lintCodeContent><virtualBodyInlineSuffix>
