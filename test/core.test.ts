@@ -507,6 +507,7 @@ describe('plugin shape', () => {
     expect(configs[1].rules?.['ejs-templates/prefer-encoded']).toEqual(['error', 'always']);
     expect(configs[2].rules?.['ejs-templates/prefer-encoded']).toEqual(['error', 'never']);
     const config = configs[0];
+    expect(config.rules?.['ejs-templates/prefer-output']).toBe('error');
     expect(config.rules?.['ejs-templates/prefer-slurping-codeonly']).toBe('error');
     expect(config.rules?.['ejs-templates/experimental-prefer-slurp-multiline']).toBe('off');
     expect(config.rules?.['ejs-templates/prefer-single-line-tags']).toBe('error');

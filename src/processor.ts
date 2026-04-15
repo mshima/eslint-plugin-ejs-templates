@@ -89,6 +89,12 @@ export const SENTINEL_OUTPUT_SEMI_ADD = 'OUTPUT_SEMI_ADD';
  */
 export const SENTINEL_OUTPUT_SEMI_REMOVE = 'OUTPUT_SEMI_REMOVE';
 
+/**
+ * Sentinel text written by the `prefer-output` fix.
+ */
+export const SENTINEL_PREFER_OUTPUT = 'PREFER_OUTPUT';
+export const SENTINEL_PREFER_OUTPUT_ELSE = 'PREFER_OUTPUT_ELSE';
+
 /** Opening line of the function wrapper injected around the full virtual file. */
 const GLOBAL_VIRTUAL_OPEN = '(function() {\n';
 /** Closing line of the function wrapper injected around the full virtual file. */
@@ -348,7 +354,8 @@ function buildFormattedTag(block: TagBlock, options?: { multilineCloseOnNewLine?
 function translateFix(
   fix: { range: [number, number]; text: string },
   block: TagBlock,
-  options?: { applyIndentForSingleLineTags?: boolean },
+  sourceText: string,
+  options: { applyIndentForSingleLineTags?: boolean; nextBlocks?: TagBlock[] },
 ): { range: [number, number]; text: string } | null {
   // no-comment-empty-line sentinel: handled before the javascriptPartialNode guard
   // because comment-empty-line blocks have no javascriptPartialNode.
@@ -363,7 +370,7 @@ function translateFix(
     return null;
   }
 
-  const applyIndentForSingleLineTags = options?.applyIndentForSingleLineTags ?? false;
+  const applyIndentForSingleLineTags = options.applyIndentForSingleLineTags ?? false;
   const trimmedCodeContent = block.codeContent.trim();
   // ── Sentinel fix detection ─────────────────────────────────────────────
   // All plugin-rule sentinels start at offset 0 in the virtual file.
@@ -471,6 +478,52 @@ function translateFix(
       }
     }
     return null;
+  } else if (fix.text === SENTINEL_PREFER_OUTPUT || fix.text === SENTINEL_PREFER_OUTPUT_ELSE) {
+    // prefer-output: convert wrapper conditionals to output ternary:
+    // `<% if (cond) { %>a<% } %>` => `<%= cond ? 'a' : '' %>`
+    // `<% if (cond) { %>a<% } else { %>b<% } %>` => `<%= cond ? 'a' : 'b' %>`
+    if (block.tagType !== 'code' || !options.nextBlocks) {
+      return null;
+    }
+
+    const secondBlock = options.nextBlocks.at(0);
+    if (!secondBlock) {
+      return null;
+    }
+
+    const condition = block.javascriptPartialNode?.nodes.find((n) => n.type === 'parenthesized_expression')?.text;
+    if (!condition) {
+      return null;
+    }
+
+    const openStart = block.tagOffset;
+    const openEnd = block.tagOffset + block.tagLength;
+    const truthyContent = sourceText.slice(openEnd, secondBlock.tagOffset);
+    let fixEnd = secondBlock.tagOffset + secondBlock.tagLength;
+
+    let falsyContent = '';
+    const thirdBlock = options.nextBlocks.at(1);
+    if (thirdBlock) {
+      falsyContent = sourceText.slice(fixEnd, thirdBlock.tagOffset);
+      fixEnd = thirdBlock.tagOffset + thirdBlock.tagLength;
+    }
+
+    // Apply only when the full wrapper (tags + outputs) stays on one line.
+    if (truthyContent.includes('\n') || falsyContent.includes('\n')) {
+      return null;
+    }
+
+    const escapeForSingleQuote = (content: string): string => {
+      return content.replace(/\\/gu, '\\\\').replace(/'/gu, "\\'").replace(/\r/gu, '\\r').replace(/\n/gu, '\\n');
+    };
+
+    const escapedTruthyContent = escapeForSingleQuote(truthyContent);
+    const escapedFalsyContent = escapeForSingleQuote(falsyContent);
+
+    return {
+      range: [openStart, fixEnd],
+      text: `<%= ${condition} ? '${escapedTruthyContent}' : '${escapedFalsyContent}' %>`,
+    };
   } else if (fix.text === '') {
     // ── Generic sentinel (fix.text === '') ────────────────────────────────
 
@@ -560,6 +613,7 @@ interface VirtualBlockSegment {
 const processedFilesMap = new Map<
   string,
   {
+    sourceText: string;
     ejsNodes: EjsSyntaxNode[];
     javascriptVitualCode: VitualJavascriptCode;
     cleanup: () => void;
@@ -582,6 +636,12 @@ const fileBlocksMap = new Map<
     rawSegments: VirtualBlockSegment[];
   }
 >();
+
+export const getFileBlocks = (
+  filename: string,
+): { segments: VirtualBlockSegment[]; rawSegments: VirtualBlockSegment[] } | undefined => {
+  return fileBlocksMap.get(filename);
+};
 
 /**
  * Cached formatting state for tags to detect if they already match format rules.
@@ -1038,6 +1098,7 @@ export const processor: Linter.Processor = {
     const blocks = extractTagBlocks(ejsNodes);
 
     processedFilesMap.set(filename, {
+      sourceText: text,
       ejsNodes,
       javascriptVitualCode,
       cleanup: () => {
@@ -1154,6 +1215,7 @@ export const processor: Linter.Processor = {
     if (!processedFile) {
       throw new Error(`Unexpectedly did not find processed file data for ${filename}`);
     }
+    const sourceText = processedFile.sourceText;
     const fullTree = parseJavaScript(processedFile.javascriptVitualCode.virtualCode);
     if (fullTree.rootNode.hasError) {
       const errorNode = findErrorNode(fullTree.rootNode);
@@ -1289,12 +1351,25 @@ export const processor: Linter.Processor = {
             return result;
           }
 
-          const translated = translateFix(mapped.fix, segment.block, {
+          const sentinel = mapped.fix.text;
+          const nextBlocks = sentinel.startsWith(SENTINEL_PREFER_OUTPUT)
+            ? blocks.slice(segmentIndex + 1, segmentIndex + 1 + (sentinel === SENTINEL_PREFER_OUTPUT_ELSE ? 2 : 1))
+            : undefined;
+          const translated = translateFix(mapped.fix, segment.block, sourceText, {
             applyIndentForSingleLineTags: hasIndentMessages,
+            nextBlocks,
           });
           if (translated) {
             return [{ ...mapped, fix: translated }];
           }
+
+          // prefer-output uses a sentinel fix even for rule applicability checks.
+          // If sentinel translation fails, suppress the report so the rule only
+          // applies when it can safely transform a single-line wrapper.
+          if (mapped.ruleId === 'ejs-templates/prefer-output' && mapped.fix.text === SENTINEL_PREFER_OUTPUT) {
+            return [];
+          }
+
           // No translation available – drop the fix.
           const result = { ...mapped };
           delete result.fix;

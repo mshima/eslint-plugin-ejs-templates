@@ -19,6 +19,7 @@ import { noComplexStatements } from './rules/no-complex-statements.js';
 import { noCommentEmptyLine } from './rules/no-comment-empty-line.js';
 import { preferEncoded } from './rules/prefer-encoded.js';
 import { outputSemi } from './rules/output-semi.js';
+import { preferOutput } from './rules/prefer-output.js';
 import { type Config, defineConfig } from 'eslint/config';
 import { type ESLint } from 'eslint';
 
@@ -47,6 +48,7 @@ const pluginCore = {
     'no-function-block': noFunctionBlock,
     'no-complex-statements': noComplexStatements,
     'no-comment-empty-line': noCommentEmptyLine,
+    'prefer-output': preferOutput,
     'prefer-encoded': preferEncoded,
     'output-semi': outputSemi,
   },
@@ -131,6 +133,7 @@ const customize = (
         [`${pluginName}/no-complex-statements`]: 'error',
         [`${pluginName}/no-comment-empty-line`]: 'error',
         [`${pluginName}/output-semi`]: 'error',
+        [`${pluginName}/prefer-output`]: 'error',
 
         [`${pluginName}/prefer-single-line-tags`]: 'error',
         [`${pluginName}/slurp-newline`]: 'error',
@@ -188,5 +191,6 @@ export {
   noComplexStatements,
   noCommentEmptyLine,
   preferEncoded,
+  preferOutput,
   outputSemi,
 };
