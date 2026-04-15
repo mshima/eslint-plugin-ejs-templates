@@ -14,6 +14,7 @@ EJS files are parsed by [tree-sitter-embedded-template](https://github.com/tree-
 - [`ejs-templates/no-global-function-call`](#ejs-templatesno-global-function-call) – disallows direct function calls in EJS tags (with `include()` allowed by default)
 - [`ejs-templates/output-semi`](#ejs-templatesoutput-semi) – enforces semicolon style for output tags (`<%= %>`, `<%- %>`) (default: `never`)
 - [`ejs-templates/prefer-encoded`](#ejs-templatespreferencoded) – flags `<%- … %>` and suggests `<%= … %>` (`always`, default), or flags `<%= … %>` and suggests `<%- … %>` (`never`)
+- [`ejs-templates/prefer-output`](#ejs-templatesprefer-output) – suggests (and auto-fixes) simple if-wrappers into output ternaries
 - [`ejs-templates/prefer-single-line-tags`](#ejs-templatesprefer-single-line-tags) – collapses multiline EJS tags to single-line tags
 - [`ejs-templates/prefer-slurping-codeonly`](#ejs-templatespreferslurpingcodeonly) – flags `<% … %>` code tags that can be safely converted to `<%_ … _%>`
 - [`ejs-templates/experimental-prefer-slurp-multiline`](#ejs-templatesexperimental-prefer-slurp-multiline) – converts multiline `<% … %>` to `<%_ … _%>`
@@ -51,6 +52,7 @@ export default defineConfig([
       'ejs-templates/no-function-block': 'error',
       'ejs-templates/no-global-function-call': 'error',
       'ejs-templates/output-semi': ['error', 'never'],
+      'ejs-templates/prefer-output': 'error',
       'ejs-templates/prefer-encoded': 'error', // 'always' (default) or 'never'
       // Apply remaining rules in this order:
       'ejs-templates/experimental-prefer-slurp-multiline': 'error',
@@ -148,7 +150,11 @@ The following rules have no specific ordering requirement (they can appear in an
 - [`no-function-block`](#ejs-templatesno-function-block)
 - [`no-global-function-call`](#ejs-templatesno-global-function-call)
 - [`output-semi`](#ejs-templatesoutput-semi)
-- [`prefer-encoded`](#ejs-templatespreferencoded)
+
+Apply [`prefer-output`](#ejs-templatesprefer-output) before [`prefer-encoded`](#ejs-templatespreferencoded).
+
+The built-in `customize()` config already does this by enabling `prefer-output`
+in the base EJS rules and applying `prefer-encoded` in later config entries.
 
 Apply the remaining rules in the following order for best results:
 
@@ -503,6 +509,51 @@ Enforces a consistent output-tag style across the template.
 <%= value %>
 <!-- fixed -->
 <%- value %>
+```
+
+### `ejs-templates/prefer-output`
+
+Suggests replacing simple output-wrapper conditionals with a ternary output tag.
+The rule applies only when the full wrapper (opening tag, content, and closing/else tags)
+is on a single line.
+
+Primary target pattern:
+
+- `<% if (condition) { %>content<% } %>`
+- `<% if (condition) { %>A<% } else { %>B<% } %>`
+
+Auto-fixed form:
+
+- `<%= condition ? 'content' : '' %>`
+- `<%= condition ? 'A' : 'B' %>`
+
+|             |                                                               |
+| ----------- | ------------------------------------------------------------- |
+| **Fixable** | Yes — `eslint --fix` for simple single-line wrapper patterns  |
+| **Notes**   | Conservative fix: skips nested EJS content inside the wrapper |
+
+```ejs
+<!-- ✗ violation -->
+<% if (showTitle) { %>Title<% } %>
+
+<!-- ✓ fixed -->
+<%= showTitle ? 'Title' : '' %>
+
+<!-- ✗ violation (if/else wrapper) -->
+<% if (showTitle) { %>Title<% } else { %>Untitled<% } %>
+
+<!-- ✓ fixed -->
+<%= showTitle ? 'Title' : 'Untitled' %>
+```
+
+```ejs
+<!-- still reported, but not auto-fixed (inline empty if) -->
+<% if (showTitle) { } %>
+
+<!-- not applied (multiline wrapper) -->
+<% if (showTitle) { %>
+Title
+<% } %>
 ```
 
 ### `ejs-templates/prefer-single-line-tags`
