@@ -3,6 +3,37 @@ import { findErrorNode, parseEjs, SyntaxNode } from './ts-parser.js';
 
 export type EjsSyntaxNode = SyntaxNode & { linePrefix: string };
 
+export const EJS_MARKER_PREFIX = '@ejs-tag:';
+
+export const getTagTypeFromLine = (line: string): EjsTagType | null => {
+  line = line.trim();
+  if (!line.startsWith(EJS_MARKER_PREFIX)) return null;
+  const tagType = line.slice(EJS_MARKER_PREFIX.length);
+  return tagType as EjsTagType;
+};
+
+export const commentTagTypeIsOneOf = (comment: string, expectedTagType: EjsTagType[]): boolean => {
+  const tagType = getTagTypeFromLine(comment);
+  return tagType !== null && expectedTagType.includes(tagType);
+};
+
+const _TAG_TYPES_WITH_MULTILINE = [
+  'escaped-output',
+  'raw-output',
+  'slurp',
+  'code',
+  'code-slurpable',
+  'slurp-needs-indent',
+] as const;
+const _TAG_TYPES = ['directive-comment', 'comment-empty-line', 'slurp-not-standalone'] as const;
+type EjsBaseTagType = (typeof _TAG_TYPES_WITH_MULTILINE)[number];
+type EjsTagType = EjsBaseTagType | (typeof _TAG_TYPES)[number] | `${EjsBaseTagType}-multiline`;
+
+const _EJS_OPENING_DELIMS = ['<%=', '<%-', '<%_', '<%#', '<%'] as const;
+const EJS_CLOSING_DELIMS = ['-%>', '_%>', '%>'] as const;
+type EjsOpeningDelimiter = (typeof _EJS_OPENING_DELIMS)[number];
+type EjsClosingDelimiter = (typeof EJS_CLOSING_DELIMS)[number];
+
 /** A single extracted EJS tag together with its position in the original file. */
 export interface TagBlock {
   ejsNode: EjsSyntaxNode;
@@ -45,7 +76,7 @@ export interface TagBlock {
    *                          the brace-depth expected indent (triggers `indent` rule)
    * - `-not-standalone`    → slurp tag that is inline (triggers `slurp-newline` rule)
    */
-  tagType: string;
+  tagType: EjsTagType;
   /** Raw JS content captured between the delimiters. */
   codeContent: string;
   /**
@@ -58,9 +89,9 @@ export interface TagBlock {
   lintCodeContent: string;
   javascriptPartialNode?: RelativeJavascriptNode;
   /** Full opening delimiter string (e.g. `<%`, `<%_`, `<%=`, `<%-`). */
-  openDelim: string;
+  openDelim: EjsOpeningDelimiter;
   /** Full closing delimiter string (e.g. `%>`, `_%>`, `-%>`). */
-  closeDelim: string;
+  closeDelim: EjsClosingDelimiter;
   /**
    * Actual whitespace characters on the current line before the tag.
    * Empty string when the tag is not standalone (has non-whitespace before it
@@ -156,8 +187,8 @@ function extractEslintDirectiveFromEjsComment(commentText: string): string | nul
  * Extract the close delimiter from an EJS comment tag text.
  * Supported delimiters: `%>`, `-%>`, `_%>`
  */
-function extractCloseDelimFromEjsComment(commentText: string): string {
-  const delimiters = ['_%>', '-%>', '%>'];
+function extractCloseDelimFromEjsComment(commentText: string): EjsClosingDelimiter {
+  const delimiters = EJS_CLOSING_DELIMS;
   for (const delim of delimiters) {
     if (commentText.endsWith(delim)) {
       return delim;
@@ -176,7 +207,7 @@ function createDirectiveCommentBlock(params: {
   tagColumn: number;
   lineIndent: string;
   isStandalone: boolean;
-  closeDelim?: string;
+  closeDelim?: EjsClosingDelimiter;
 }): TagBlock {
   const {
     ejsNode,
@@ -254,7 +285,7 @@ export function extractTagBlocks(nodes: EjsSyntaxNode[]): TagBlock[] {
     tagColumn: number;
     lineIndent: string;
     isStandalone: boolean;
-    closeDelim: string;
+    closeDelim: EjsClosingDelimiter;
   } | null = null;
 
   for (const node of nodes) {
@@ -335,8 +366,8 @@ export function extractTagBlocks(nodes: EjsSyntaxNode[]): TagBlock[] {
     }
 
     // Extract opening/closing delimiters and code content from tree-sitter nodes.
-    const openDelim: string = node.children[0]?.text ?? '<%';
-    const closeDelim: string = node.children[node.childCount - 1]?.text ?? '%>';
+    const openDelim = (node.children[0]?.text ?? '<%') as EjsOpeningDelimiter;
+    const closeDelim = (node.children[node.childCount - 1]?.text ?? '%>') as EjsClosingDelimiter;
     const codeNode = node.namedChildren.find((c) => c.type === 'code');
     const codeContent: string = codeNode?.text ?? '';
     const lintCodeContent = normalizeLintCodeContent(codeContent);
@@ -381,7 +412,7 @@ export function extractTagBlocks(nodes: EjsSyntaxNode[]): TagBlock[] {
       Math.min(oldBraceDepth - javascriptPartialNode.missingOpenBracesCount, braceDepth),
     );
     // ── Base tag type ─────────────────────────────────────────────────────
-    let baseType: string;
+    let baseType: EjsBaseTagType;
     if (openDelim === '<%=') {
       baseType = 'escaped-output';
     } else if (openDelim === '<%-') {
@@ -402,7 +433,7 @@ export function extractTagBlocks(nodes: EjsSyntaxNode[]): TagBlock[] {
     const isMultiline = codeContent.includes('\n');
 
     // ── Final tag type (with violation suffixes) ───────────────────────────
-    let tagType = baseType;
+    let tagType: EjsTagType = baseType;
     if (isStandalone && isSlurpTag && lineIndent !== expectedIndent) {
       tagType = isMultiline ? 'slurp-needs-indent-multiline' : 'slurp-needs-indent';
     } else if (isMultiline) {
@@ -412,6 +443,7 @@ export function extractTagBlocks(nodes: EjsSyntaxNode[]): TagBlock[] {
       // The `slurp-newline` rule will move it to its own line.
       tagType = 'slurp-not-standalone';
     }
+    tagType = tagType as EjsTagType; // for TS narrowing
 
     // ── Virtual body extras (void-expression wrapping) ────────────────────
     // For output tags: append `;` so the expression is a valid statement in
@@ -437,7 +469,7 @@ export function extractTagBlocks(nodes: EjsSyntaxNode[]): TagBlock[] {
     // `forEach(x => { ... })`.  Global brace balancing is applied in
     // `preprocess` instead.
     const virtualCode =
-      `//@ejs-tag:${tagType}\n` + `${lintCodeContent}${virtualBodyInlineSuffix}${virtualBodyExtraLine}`;
+      `//${EJS_MARKER_PREFIX}${tagType}\n` + `${lintCodeContent}${virtualBodyInlineSuffix}${virtualBodyExtraLine}`;
 
     blocks.push({
       ejsNode: node,

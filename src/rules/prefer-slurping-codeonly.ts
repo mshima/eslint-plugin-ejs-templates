@@ -7,6 +7,7 @@
 //     http://www.apache.org/licenses/LICENSE-2.0
 
 import type { Rule } from 'eslint';
+import { commentTagTypeIsOneOf } from '../ejs-parser.js';
 
 /**
  * ESLint rule: prefer `<%_ … _%>` (whitespace-slurping) over `<% … %>`
@@ -37,7 +38,7 @@ export const preferSlurpingCodeonly: Rule.RuleModule = {
         const sourceCode = context.sourceCode;
         const comments = sourceCode.getAllComments();
         for (const comment of comments) {
-          if (comment.type === 'Line' && comment.value.trim() === '@ejs-tag:code-slurpable') {
+          if (comment.type === 'Line' && commentTagTypeIsOneOf(comment.value, ['code-slurpable'])) {
             const { range = [0, 0] } = comment;
             context.report({
               loc: comment.loc ?? { line: 0, column: 0 },

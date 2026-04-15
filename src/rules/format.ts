@@ -8,6 +8,7 @@
 
 import type { Rule } from 'eslint';
 import { SENTINEL_FORMAT, SENTINEL_FORMAT_MULTILINE_CLOSE, getVirtualCodeMetadata } from '../processor.js';
+import { EJS_MARKER_PREFIX } from '../ejs-parser.js';
 
 export const format: Rule.RuleModule = {
   meta: {
@@ -44,7 +45,7 @@ export const format: Rule.RuleModule = {
       Program() {
         const sourceCode = context.sourceCode;
         const comments = sourceCode.getAllComments();
-        const tagComments = comments.filter((c) => c.type === 'Line' && c.value.trim().startsWith('@ejs-tag:'));
+        const tagComments = comments.filter((c) => c.type === 'Line' && c.value.trim().startsWith(EJS_MARKER_PREFIX));
         const metadata = getVirtualCodeMetadata(sourceCode.text);
         const tagFormatState = metadata?.tagFormat;
 
