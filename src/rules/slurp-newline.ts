@@ -8,7 +8,7 @@
 
 import type { Rule } from 'eslint';
 import { SENTINEL_SLURP_NEWLINE } from '../processor.js';
-import { commentTagTypeIsOneOf } from '../ejs-parser.js';
+import { getTagTypeComments } from '../utils.js';
 
 /**
  * ESLint rule: ensure `<%_ … _%>` tags are on their own line.
@@ -50,9 +50,9 @@ export const slurpNewline: Rule.RuleModule = {
     return {
       Program() {
         const sourceCode = context.sourceCode;
-        const comments = sourceCode.getAllComments();
-        for (const comment of comments) {
-          if (comment.type === 'Line' && commentTagTypeIsOneOf(comment.value, ['slurp-not-standalone'])) {
+        const tagTypeComments = getTagTypeComments(sourceCode.getAllComments());
+        for (const { comment, tagType } of tagTypeComments) {
+          if (tagType === 'slurp-not-standalone') {
             const { range = [0, 0] } = comment;
             context.report({
               loc: comment.loc ?? { line: 0, column: 0 },

@@ -12,11 +12,6 @@ export const getTagTypeFromLine = (line: string): EjsTagType | null => {
   return tagType as EjsTagType;
 };
 
-export const commentTagTypeIsOneOf = (comment: string, expectedTagType: EjsTagType[]): boolean => {
-  const tagType = getTagTypeFromLine(comment);
-  return tagType !== null && expectedTagType.includes(tagType);
-};
-
 const _TAG_TYPES_WITH_MULTILINE = [
   'escaped-output',
   'raw-output',
