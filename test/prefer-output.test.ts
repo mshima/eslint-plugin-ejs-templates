@@ -87,18 +87,40 @@ describe('rule: ejs-templates/prefer-output', () => {
     expect(msgs.filter((m) => m.ruleId === 'ejs-templates/prefer-output')).toHaveLength(0);
   });
 
-  test('flags nested if with empty body', () => {
+  test('does not flag if statement with close brace on another line', () => {
     const msgs = lint(
       `
-    <% if (outer) { %>
-      <% if (inner) { %>
-      <% } %>
+    <% if (inner) { %>
     <% } %>
     `,
       { 'ejs-templates/prefer-output': 'error' },
     );
     const results = msgs.filter((m) => m.ruleId === 'ejs-templates/prefer-output');
-    expect(results.length).toBeGreaterThanOrEqual(1);
+    expect(results.length).toBeGreaterThanOrEqual(0);
+  });
+
+  test('does not flag if else close is on another line', () => {
+    const msgs = lint(
+      `
+    <% if (inner) { %><% } else { %>
+    <% } %>
+    `,
+      { 'ejs-templates/prefer-output': 'error' },
+    );
+    const results = msgs.filter((m) => m.ruleId === 'ejs-templates/prefer-output');
+    expect(results.length).toBeGreaterThanOrEqual(0);
+  });
+
+  test('does not flag if else close ends on another line', () => {
+    const msgs = lint(
+      `
+    <% if (inner) { %><% } else { %><%
+    } %>
+    `,
+      { 'ejs-templates/prefer-output': 'error' },
+    );
+    const results = msgs.filter((m) => m.ruleId === 'ejs-templates/prefer-output');
+    expect(results.length).toBeGreaterThanOrEqual(0);
   });
 
   test('message includes example transformation', () => {

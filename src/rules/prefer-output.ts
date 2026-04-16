@@ -9,6 +9,7 @@
 import type { Rule } from 'eslint';
 import { getFileBlocks, SENTINEL_PREFER_OUTPUT, SENTINEL_PREFER_OUTPUT_ELSE } from '../processor.js';
 import { getTagTypeComments } from '../utils.js';
+import type { TagBlock } from '../ejs-parser.ts';
 
 /**
  * ESLint rule: suggest converting conditional output patterns to ternary expressions.
@@ -52,7 +53,9 @@ export const preferOutput: Rule.RuleModule = {
           const { comment, tagType } = tagTypeComments[i];
           if (tagType !== 'code') continue;
 
-          const firstPartialNode = fileBlocks?.segments[i]?.block.javascriptPartialNode;
+          const firstBlock = fileBlocks?.segments[i]?.block;
+          if (!firstBlock) continue;
+          const firstPartialNode = firstBlock.javascriptPartialNode;
           if (!firstPartialNode || firstPartialNode.multiline || firstPartialNode.contentNode.childCount !== 1)
             continue;
 
@@ -63,7 +66,9 @@ export const preferOutput: Rule.RuleModule = {
           const nextTagTypeComment = tagTypeComments.at(i + 1);
           if (nextTagTypeComment?.tagType !== 'code') continue;
 
-          const nextPartialNode = fileBlocks.segments[i + 1]?.block.javascriptPartialNode;
+          const nextBlock = fileBlocks.segments[i + 1]?.block as TagBlock | undefined;
+          if (nextBlock?.originalLine !== firstBlock.originalLine) continue;
+          const nextPartialNode = nextBlock.javascriptPartialNode;
           if (!nextPartialNode || nextPartialNode.multiline || nextPartialNode.contentNode.childCount !== 1) continue;
 
           const errorNode = nextPartialNode.contentNode.child(0);
@@ -73,6 +78,12 @@ export const preferOutput: Rule.RuleModule = {
           if (errorNode.childCount > 1) {
             // Treat else clauses
             if (errorNode.child(1)?.type !== 'else' || errorNode.child(2)?.type !== '{') continue;
+
+            const elseCloseBlock = fileBlocks.segments[i + 2]?.block as TagBlock | undefined;
+            if (elseCloseBlock?.originalLine !== firstBlock.originalLine) continue;
+            const elseCloseErrorNode = elseCloseBlock.javascriptPartialNode?.contentNode.child(0);
+            if (elseCloseErrorNode?.type !== 'ERROR' || elseCloseErrorNode.child(0)?.type !== '}') continue;
+
             hasElseClause = true;
           }
 
