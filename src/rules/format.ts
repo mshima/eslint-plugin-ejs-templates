@@ -7,7 +7,12 @@
 //     http://www.apache.org/licenses/LICENSE-2.0
 
 import type { Rule } from 'eslint';
-import { SENTINEL_FORMAT, SENTINEL_FORMAT_MULTILINE_CLOSE, getVirtualCodeMetadata } from '../processor.js';
+import {
+  SENTINEL_FORMAT,
+  SENTINEL_FORMAT_MULTILINE_CLOSE,
+  getFileBlocks,
+  getVirtualCodeMetadata,
+} from '../processor.js';
 import { getTagTypeComments } from '../utils.js';
 
 export const format: Rule.RuleModule = {
@@ -47,9 +52,18 @@ export const format: Rule.RuleModule = {
         const tagTypeComments = getTagTypeComments(sourceCode.getAllComments());
         const metadata = getVirtualCodeMetadata(sourceCode.text);
         const tagFormatState = metadata?.tagFormat;
+        const fileBlocks = getFileBlocks(context.filename);
 
         for (let i = 0; i < tagTypeComments.length; i++) {
           const { comment } = tagTypeComments[i];
+          const firstBlock = fileBlocks?.segments[i]?.block;
+          if (!firstBlock) continue;
+
+          const firstPartialNode = firstBlock.javascriptPartialNode;
+          if (!firstPartialNode) {
+            continue;
+          }
+
           const state = tagFormatState?.[i];
           const needsFormat =
             multilineClose === 'new-line'
@@ -67,7 +81,9 @@ export const format: Rule.RuleModule = {
             fix(fixer) {
               return fixer.replaceTextRange(
                 [range[0], range[1]],
-                multilineClose === 'new-line' ? SENTINEL_FORMAT_MULTILINE_CLOSE : SENTINEL_FORMAT,
+                multilineClose === 'new-line' && firstPartialNode.multilineTrimmed
+                  ? SENTINEL_FORMAT_MULTILINE_CLOSE
+                  : SENTINEL_FORMAT,
               );
             },
           });

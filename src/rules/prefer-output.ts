@@ -56,7 +56,7 @@ export const preferOutput: Rule.RuleModule = {
           const firstBlock = fileBlocks?.segments[i]?.block;
           if (!firstBlock) continue;
           const firstPartialNode = firstBlock.javascriptPartialNode;
-          if (!firstPartialNode || firstPartialNode.multiline || firstPartialNode.contentNode.childCount !== 1)
+          if (!firstPartialNode || firstPartialNode.multilineOriginal || firstPartialNode.contentNode.childCount !== 1)
             continue;
 
           const ifStatement = firstPartialNode.contentNode.child(0);
@@ -69,7 +69,9 @@ export const preferOutput: Rule.RuleModule = {
           const nextBlock = fileBlocks.segments[i + 1]?.block as TagBlock | undefined;
           if (nextBlock?.originalLine !== firstBlock.originalLine) continue;
           const nextPartialNode = nextBlock.javascriptPartialNode;
-          if (!nextPartialNode || nextPartialNode.multiline || nextPartialNode.contentNode.childCount !== 1) continue;
+          if (!nextPartialNode || nextPartialNode.multilineOriginal || nextPartialNode.contentNode.childCount !== 1) {
+            continue;
+          }
 
           const errorNode = nextPartialNode.contentNode.child(0);
           if (errorNode?.type !== 'ERROR' || errorNode.child(0)?.type !== '}') continue;

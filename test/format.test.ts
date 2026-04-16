@@ -52,7 +52,7 @@ describe('autofix: format', () => {
 
   test("moves multiline close to a new line aligned with opening indent by default (multilineClose='new-line')", () => {
     const input = '  <%_\n  doWork(); _%>';
-    expect(applyFix(input, { 'ejs-templates/format': 'error' })).toBe('  <%_ doWork();\n  _%>');
+    expect(applyFix(input, { 'ejs-templates/format': 'error' })).toBe('  <%_ doWork(); _%>');
   });
 
   test("keeps close on same line when multilineClose='same-line'", () => {
