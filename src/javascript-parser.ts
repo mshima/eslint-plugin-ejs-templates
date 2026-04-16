@@ -1,5 +1,4 @@
-import { Tree } from 'web-tree-sitter';
-import { parseJavaScript, SyntaxNode } from './ts-parser.js';
+import { parseJavaScript, type SyntaxNode } from './ts-parser.js';
 
 export type RelativeJavascriptNode = {
   /**
@@ -42,7 +41,7 @@ const collectParentTypes = (node: SyntaxNode): string[] => {
 };
 
 const collectNodesStartingInRange = (node: SyntaxNode, contentStart = 0, contentEnd = Infinity): SyntaxNode[] => {
-  const nodes: Array<SyntaxNode> = [];
+  const nodes: SyntaxNode[] = [];
   if (node.startIndex >= contentStart && node.startIndex < contentEnd) {
     // We may have nodes that starts within the content but ends outside of it (e.g. an unclosed `{` at the end of the content).
     // Include those nodes, but log them for visibility since they may indicate parsing issues.
@@ -55,7 +54,7 @@ const collectNodesStartingInRange = (node: SyntaxNode, contentStart = 0, content
 };
 
 const collectErrorNodes = (node: SyntaxNode | SyntaxNode[]): SyntaxNode[] => {
-  const nodes: Array<SyntaxNode> = [];
+  const nodes: SyntaxNode[] = [];
   if (Array.isArray(node)) {
     for (const n of node) {
       nodes.push(...collectErrorNodes(n));
@@ -76,7 +75,7 @@ const collectErrorNodes = (node: SyntaxNode | SyntaxNode[]): SyntaxNode[] => {
 /**
  * Tries to generate a approximate node for a Javascript partial code.
  */
-export function parseJavaScriptPartial(text: string, incrementalCode: string = ''): RelativeJavascriptNode {
+export function parseJavaScriptPartial(text: string, incrementalCode = ''): RelativeJavascriptNode {
   const contentTree = parseJavaScript(text);
   const isMissingCloseBrace = (n: SyntaxNode) =>
     (n.isError && n.text.trimEnd().endsWith('{')) || (n.isMissing && n.type === '}');
@@ -95,7 +94,7 @@ export function parseJavaScriptPartial(text: string, incrementalCode: string = '
       .join()
       .match(/}/g)?.length ?? 0;
   let wrapperPrefix = '';
-  let contentTreeBestGuess: Tree | undefined = undefined;
+  let contentTreeBestGuess: ReturnType<typeof parseJavaScript> | undefined = undefined;
   if (contentTree.rootNode.hasError) {
     const ejsBaseWrapperPrefix = 'function __ejs_brace_probe__() {\n';
     const ejsBaseWrapperSuffix = '\n  foo(); \n}\n';

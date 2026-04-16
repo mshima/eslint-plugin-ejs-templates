@@ -78,7 +78,7 @@ export const noComplexStatements: Rule.RuleModule = {
       'SwitchStatement',
     ];
 
-    const messageMap: { [key: string]: string } = {
+    const messageMap: Record<string, string> = {
       TryStatement: 'forbiddenTry',
       LabeledStatement: 'forbiddenLabel',
       WithStatement: 'forbiddenWith',
@@ -105,7 +105,7 @@ export const noComplexStatements: Rule.RuleModule = {
     }
 
     // Create a proxy handler that intercepts any statement type
-    const proxyHandler: { [key: string]: (node: Rule.Node) => void } = {};
+    const proxyHandler: Record<string, (node: Rule.Node) => void> = {};
 
     // Register all statement types that might be in the forbidden list
     const statementTypes = new Set<string>();

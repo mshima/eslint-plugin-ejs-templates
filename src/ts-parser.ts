@@ -9,8 +9,7 @@
 import { existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Parser, Language } from 'web-tree-sitter';
-import type { Node as SyntaxNode, Tree } from 'web-tree-sitter';
+import type { Parser as CodeParser, Tree, Node as SyntaxNode } from '../web-tree-sitter.js';
 
 export type { SyntaxNode };
 
@@ -24,6 +23,8 @@ function resolveWasm(localFileName: string): string {
   throw new Error(`WASM file not found: ${localFileName} (tried ${localPath})`);
 }
 
+const { Parser, Language } = await import('web-tree-sitter');
+
 // ---------------------------------------------------------------------------
 // One-time async initialisation (top-level await — valid in ES modules).
 // By the time any caller imports this module the parser is ready to use.
@@ -36,10 +37,10 @@ await Parser.init({
 const _language = await Language.load(resolveWasm('tree-sitter-embedded_template.wasm'));
 const _javascriptLanguage = await Language.load(resolveWasm('tree-sitter-javascript.wasm'));
 
-const _parser = new Parser();
+const _parser = new Parser() as CodeParser;
 _parser.setLanguage(_language);
 
-const _javascriptParser = new Parser();
+const _javascriptParser = new Parser() as CodeParser;
 _javascriptParser.setLanguage(_javascriptLanguage);
 
 // ---------------------------------------------------------------------------
