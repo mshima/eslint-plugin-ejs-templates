@@ -95,9 +95,40 @@ const stylisticIgnoredRules = {
   '@stylistic/indent': 'off',
 };
 
-const preferEncodedRule = (encoded: boolean) => ({
-  [`${pluginName}/prefer-encoded`]: ['error', encoded ? 'always' : 'never'] as const,
-});
+const collectEjsRules = (configs: Config[]): string[] =>
+  configs
+    .map((c) => c.rules ?? {})
+    .flatMap((rules) => Object.keys(rules).filter((rule) => rule.startsWith(`${pluginName}/`)));
+
+const defaultRules = ({
+  allowedGlobals,
+  experimental,
+  ignoredRules,
+  preferEncoded,
+}: {
+  allowedGlobals?: string[];
+  experimental?: boolean;
+  ignoredRules?: string[];
+  preferEncoded?: 'always' | 'never';
+}) =>
+  Object.fromEntries(
+    Object.entries({
+      [`${pluginName}/no-global-function-call`]: ['error', { allow: allowedGlobals ?? [] }],
+      [`${pluginName}/no-function-block`]: 'error',
+      [`${pluginName}/no-complex-statements`]: 'error',
+      [`${pluginName}/no-comment-empty-line`]: 'error',
+      [`${pluginName}/output-semi`]: 'error',
+      [`${pluginName}/prefer-output`]: 'error',
+
+      [`${pluginName}/prefer-single-line-tags`]: 'error',
+      [`${pluginName}/slurp-newline`]: 'error',
+      [`${pluginName}/prefer-slurping-codeonly`]: 'error',
+      [`${pluginName}/experimental-prefer-slurp-multiline`]: experimental ? 'error' : 'off',
+      [`${pluginName}/indent`]: 'error',
+      [`${pluginName}/format`]: 'error',
+      ...(preferEncoded ? { [`${pluginName}/prefer-encoded`]: ['error', preferEncoded] } : {}),
+    }).filter(([rule]) => !ignoredRules?.includes(rule)),
+  );
 
 const customize = (
   {
@@ -128,19 +159,12 @@ const customize = (
     {
       ...base[0],
       rules: {
-        [`${pluginName}/no-global-function-call`]: ['error', { allow: allowedGlobals ?? [] }],
-        [`${pluginName}/no-function-block`]: 'error',
-        [`${pluginName}/no-complex-statements`]: 'error',
-        [`${pluginName}/no-comment-empty-line`]: 'error',
-        [`${pluginName}/output-semi`]: 'error',
-        [`${pluginName}/prefer-output`]: 'error',
-
-        [`${pluginName}/prefer-single-line-tags`]: 'error',
-        [`${pluginName}/slurp-newline`]: 'error',
-        [`${pluginName}/prefer-slurping-codeonly`]: 'error',
-        [`${pluginName}/experimental-prefer-slurp-multiline`]: experimental ? 'error' : 'off',
-        [`${pluginName}/indent`]: 'error',
-        [`${pluginName}/format`]: 'error',
+        ...defaultRules({
+          allowedGlobals,
+          experimental,
+          preferEncoded: html === 'extension' ? undefined : html,
+          ignoredRules: collectEjsRules(otherConfigs),
+        }),
         ...(stylisticBlacklist ? stylisticIgnoredRules : {}),
         ...(prettierBlacklist ? { 'prettier/prettier': 'off' } : {}),
       },
@@ -149,20 +173,19 @@ const customize = (
       ? [
           {
             files: ['**/*.html.ejs'],
-            rules: preferEncodedRule(true),
+            rules: {
+              [`${pluginName}/prefer-encoded`]: ['error', 'always'],
+            },
           },
           {
             files: ['**/*.ejs'],
             ignores: ['**/*.html.ejs'],
-            rules: preferEncodedRule(false),
+            rules: {
+              [`${pluginName}/prefer-encoded`]: ['error', 'never'],
+            },
           },
         ]
-      : [
-          {
-            files: ['**/*.ejs'],
-            rules: preferEncodedRule(html === 'always'),
-          },
-        ]),
+      : []),
   ] as Config[];
 };
 
