@@ -501,21 +501,68 @@ describe('plugin shape', () => {
       expect(cfg.files?.every((f) => (f as string).endsWith('.ejs'))).toBe(true);
     }
   });
-
-  test('all config enables all rules as error', () => {
+  test('enable prefer-encoded rule based on file extension', () => {
     const configs = plugin.configs.customize({});
     expect(configs[1].rules?.['ejs-templates/prefer-encoded']).toEqual(['error', 'always']);
     expect(configs[2].rules?.['ejs-templates/prefer-encoded']).toEqual(['error', 'never']);
+  });
+
+  test('customize should generate a config with correct rules', () => {
+    const configs = plugin.configs.customize({ html: 'never' });
     const config = configs[0];
-    expect(config.rules?.['ejs-templates/prefer-output']).toBe('error');
-    expect(config.rules?.['ejs-templates/prefer-slurping-codeonly']).toBe('error');
-    expect(config.rules?.['ejs-templates/experimental-prefer-slurp-multiline']).toBe('off');
-    expect(config.rules?.['ejs-templates/prefer-single-line-tags']).toBe('error');
-    expect(config.rules?.['ejs-templates/format']).toBe('error');
-    expect(config.rules?.['ejs-templates/slurp-newline']).toBe('error');
-    expect(config.rules?.['ejs-templates/indent']).toBe('error');
-    expect(config.rules?.['ejs-templates/no-global-function-call']).toEqual(['error', { allow: [] }]);
-    expect(config.rules?.['ejs-templates/no-function-block']).toBe('error');
+    expect(config.rules).toMatchInlineSnapshot(`
+      {
+        "ejs-templates/experimental-prefer-slurp-multiline": "off",
+        "ejs-templates/format": "error",
+        "ejs-templates/indent": "error",
+        "ejs-templates/no-comment-empty-line": "error",
+        "ejs-templates/no-complex-statements": "error",
+        "ejs-templates/no-function-block": "error",
+        "ejs-templates/no-global-function-call": [
+          "error",
+          {
+            "allow": [],
+          },
+        ],
+        "ejs-templates/output-semi": "error",
+        "ejs-templates/prefer-encoded": [
+          "error",
+          "never",
+        ],
+        "ejs-templates/prefer-output": "error",
+        "ejs-templates/prefer-single-line-tags": "error",
+        "ejs-templates/prefer-slurping-codeonly": "error",
+        "ejs-templates/slurp-newline": "error",
+      }
+    `);
+  });
+
+  test('customize should not override existing ejs rules', () => {
+    const configs = plugin.configs.customize(
+      { html: 'never' },
+      {
+        rules: {
+          'ejs-templates/format': 'off',
+          'ejs-templates/indent': 'off',
+          'ejs-templates/no-comment-empty-line': 'off',
+          'ejs-templates/no-complex-statements': 'off',
+          'ejs-templates/no-function-block': 'off',
+          'ejs-templates/no-global-function-call': 'off',
+          'ejs-templates/output-semi': 'off',
+          'ejs-templates/prefer-encoded': 'off',
+          'ejs-templates/prefer-output': 'off',
+          'ejs-templates/prefer-single-line-tags': 'off',
+          'ejs-templates/prefer-slurping-codeonly': 'off',
+          'ejs-templates/slurp-newline': 'off',
+        },
+      },
+    );
+    const config = configs.at(-1);
+    expect(config?.rules).toMatchInlineSnapshot(`
+      {
+        "ejs-templates/experimental-prefer-slurp-multiline": "off",
+      }
+    `);
   });
 
   test('customize scopes extra configs to *.ejs without trailing whitespace in the glob', () => {
