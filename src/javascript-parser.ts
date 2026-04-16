@@ -21,7 +21,8 @@ export type RelativeJavascriptNode = {
   missingOpenBracesCount: number;
   bracesDelta: number;
   hasStructuralBraces: boolean;
-  multiline: boolean;
+  multilineOriginal: boolean;
+  multilineTrimmed: boolean;
   splitStatements: () => string[];
 };
 
@@ -118,7 +119,8 @@ export function parseJavaScriptPartial(text: string, incrementalCode = ''): Rela
     nodes,
     contentNode: contentTree.rootNode,
     start: contentStart,
-    multiline: text.includes('\n'),
+    multilineOriginal: text.includes('\n'),
+    multilineTrimmed: text.trim().includes('\n'),
     missingCloseBracesCount,
     missingOpenBracesCount,
     bracesDelta: missingCloseBracesCount - missingOpenBracesCount,
