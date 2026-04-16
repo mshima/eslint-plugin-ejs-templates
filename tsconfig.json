@@ -10,9 +10,14 @@
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,
+    "erasableSyntaxOnly": true,
+    "isolatedModules": true,
+    "rewriteRelativeImportExtensions": true,
+    "noUnusedParameters": true,
+    "verbatimModuleSyntax": true,
     "rootDir": "src",
     "outDir": "dist"
   },
-  "include": ["src/**/*"],
+  "include": ["src/**/*", "web-tree-sitter.d.ts"],
   "exclude": ["node_modules", "dist"]
 }

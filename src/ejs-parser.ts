@@ -1,5 +1,5 @@
-import { parseJavaScriptPartial, RelativeJavascriptNode } from './javascript-parser.js';
-import { findErrorNode, parseEjs, SyntaxNode } from './ts-parser.js';
+import { parseJavaScriptPartial, type RelativeJavascriptNode } from './javascript-parser.js';
+import { findErrorNode, parseEjs, type SyntaxNode } from './ts-parser.js';
 
 export type EjsSyntaxNode = SyntaxNode & { linePrefix: string };
 
@@ -30,7 +30,7 @@ type EjsOpeningDelimiter = (typeof _EJS_OPENING_DELIMS)[number];
 type EjsClosingDelimiter = (typeof EJS_CLOSING_DELIMS)[number];
 
 /** A single extracted EJS tag together with its position in the original file. */
-export interface TagBlock {
+export type TagBlock = {
   ejsNode: EjsSyntaxNode;
   /**
    * Virtual JS code for this block (original content only — no synthetic braces).
@@ -116,7 +116,7 @@ export interface TagBlock {
   isStandalone: boolean;
   /** Whether this block is a virtualized ESLint directive comment from an EJS comment tag. */
   isDirectiveComment: boolean;
-}
+};
 
 const INDENT_UNIT = '  ';
 

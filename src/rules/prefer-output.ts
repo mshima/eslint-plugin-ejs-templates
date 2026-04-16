@@ -57,21 +57,17 @@ export const preferOutput: Rule.RuleModule = {
             continue;
 
           const ifStatement = firstPartialNode.contentNode.child(0);
-          if (
-            !ifStatement ||
-            ifStatement.type !== 'if_statement' ||
-            ifStatement.child(ifStatement.childCount - 1)?.text !== '{'
-          )
+          if (ifStatement?.type !== 'if_statement' || ifStatement.child(ifStatement.childCount - 1)?.text !== '{')
             continue;
 
           const nextTagTypeComment = tagTypeComments.at(i + 1);
-          if (!nextTagTypeComment || nextTagTypeComment.tagType !== 'code') continue;
+          if (nextTagTypeComment?.tagType !== 'code') continue;
 
           const nextPartialNode = fileBlocks.segments[i + 1]?.block.javascriptPartialNode;
           if (!nextPartialNode || nextPartialNode.multiline || nextPartialNode.contentNode.childCount !== 1) continue;
 
           const errorNode = nextPartialNode.contentNode.child(0);
-          if (!errorNode || errorNode.type !== 'ERROR' || errorNode.child(0)?.type !== '}') continue;
+          if (errorNode?.type !== 'ERROR' || errorNode.child(0)?.type !== '}') continue;
 
           let hasElseClause = false;
           if (errorNode.childCount > 1) {

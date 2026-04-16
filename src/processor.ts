@@ -9,7 +9,7 @@
 import type { Linter } from 'eslint';
 import createDebug from 'debug';
 import { findErrorNode, parseJavaScript, type SyntaxNode } from './ts-parser.js';
-import { EJS_MARKER_PREFIX, EjsSyntaxNode, extractTagBlocks, getEjsNodes, TagBlock } from './ejs-parser.js';
+import { EJS_MARKER_PREFIX, type EjsSyntaxNode, extractTagBlocks, getEjsNodes, type TagBlock } from './ejs-parser.js';
 
 type VitualJavascriptCode = {
   virtualCode: string;
@@ -598,7 +598,7 @@ function translateFix(
  * They are used during postprocess() to locate ESLint messages and map them back to
  * the corresponding TagBlock for translation to original EJS source positions.
  */
-interface VirtualBlockSegment {
+type VirtualBlockSegment = {
   block: TagBlock;
   /** 1-based start line of this block inside the combined virtual file. */
   startLine: number;
@@ -608,7 +608,7 @@ interface VirtualBlockSegment {
   startOffset: number;
   /** 0-based end offset (exclusive) of this block inside the combined virtual file. */
   endOffset: number;
-}
+};
 
 const processedFilesMap = new Map<
   string,
@@ -646,10 +646,10 @@ export const getFileBlocks = (
 /**
  * Cached formatting state for tags to detect if they already match format rules.
  */
-interface TagFormatState {
+type TagFormatState = {
   isFormattedDefault: boolean;
   isFormattedMultilineClose: boolean;
-}
+};
 
 /**
  * Unified metadata for a single virtual code block.
@@ -659,13 +659,13 @@ interface TagFormatState {
  * - singleLineTrim: boolean array indicating if each block fits one line after trim()
  * - tagFormat: array of TagFormatState objects for format rule detection
  */
-interface VirtualCodeMetadata {
+type VirtualCodeMetadata = {
   structuralControl: boolean[];
   singleLineTrim: boolean[];
   tagFormat: TagFormatState[];
   /** Index i is true when i-th non-directive slurp-multiline block needs content normalization. */
   needsNormalize: boolean[];
-}
+};
 
 /**
  * Unified per-virtual-code metadata tracking.
@@ -781,7 +781,7 @@ function findMatchingEnableDirective(
     return null;
   }
 
-  const currentDirectiveMatch = currentBlock.codeContent.match(/^eslint-disable(?:-next-line)?(?:\s+(.*))?$/u);
+  const currentDirectiveMatch = /^eslint-disable(?:-next-line)?(?:\s+(.*))?$/u.exec(currentBlock.codeContent);
   if (!currentDirectiveMatch) {
     return null;
   }
@@ -793,7 +793,7 @@ function findMatchingEnableDirective(
     for (let i = currentBlockIndex + 1; i < blocks.length; i++) {
       const block = blocks[i];
       if (block.isDirectiveComment && /^eslint-enable(?:\s|$)/u.test(block.codeContent)) {
-        const enableMatch = block.codeContent.match(/^eslint-enable(?:\s+(.*))?$/u);
+        const enableMatch = /^eslint-enable(?:\s+(.*))?$/u.exec(block.codeContent);
         if (enableMatch && (!enableMatch[1] || enableMatch[1].trim().length === 0)) {
           return { block, index: i };
         }
@@ -811,7 +811,7 @@ function findMatchingEnableDirective(
     for (let i = currentBlockIndex + 1; i < blocks.length; i++) {
       const block = blocks[i];
       if (block.isDirectiveComment && /^eslint-enable(?:\s|$)/u.test(block.codeContent)) {
-        const enableMatch = block.codeContent.match(/^eslint-enable(?:\s+(.*))?$/u);
+        const enableMatch = /^eslint-enable(?:\s+(.*))?$/u.exec(block.codeContent);
         if (enableMatch) {
           const [, enableRuleListRaw = ''] = enableMatch;
           const enableRuleListText = enableRuleListRaw.trim();
@@ -860,11 +860,11 @@ function translateUnusedDirectiveFix(
   enableBlock?: TagBlock;
   enableFix?: { range: [number, number]; text: string };
 } | null {
-  if (!block.isDirectiveComment || msg.ruleId !== null || !/^Unused eslint-disable directive/u.test(msg.message)) {
+  if (!block.isDirectiveComment || msg.ruleId !== null || !msg.message.startsWith('Unused eslint-disable directive')) {
     return null;
   }
 
-  const directiveMatch = block.codeContent.match(/^eslint-disable(?:-next-line)?(?:\s+(.*))?$/u);
+  const directiveMatch = /^eslint-disable(?:-next-line)?(?:\s+(.*))?$/u.exec(block.codeContent);
   if (!directiveMatch) {
     return null;
   }
@@ -921,7 +921,7 @@ function translateUnusedDirectiveFix(
   if (blocks && blockIndex !== undefined) {
     const matchingEnable = findMatchingEnableDirective(blocks, blockIndex);
     if (matchingEnable) {
-      const enableRuleListMatch = matchingEnable.block.codeContent.match(/^eslint-enable(?:\s+(.*))?$/u);
+      const enableRuleListMatch = /^eslint-enable(?:\s+(.*))?$/u.exec(matchingEnable.block.codeContent);
       if (enableRuleListMatch) {
         const [, enableRuleListRaw = ''] = enableRuleListMatch;
         const enableRuleListText = enableRuleListRaw.trim();
@@ -974,7 +974,7 @@ function normalizeUnusedDisableDirectiveMessage(
   options?: { ignoreEjsTemplateRules?: boolean },
 ): Linter.LintMessage | null {
   const ignoreEjsTemplateRules = options?.ignoreEjsTemplateRules ?? false;
-  if (msg.ruleId !== null || !/^Unused eslint-disable directive/u.test(msg.message)) {
+  if (msg.ruleId !== null || !msg.message.startsWith('Unused eslint-disable directive')) {
     return msg;
   }
 
@@ -1014,7 +1014,7 @@ function normalizeUnusedDisableDirectiveMessage(
  */
 const buildVirtualCode = (nodes: SyntaxNode[]): VitualJavascriptCode => {
   const codeNodes = nodes.filter((n) => ['output_directive', 'directive'].includes(n.type)).map((n) => n.children[1]);
-  let virtualCode: string = '';
+  let virtualCode = '';
   const nodeWithPositions: { node: SyntaxNode; startOffset: number; endOffset: number }[] = [];
   for (const node of codeNodes) {
     virtualCode += node.text + '\n';
@@ -1092,7 +1092,7 @@ export const processor: Linter.Processor = {
    * - tagFormatByVirtualCodeMap: tracks format rule satisfaction
    * - fileBlocksMap: stores segments for position-based message translation
    */
-  preprocess(text: string, filename: string): Array<string | { text: string; filename: string }> {
+  preprocess(text: string, filename: string): (string | { text: string; filename: string })[] {
     const ejsNodes = getEjsNodes(text);
     const javascriptVitualCode = buildVirtualCode(ejsNodes);
     const blocks = extractTagBlocks(ejsNodes);

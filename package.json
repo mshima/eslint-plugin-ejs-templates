@@ -28,6 +28,7 @@
   },
   "types": "dist/index.d.ts",
   "files": [
+    "web-tree-sitter.d.ts",
     "dist",
     "wasm",
     "LICENSE",
