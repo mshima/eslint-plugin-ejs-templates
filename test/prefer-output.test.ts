@@ -123,6 +123,17 @@ describe('rule: ejs-templates/prefer-output', () => {
     expect(results.length).toBeGreaterThanOrEqual(0);
   });
 
+  test('does not flag if else if', () => {
+    const msgs = lint(
+      `
+    <% if (inner) { %><% } else if (condition) { %><% } %>
+    `,
+      { 'ejs-templates/prefer-output': 'error' },
+    );
+    const results = msgs.filter((m) => m.ruleId === 'ejs-templates/prefer-output');
+    expect(results.length).toBeGreaterThanOrEqual(0);
+  });
+
   test('message includes example transformation', () => {
     const msgs = lint('<% if (value) { %>x<% } %>', { 'ejs-templates/prefer-output': 'error' });
     const preferOutputMsgs = msgs.filter((m) => m.ruleId === 'ejs-templates/prefer-output');
