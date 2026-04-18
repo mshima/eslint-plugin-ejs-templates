@@ -7,7 +7,7 @@
 //     http://www.apache.org/licenses/LICENSE-2.0
 
 import type { Rule } from 'eslint';
-import { SENTINEL_PREFER_SINGLE_LINE_TAGS_BRACES, getVirtualCodeMetadata } from '../processor.js';
+import { SENTINEL_PREFER_SINGLE_LINE_TAGS_BRACES, getFileBlocks } from '../processor.js';
 import { getTagTypeComments } from '../utils.js';
 
 /**
@@ -37,22 +37,23 @@ export const preferSingleLineTags: Rule.RuleModule = {
       Program() {
         const sourceCode = context.sourceCode;
         const tagTypeComments = getTagTypeComments(sourceCode.getAllComments());
+        const fileBlocks = getFileBlocks(context.filename);
+        if (!fileBlocks) {
+          return;
+        }
 
-        // Provided by the processor from tree-sitter AST analysis (same tag order as markers).
-        const metadata = getVirtualCodeMetadata(sourceCode.text);
-        const structuralByTag = metadata?.structuralControl;
-        const singleLineTrimByTag = metadata?.singleLineTrim;
-
-        for (const tagTypeComment of tagTypeComments) {
+        for (const [index, tagTypeComment] of tagTypeComments.entries()) {
           const { comment, tagType } = tagTypeComment;
           if (!tagType.includes('-multiline')) {
             continue;
           }
 
-          const tagIndex = tagTypeComments.indexOf(tagTypeComment);
-          const hasStructuralInThisBlock = tagIndex !== -1 && structuralByTag?.[tagIndex] === true;
-          const fitsSingleLineWhenTrimmed = tagIndex !== -1 && singleLineTrimByTag?.[tagIndex] === true;
-          if (!hasStructuralInThisBlock && !fitsSingleLineWhenTrimmed) {
+          const block = fileBlocks.segments.at(index)?.block;
+          if (!block?.javascriptPartialNode) {
+            continue;
+          }
+          const { hasStructuralBraces, multilineTrimmed } = block.javascriptPartialNode;
+          if (!hasStructuralBraces && multilineTrimmed) {
             continue;
           }
 
