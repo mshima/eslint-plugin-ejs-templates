@@ -654,13 +654,9 @@ type TagFormatState = {
  * Unified metadata for a single virtual code block.
  *
  * Combines all per-tag metadata needed by ESLint rules:
- * - structuralControl: boolean array indicating if each block has structural braces
- * - singleLineTrim: boolean array indicating if each block fits one line after trim()
  * - tagFormat: array of TagFormatState objects for format rule detection
  */
 type VirtualCodeMetadata = {
-  structuralControl: boolean[];
-  singleLineTrim: boolean[];
   tagFormat: TagFormatState[];
   /** Index i is true when i-th non-directive slurp-multiline block needs content normalization. */
   needsNormalize: boolean[];
@@ -670,9 +666,7 @@ type VirtualCodeMetadata = {
  * Unified per-virtual-code metadata tracking.
  *
  * Consolidates three metadata arrays for each wrapped virtual code:
- * - **structuralControl**: Index i indicates if i-th non-directive block has structural braces
  *   (if/while/for/try/etc). Used by prefer-single-line-tags rule.
- * - **singleLineTrim**: Index i indicates if i-th non-directive block's content becomes
  *   a single line after trim(). Used by prefer-single-line-tags rule.
  * - **tagFormat**: Index i contains TagFormatState for i-th non-directive block,
  *   tracking which format rules the tag already satisfies. Used by format rule.
@@ -1086,8 +1080,6 @@ export const processor: Linter.Processor = {
    *       Allows fallback when raw code would be syntactically invalid.
    *
    * **Metadata initialization:**
-   * - structuralControlByVirtualCodeMap: tracks if-/for-/while-/try-/etc blocks
-   * - singleLineTrimByVirtualCodeMap: tracks tags that fit one line after trim()
    * - tagFormatByVirtualCodeMap: tracks format rule satisfaction
    * - fileBlocksMap: stores segments for position-based message translation
    */
@@ -1156,8 +1148,6 @@ export const processor: Linter.Processor = {
     const virtualCode = `${GLOBAL_VIRTUAL_OPEN}${joinedBlocksVirtualCode}${GLOBAL_VIRTUAL_CLOSE}`;
     const nonDirectiveBlocks = blocks.filter((block) => !block.isDirectiveComment);
     virtualCodeMetadataMap.set(virtualCode, {
-      structuralControl: nonDirectiveBlocks.map((block) => block.javascriptPartialNode?.hasStructuralBraces ?? false),
-      singleLineTrim: nonDirectiveBlocks.map((block) => isSingleLineAfterTrim(block.codeContent)),
       tagFormat: nonDirectiveBlocks.map((block) => {
         const originalText = block.openDelim + block.codeContent + block.closeDelim;
         return {
