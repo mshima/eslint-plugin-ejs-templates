@@ -24,14 +24,6 @@ type VitualJavascriptCode = {
 const debug = createDebug('ejs-templates:processor');
 
 // ---------------------------------------------------------------------------
-// Slurping eligibility check
-// ---------------------------------------------------------------------------
-function isSingleLineAfterTrim(content: string): boolean {
-  const trimmed = content.trim();
-  return trimmed.length > 0 && !trimmed.includes('\n');
-}
-
-// ---------------------------------------------------------------------------
 // Function-wrapper helpers
 // ---------------------------------------------------------------------------
 
@@ -185,11 +177,6 @@ function buildCollapsedTag(block: TagBlock, options?: { applyIndent?: boolean })
     );
   }
   const applyIndent = options?.applyIndent ?? false;
-  // Also collapse multiline tags that become a single line after trim.
-  if (isSingleLineAfterTrim(block.codeContent)) {
-    const baseIndent = applyIndent ? block.expectedIndent : '';
-    return `${baseIndent}${block.openDelim} ${block.codeContent.trim()} ${block.closeDelim}`;
-  }
 
   const hasBraces = javascriptPartialNode.hasStructuralBraces;
   if (!hasBraces) {
@@ -442,7 +429,7 @@ function translateFix(
           `Cannot translate fix for block at line ${String(block.tagLine)} due to missing javascriptPartialNode.`,
         );
       }
-      if (!javascriptPartialNode.hasStructuralBraces && !isSingleLineAfterTrim(block.codeContent)) {
+      if (javascriptPartialNode.bracesDelta === 0) {
         return null;
       }
       const originalText = block.openDelim + block.codeContent + block.closeDelim;

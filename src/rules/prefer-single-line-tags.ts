@@ -52,8 +52,8 @@ export const preferSingleLineTags: Rule.RuleModule = {
           if (!block?.javascriptPartialNode) {
             continue;
           }
-          const { hasStructuralBraces, multilineTrimmed } = block.javascriptPartialNode;
-          if (!hasStructuralBraces && multilineTrimmed) {
+          const { bracesDelta } = block.javascriptPartialNode;
+          if (bracesDelta === 0) {
             continue;
           }
 

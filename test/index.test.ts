@@ -76,6 +76,12 @@ describe('fixture tests', () => {
 // ---------------------------------------------------------------------------
 
 describe('formatting fixture tests', () => {
+  test('fixture 4 input has violations for both prefer-single-line-tags and prefer-encoded', () => {
+    const msgs = lint(fixture4.input, fixture4.rules);
+    expect(msgs.filter((m) => m.ruleId === 'ejs-templates/prefer-single-line-tags').length).toBeGreaterThan(0);
+    expect(msgs.filter((m) => m.ruleId === 'ejs-templates/prefer-encoded').length).toBeGreaterThan(0);
+  });
+
   test('fixture 4 (prefer-single-line-tags + prefer-encoded:never) autofix produces expected output', () => {
     const fixed = applyFix(fixture4.input, fixture4.rules);
     expect(fixed).toBe(fixture4.expected);

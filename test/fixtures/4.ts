@@ -2,8 +2,8 @@
  * Fixture 4 – prefer-single-line-tags (porting ejsCollapseMultiline).
  *
  * Input contains multiline EJS tags in several forms.
- * Expected output collapses only structural slurp tags.
- * Non-structural multiline tags remain unchanged.
+ * Expected output collapses only tags with unbalanced structural braces.
+ * Tags that are multiline but balanced remain unchanged.
  */
 
 export const input = `<%_
@@ -16,9 +16,7 @@ _%>
 <%
   doSomething();
 %>
-<h1><%=
-  title
-%></h1>
+<h1><%= title %></h1>
 <%_ } _%>
 `;
 
@@ -27,7 +25,9 @@ export const expected = `<%_ if (generateSpringAuditor) { _%>
   const x = 1;
   const y = 2;
 _%>
-<% doSomething(); %>
+<%
+  doSomething();
+%>
 <h1><%- title %></h1>
 <%_ } _%>
 `;

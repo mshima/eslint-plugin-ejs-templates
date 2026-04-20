@@ -19,9 +19,9 @@ describe('rule: ejs-templates/prefer-single-line-tags', () => {
     expect(msgs.filter((m) => m.ruleId === 'ejs-templates/prefer-single-line-tags').length).toBeGreaterThan(0);
   });
 
-  test('flags a multiline <%= %> output tag', () => {
+  test('does not flag a multiline <%= %> output tag', () => {
     const msgs = lint('<%=\n  value\n%>', { 'ejs-templates/prefer-single-line-tags': 'error' });
-    expect(msgs.filter((m) => m.ruleId === 'ejs-templates/prefer-single-line-tags').length).toBeGreaterThan(0);
+    expect(msgs.filter((m) => m.ruleId === 'ejs-templates/prefer-single-line-tags')).toHaveLength(0);
   });
 
   test('does not flag a single-line tag', () => {
@@ -29,9 +29,9 @@ describe('rule: ejs-templates/prefer-single-line-tags', () => {
     expect(msgs.filter((m) => m.ruleId === 'ejs-templates/prefer-single-line-tags')).toHaveLength(0);
   });
 
-  test('flags multiline slurp tag when trimmed content fits one line', () => {
+  test('does not flag multiline slurp tag when trimmed content fits one line', () => {
     const msgs = lint('<%_\n  code;\n_%>', { 'ejs-templates/prefer-single-line-tags': 'error' });
-    expect(msgs.filter((m) => m.ruleId === 'ejs-templates/prefer-single-line-tags')).toHaveLength(1);
+    expect(msgs.filter((m) => m.ruleId === 'ejs-templates/prefer-single-line-tags')).toHaveLength(0);
   });
 });
 
@@ -53,23 +53,24 @@ describe('autofix: prefer-single-line-tags', () => {
     expect(applyFix(input, { 'ejs-templates/prefer-single-line-tags': 'error' })).toBe(input);
   });
 
-  test('collapses non-slurp multiline code tags when trimmed content fits one line', () => {
+  test('does not collapse non-slurp multiline code tags when content fits one line after trim', () => {
     const input = '<%\n\n  doSomething();\n\n%>';
-    expect(applyFix(input, { 'ejs-templates/prefer-single-line-tags': 'error' })).toBe('<% doSomething(); %>');
+    expect(applyFix(input, { 'ejs-templates/prefer-single-line-tags': 'error' })).toBe(input);
   });
 
-  test('collapses multiline <%= %> output tag (keeps delimiter unchanged)', () => {
-    // prefer-single-line-tags only collapses; prefer-encoded (never) is a separate rule
-    expect(applyFix('<%=\n  value\n%>', { 'ejs-templates/prefer-single-line-tags': 'error' })).toBe('<%= value %>');
+  test('does not collapse multiline <%= %> output tag', () => {
+    const input = '<%=\n  value\n%>';
+    expect(applyFix(input, { 'ejs-templates/prefer-single-line-tags': 'error' })).toBe(input);
   });
 
-  test('collapses multiline <%- %> raw-output tag', () => {
-    expect(applyFix('<%-\n  value\n%>', { 'ejs-templates/prefer-single-line-tags': 'error' })).toBe('<%- value %>');
+  test('does not collapse multiline <%- %> raw-output tag', () => {
+    const input = '<%-\n  value\n%>';
+    expect(applyFix(input, { 'ejs-templates/prefer-single-line-tags': 'error' })).toBe(input);
   });
 
-  test('collapses single-line-trimmable multiline slurp tag while preserving surrounding text', () => {
+  test('does not collapse single-line-trimmable multiline slurp tag while preserving surrounding text', () => {
     const input = 'before\n<%_\n  code;\n_%>\nafter';
-    expect(applyFix(input, { 'ejs-templates/prefer-single-line-tags': 'error' })).toBe('before\n<%_ code; _%>\nafter');
+    expect(applyFix(input, { 'ejs-templates/prefer-single-line-tags': 'error' })).toBe(input);
   });
 
   test('keeps indented non-structural multiline slurp tags unchanged', () => {
@@ -87,12 +88,12 @@ describe('autofix: prefer-single-line-tags', () => {
     expect(applyFix(input, { 'ejs-templates/prefer-single-line-tags': 'error' })).toBe(input);
   });
 
-  test('combined with prefer-encoded (never): multiline <%= %> is both collapsed and converted', () => {
-    const result = applyFix('<%=\n  value\n%>', {
+  test('combined with prefer-encoded (never): fixes both unbalanced multiline tag and encoded output', () => {
+    const result = applyFix('<%_\nif (cond) {\n_%>\n<h1><%= title %></h1>\n<%_ } _%>', {
       'ejs-templates/prefer-single-line-tags': 'error',
       'ejs-templates/prefer-encoded': ['error', 'never'],
     });
-    expect(result).toBe('<%- value %>');
+    expect(result).toBe('<%_ if (cond) { _%>\n<h1><%- title %></h1>\n<%_ } _%>');
   });
 
   test('keeps chained method call across lines unchanged without structural braces', () => {
@@ -108,95 +109,55 @@ describe('autofix: prefer-single-line-tags', () => {
   test('does not collapse code onto a // comment line', () => {
     const input =
       '<%_\n  // An embedded entity should not reference entities that embed it\n  for (relationship of relationships) {\n    if (relationship.relationshipApiDescription) {\n      doWork();\n    }\n  }\n_%>';
-    expect(
-      applyFix(input, {
-        'ejs-templates/prefer-single-line-tags': 'error',
-      }),
-    ).toBe(
-      '<%_ // An embedded entity should not reference entities that embed it _%>\n<%_ for (relationship of relationships) { _%>\n<%_ if (relationship.relationshipApiDescription) { _%>\n<%_ doWork(); _%>\n<%_ } _%>\n<%_ } _%>',
-    );
+    expect(applyFix(input, { 'ejs-templates/prefer-single-line-tags': 'error' })).toBe(input);
   });
 
-  test('splits content with brace boundaries (if/body/close each get own tag)', () => {
+  test('does not split content with balanced brace boundaries', () => {
     const input = '<%_\n  if (x) {\n  doWork();\n  }\n_%>';
-    expect(applyFix(input, { 'ejs-templates/prefer-single-line-tags': 'error' })).toBe(
-      '<%_ if (x) { _%>\n<%_ doWork(); _%>\n<%_ } _%>',
-    );
+    expect(applyFix(input, { 'ejs-templates/prefer-single-line-tags': 'error' })).toBe(input);
   });
 
-  test('multiline <% %> code tag with braces is collapsed', () => {
+  test('multiline <% %> code tag with balanced braces is unchanged', () => {
     const input = '<%\n  if (x) {\n  doWork();\n  }\n%>';
-    expect(applyFix(input, { 'ejs-templates/prefer-single-line-tags': 'error' })).toBe(
-      '<% if (x) { _%>\n<%_ doWork(); _%>\n<%_ } %>',
-    );
+    expect(applyFix(input, { 'ejs-templates/prefer-single-line-tags': 'error' })).toBe(input);
   });
 
-  test('keeps content between braces in a single tag', () => {
+  test('keeps balanced content between braces unchanged', () => {
     const input = '<%\n  if (x) {\n  doWorkA();\n  doWorkB();\n  }\n%>';
-    expect(
-      applyFix(input, {
-        'ejs-templates/prefer-single-line-tags': 'error',
-      }),
-    ).toBe('<% if (x) { _%>\n<%_ doWorkA();\n  doWorkB(); _%>\n<%_ } %>');
+    expect(applyFix(input, { 'ejs-templates/prefer-single-line-tags': 'error' })).toBe(input);
   });
 
-  test('with slurp tags keeps content between braces in a single tag', () => {
+  test('with slurp tags keeps balanced content unchanged', () => {
     const input = '<%_\n  if (x) {\n  doWorkA();\n  doWorkB();\n  }\n_%>';
-    expect(
-      applyFix(input, {
-        'ejs-templates/prefer-single-line-tags': 'error',
-      }),
-    ).toBe('<%_ if (x) { _%>\n<%_ doWorkA();\n  doWorkB(); _%>\n<%_ } _%>');
+    expect(applyFix(input, { 'ejs-templates/prefer-single-line-tags': 'error' })).toBe(input);
   });
 
-  test('with slurp tags keeps contents in correct order', () => {
+  test('with slurp tags keeps balanced nested contents unchanged', () => {
     const input = '<%_\n  if (x) {\n  doWorkA();\n  if (y) { doWorkB();\n  doWorkC(); }\n  doWorkC();\n  }\n_%>';
-    expect(
-      applyFix(input, {
-        'ejs-templates/prefer-single-line-tags': 'error',
-      }),
-    ).toBe(
-      '<%_ if (x) { _%>\n<%_ doWorkA(); _%>\n<%_ if (y) { _%>\n<%_ doWorkB();\n  doWorkC(); _%>\n<%_ } _%>\n<%_ doWorkC(); _%>\n<%_ } _%>',
-    );
+    expect(applyFix(input, { 'ejs-templates/prefer-single-line-tags': 'error' })).toBe(input);
   });
 
-  test("with slurp tags should not report for end braces following = which indicates it's an assignment", () => {
+  test('with slurp tags keeps balanced assignment/destructuring block unchanged', () => {
     const input = '<%_\n  if (cond) {\n  const { foo } = bar;\n  doWork(foo);\n  }\n_%>';
-    expect(
-      applyFix(input, {
-        'ejs-templates/prefer-single-line-tags': 'error',
-      }),
-    ).toBe('<%_ if (cond) { _%>\n<%_ const { foo } = bar;\n  doWork(foo); _%>\n<%_ } _%>');
+    expect(applyFix(input, { 'ejs-templates/prefer-single-line-tags': 'error' })).toBe(input);
   });
 
-  test('with control block containing object literal (object literal braces never split)', () => {
+  test('with control block containing object literal and balanced braces stays unchanged', () => {
     const input = "<%_\n if (true) {\n   beans.push({ foo: 'bar' });\n }\n_%>";
-    const fixed = applyFix(input, {
-      'ejs-templates/prefer-single-line-tags': 'error',
-    });
-    // Control flow braces split, object literal braces stay intact
-    expect(fixed).toBe("<%_ if (true) { _%>\n<%_ beans.push({ foo: 'bar' }); _%>\n<%_ } _%>");
+    expect(applyFix(input, { 'ejs-templates/prefer-single-line-tags': 'error' })).toBe(input);
   });
 
-  test('keeps arrow function block body as structural', () => {
+  test('keeps arrow function block body unchanged when braces are balanced', () => {
     const input = '<%_\n  const fn = (x) => {\n    doWork(x);\n  };\n_%>';
-    // Arrow function with block body is structural, and semicolon stays with closing brace
-    expect(
-      applyFix(input, {
-        'ejs-templates/prefer-single-line-tags': 'error',
-      }),
-    ).toBe('<%_ const fn = (x) => { _%>\n<%_ doWork(x); _%>\n<%_ }; _%>');
+    expect(applyFix(input, { 'ejs-templates/prefer-single-line-tags': 'error' })).toBe(input);
   });
 
-  test('keeps destructuring in arrow function parameters not broken', () => {
+  test('does not report arrow function parameters when braces are balanced', () => {
     const input = '<%_\n  items.forEach(({ foo, bar }) => {\n    console.log(foo);\n  });\n_%>';
-    // The destructuring braces in parameters should not be treated as structural,
-    // so the arrow function body is structural but params are left intact
     const msgs = lint(input, {
       'ejs-templates/prefer-single-line-tags': 'error',
     });
-    // Arrow function with block body should report a violation
-    expect(msgs.length).toBeGreaterThan(0);
+    expect(msgs).toHaveLength(0);
   });
 
   test('keeps multiline tags without braces unchanged', () => {
@@ -241,23 +202,19 @@ describe('autofix: prefer-single-line-tags', () => {
     expect(msgs).toHaveLength(0);
   });
 
-  test('ignores ${ template literal interpolations as block braces', () => {
+  test('ignores ${ template literal interpolations and keeps balanced block unchanged', () => {
     const input = '<%_\n  if (cond) {\n  const x = `hello ${name}`;\n  doWork();\n  }\n_%>';
-    expect(
-      applyFix(input, {
-        'ejs-templates/prefer-single-line-tags': 'error',
-      }),
-    ).toBe('<%_ if (cond) { _%>\n<%_ const x = `hello ${name}`;\n  doWork(); _%>\n<%_ } _%>');
+    expect(applyFix(input, { 'ejs-templates/prefer-single-line-tags': 'error' })).toBe(input);
   });
 
-  test('applies indent-aware split when indent also reports in the same run', () => {
+  test('does not split balanced braces when indent also reports in the same run', () => {
     const input = '  <%_\n  if (x) {\n  doWork();\n  }\n  _%>';
     expect(
       applyFix(input, {
         'ejs-templates/prefer-single-line-tags': 'error',
         'ejs-templates/indent': 'error',
       }),
-    ).toBe('<%_ if (x) { _%>\n  <%_ doWork(); _%>\n<%_ } _%>');
+    ).toBe('<%_ if (x) {\n      doWork();\n    }\n_%>');
   });
 
   test('does not re-report preserved inner tag with ${ interpolation', () => {
@@ -311,16 +268,25 @@ describe('autofix: prefer-single-line-tags', () => {
         'ejs-templates/prefer-single-line-tags': 'error',
       }),
     ).toBe(
-      "<%_ if ((relationship.relationshipType === 'many-to-one' || (relationship.relationshipType === 'one-to-one' && relationship.ownerSide === true)) && !relationship.id) { %>\n<%_ } _%>",
+      "<%_ if ((relationship.relationshipType === 'many-to-one' || (relationship.relationshipType === 'one-to-one' && relationship.ownerSide === true))\n                && !relationship.id) { %>\n<%_ } _%>",
     );
   });
 
-  test('detects for...of loops as structural', () => {
+  test('with bracesDelta=1 splits only into two tags: unbalanced opener + balanced remainder', () => {
+    const input = '<%_\n  if (x) {\n  doWork();\n_%>\n<%_ } _%>';
+    expect(
+      applyFix(input, {
+        'ejs-templates/prefer-single-line-tags': 'error',
+      }),
+    ).toBe('<%_ if (x) { _%>\n<%_ doWork(); _%>\n<%_ } _%>');
+  });
+
+  test('does not detect balanced for...of loops as unbalanced structural', () => {
     const input = '<%_\n  for (const item of items) {\n    doWork(item);\n  }\n_%>';
     const msgs = lint(input, {
       'ejs-templates/prefer-single-line-tags': 'error',
     });
-    expect(msgs.filter((m) => m.ruleId === 'ejs-templates/prefer-single-line-tags').length).toBeGreaterThan(0);
+    expect(msgs.filter((m) => m.ruleId === 'ejs-templates/prefer-single-line-tags')).toHaveLength(0);
   });
 
   test('detects for...of loops as structural unbalanced', () => {
@@ -331,13 +297,9 @@ describe('autofix: prefer-single-line-tags', () => {
     expect(msgs.filter((m) => m.ruleId === 'ejs-templates/prefer-single-line-tags').length).toBeGreaterThan(0);
   });
 
-  test('with for...of loop and destructuring assignment', () => {
+  test('with for...of loop and destructuring assignment stays unchanged when balanced', () => {
     const input = '<%_\n  for (const rel of rels) {\n    const { id, name } = rel;\n    doWork(id, name);\n  }\n_%>';
-    expect(
-      applyFix(input, {
-        'ejs-templates/prefer-single-line-tags': 'error',
-      }),
-    ).toBe('<%_ for (const rel of rels) { _%>\n<%_ const { id, name } = rel;\n    doWork(id, name); _%>\n<%_ } _%>');
+    expect(applyFix(input, { 'ejs-templates/prefer-single-line-tags': 'error' })).toBe(input);
   });
 
   test('with for...of loop with complex filter (incomplete tag)', () => {
@@ -362,15 +324,14 @@ describe('autofix: prefer-single-line-tags', () => {
     expect(preferSingleLineMsgs.length).toBeGreaterThan(0);
   });
 
-  test('complete for...of with filter and destructuring (with closing brace)', () => {
+  test('complete for...of with filter and destructuring (with closing brace) is not reported', () => {
     const input =
       '<%_ for (const relationship of relationships.filter(rel => rel.otherEntity.primaryKey)) {\n  const { otherEntity, relationshipName } = relationship;\n}\n_%>';
     const msgs = lint(input, {
       'ejs-templates/prefer-single-line-tags': 'error',
     });
     const preferSingleLineMsgs = msgs.filter((m) => m.ruleId === 'ejs-templates/prefer-single-line-tags');
-    // With complete braces, should report
-    expect(preferSingleLineMsgs.length).toBeGreaterThan(0);
+    expect(preferSingleLineMsgs).toHaveLength(0);
   });
 
   test('issue: should not detect object literals as structural braces', () => {

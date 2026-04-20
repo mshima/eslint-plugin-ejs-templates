@@ -35,7 +35,14 @@ const STATEMENT_OPEN_IN_SINGLE_LINE = [
   'switch_statement',
   'try_statement',
   'with_statement',
-];
+] as const;
+
+type SplitStatementType = 'open' | 'close' | 'balanced' | 'text';
+
+type SplitStatement = {
+  text: string;
+  type: SplitStatementType;
+};
 
 const collectParentTypes = (node: SyntaxNode): string[] => {
   return [node.type, ...(node.parent ? collectParentTypes(node.parent) : [])];
@@ -114,6 +121,7 @@ export function parseJavaScriptPartial(text: string, incrementalCode = ''): Rela
 
   const contentStart = wrapperPrefix.length;
   const contentEnd = wrapperPrefix.length + text.length;
+  const bracesDelta = missingCloseBracesCount - missingOpenBracesCount;
   const nodes = collectNodesStartingInRange((contentTreeBestGuess ?? contentTree).rootNode, contentStart, contentEnd);
   return {
     nodes,
@@ -123,7 +131,7 @@ export function parseJavaScriptPartial(text: string, incrementalCode = ''): Rela
     multilineTrimmed: text.trim().includes('\n'),
     missingCloseBracesCount,
     missingOpenBracesCount,
-    bracesDelta: missingCloseBracesCount - missingOpenBracesCount,
+    bracesDelta,
     hasStructuralBraces: nodes.some(
       (n) => n.type === 'statement_block' || missingCloseBracesCount > 0 || missingOpenBracesCount > 0,
     ),
@@ -132,17 +140,37 @@ export function parseJavaScriptPartial(text: string, incrementalCode = ''): Rela
       contentTree.delete();
     },
     splitStatements: () => {
+      const createStatement = (statementText: string, type: SplitStatementType): SplitStatement | null => {
+        const trimmedText = statementText.trim();
+        if (trimmedText.length === 0) {
+          return null;
+        }
+
+        if (type === 'open' && trimmedText.startsWith('}')) {
+          return { text: trimmedText, type: 'balanced' };
+        }
+
+        return { text: trimmedText, type };
+      };
+
+      const pushStatement = (statements: SplitStatement[], statementText: string, type: SplitStatementType) => {
+        const statement = createStatement(statementText, type);
+        if (statement) {
+          statements.push(statement);
+        }
+      };
+
       let cursor = 0;
-      let statements: string[] = [];
+      const statements: SplitStatement[] = [];
       for (const n of nodes) {
         let lastCursor = cursor;
-        if (STATEMENT_OPEN_IN_SINGLE_LINE.includes(n.type)) {
+        if (STATEMENT_OPEN_IN_SINGLE_LINE.includes(n.type as (typeof STATEMENT_OPEN_IN_SINGLE_LINE)[number])) {
           // else if (foo) {
           if (n.parent?.type === 'else_clause') {
             continue;
           }
           cursor = n.startIndex - contentStart;
-          statements.push(text.slice(lastCursor, cursor));
+          pushStatement(statements, text.slice(lastCursor, cursor), 'text');
         } else if ((n.type === '{' || n.type === '}') && n.parent?.type == 'statement_block') {
           const parentTypes = collectParentTypes(n.parent);
           if (parentTypes.includes('call_expression') || parentTypes.includes('try_statement')) {
@@ -151,15 +179,11 @@ export function parseJavaScriptPartial(text: string, incrementalCode = ''): Rela
 
           if (n.type === '{') {
             cursor = n.endIndex - contentStart;
-            if (STATEMENT_OPEN_IN_SINGLE_LINE.includes(parentTypes[1])) {
-              statements.push(text.slice(lastCursor, cursor).replaceAll(/\n/g, ' ').replaceAll(/\s+/g, ' '));
-            } else {
-              statements.push(text.slice(lastCursor, cursor));
-            }
+            pushStatement(statements, text.slice(lastCursor, cursor), 'open');
           } else {
             // Add the content before }.
             cursor = n.startIndex - contentStart;
-            statements.push(text.slice(lastCursor, cursor));
+            pushStatement(statements, text.slice(lastCursor, cursor), 'text');
             lastCursor = cursor;
 
             // Parent is a statement_block, an else/elseif/catch/finally may immediately follow the closing brace.
@@ -180,13 +204,69 @@ export function parseJavaScriptPartial(text: string, incrementalCode = ''): Rela
             } else {
               cursor = n.endIndex - contentStart;
             }
-            statements.push(text.slice(lastCursor, cursor));
+            pushStatement(statements, text.slice(lastCursor, cursor), 'close');
           }
         }
       }
-      statements.push(text.slice(cursor));
-      statements = statements.map((s) => s.trim()).filter((s) => s.length > 0);
-      return statements;
+      pushStatement(statements, text.slice(cursor), 'text');
+
+      if (bracesDelta <= 0) {
+        return statements.map((s) => s.text);
+      }
+
+      // Keep split cardinality aligned with brace imbalance:
+      // targetCount = abs(bracesDelta) + 1.
+      // Example: delta=1 -> exactly 2 tags (one with extra brace, one balanced remainder).
+      const targetCount = Math.abs(bracesDelta) + 1;
+      if (statements.length <= targetCount) {
+        return statements.map((s) => s.text);
+      }
+
+      const statementDelta = (statement: SplitStatement) => {
+        if (statement.type === 'open') {
+          return 1;
+        }
+        if (statement.type === 'close') {
+          return -1;
+        }
+        return 0;
+      };
+
+      const deltas = statements.map(statementDelta);
+      const groups: string[] = [];
+      let start = 0;
+      let cumulative = 0;
+      const splitsNeeded = bracesDelta;
+
+      for (let i = 0; i < statements.length && groups.length < splitsNeeded; i++) {
+        cumulative += deltas[i];
+
+        if (cumulative >= groups.length + 1) {
+          groups.push(
+            statements
+              .slice(start, i + 1)
+              .map((s) => s.text)
+              .join('\n'),
+          );
+          start = i + 1;
+          continue;
+        }
+      }
+
+      if (start < statements.length) {
+        groups.push(
+          statements
+            .slice(start)
+            .map((s) => s.text)
+            .join('\n'),
+        );
+      }
+
+      if (groups.length === 0 || groups.length > targetCount) {
+        return statements.map((s) => s.text);
+      }
+
+      return groups;
     },
   };
 }
