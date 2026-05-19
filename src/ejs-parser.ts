@@ -39,6 +39,32 @@ const EJS_CLOSING_DELIMS = ['-%>', '_%>', '%>'] as const;
 type EjsOpeningDelimiter = (typeof EJS_OPENING_DELIMS)[number];
 type EjsClosingDelimiter = (typeof EJS_CLOSING_DELIMS)[number];
 
+/**
+ * Whether tree-sitter absorbed the `_` of a `_%>` close delimiter into this tag's code node.
+ *
+ * tree-sitter-embedded-template ends an output tag's code node one character too late when the
+ * tag closes with `_%>`, leaving `%>` as the delimiter and a stray `_` at the end of the code
+ * (tree-sitter/tree-sitter-embedded-template#46). Left uncorrected the `_` reaches the
+ * JavaScript parser and makes the whole file fail to lint.
+ */
+export const hasAbsorbedSlurpClose = (node: SyntaxNode): boolean =>
+  node.type === 'output_directive' &&
+  node.text.endsWith('_%>') &&
+  node.children[node.childCount - 1]?.text === '%>' &&
+  (node.children[1]?.text.endsWith('_') ?? false);
+
+/**
+ * Code text of a directive tag, with an absorbed `_` close-delimiter marker removed.
+ *
+ * Every consumer of a tag's code must go through this: the virtual JavaScript and the tag
+ * blocks are built from the same nodes, so correcting only one of them leaves the other
+ * carrying the stray `_`.
+ */
+export const getDirectiveCodeText = (node: SyntaxNode): string => {
+  const codeText = node.children[1]?.text ?? '';
+  return hasAbsorbedSlurpClose(node) ? codeText.slice(0, -1) : codeText;
+};
+
 /** A single extracted EJS tag together with its position in the original file. */
 export type TagBlock = {
   ejsNode: EjsSyntaxNode;
@@ -392,9 +418,16 @@ export function extractTagBlocks(nodes: EjsSyntaxNode[]): TagBlock[] {
     const openDelimText = node.children[0]?.text;
     const closeDelimText = node.children[node.childCount - 1]?.text;
     const openDelim = EJS_OPENING_DELIMS.find((delim) => delim === openDelimText) ?? '<%';
-    const closeDelim = EJS_CLOSING_DELIMS.find((delim) => delim === closeDelimText) ?? '%>';
+    const parsedCloseDelim = EJS_CLOSING_DELIMS.find((delim) => delim === closeDelimText) ?? '%>';
     const codeNode = node.namedChildren.find((c) => c.type === 'code');
-    const codeContent: string = codeNode?.text ?? '';
+    const parsedCodeContent: string = codeNode?.text ?? '';
+
+    // Correcting the delimiter here, rather than by rewriting the source and re-parsing, keeps
+    // the tag's real `_%>` so rules and fixes that rebuild a tag from its delimiters do not
+    // quietly drop the newline-slurping the author asked for.
+    const absorbedSlurpClose = hasAbsorbedSlurpClose(node);
+    const closeDelim: EjsClosingDelimiter = absorbedSlurpClose ? '_%>' : parsedCloseDelim;
+    const codeContent: string = absorbedSlurpClose ? parsedCodeContent.slice(0, -1) : parsedCodeContent;
     const lintCodeContent = normalizeLintCodeContent(codeContent);
     const javascriptPartialNode = parseJavaScriptPartial(lintCodeContent, incrementalCode);
     const { contentNode } = javascriptPartialNode;
