@@ -16,6 +16,7 @@ export { noGlobalFunctionCall } from './no-global-function-call.js';
 export { noFunctionBlock } from './no-function-block.js';
 export { noComplexStatements } from './no-complex-statements.js';
 export { noCommentEmptyLine } from './no-comment-empty-line.js';
+export { noOutputNegatedTernary } from './no-output-negated-ternary.js';
 export { preferEncoded } from './prefer-encoded.js';
 export { outputSemi } from './output-semi.js';
 export { preferOutput } from './prefer-output.js';
