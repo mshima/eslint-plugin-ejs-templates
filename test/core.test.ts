@@ -480,6 +480,10 @@ describe('plugin shape', () => {
     expect(plugin.rules['no-function-block']).toBeDefined();
   });
 
+  test('plugin exposes no-output-negated-ternary rule', () => {
+    expect(plugin.rules['no-output-negated-ternary']).toBeDefined();
+  });
+
   test('plugin exposes base config', () => {
     expect(Array.isArray(plugin.configs.base)).toBe(true);
     expect(plugin.configs.base.length).toBeGreaterThan(0);
@@ -524,6 +528,7 @@ describe('plugin shape', () => {
             "allow": [],
           },
         ],
+        "ejs-templates/no-output-negated-ternary": "off",
         "ejs-templates/output-semi": "error",
         "ejs-templates/prefer-encoded": [
           "error",
@@ -548,6 +553,7 @@ describe('plugin shape', () => {
           'ejs-templates/no-complex-statements': 'off',
           'ejs-templates/no-function-block': 'off',
           'ejs-templates/no-global-function-call': 'off',
+          'ejs-templates/no-output-negated-ternary': 'off',
           'ejs-templates/output-semi': 'off',
           'ejs-templates/prefer-encoded': 'off',
           'ejs-templates/prefer-output': 'off',

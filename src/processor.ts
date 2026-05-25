@@ -94,6 +94,7 @@ export const SENTINEL_OUTPUT_SEMI_REMOVE = 'OUTPUT_SEMI_REMOVE';
  */
 export const SENTINEL_PREFER_OUTPUT = 'PREFER_OUTPUT';
 export const SENTINEL_PREFER_OUTPUT_ELSE = 'PREFER_OUTPUT_ELSE';
+export const SENTINEL_NO_OUTPUT_NEGATED_TERNARY = 'NO_OUTPUT_NEGATED_TERNARY';
 
 /** Opening line of the function wrapper injected around the full virtual file. */
 const GLOBAL_VIRTUAL_OPEN = '(function() {\n';
@@ -319,6 +320,66 @@ function buildFormattedTag(block: TagBlock, options?: { multilineCloseOnNewLine?
   return `${block.openDelim} ${lines.join('\n')}\n${block.lineIndent}${block.closeDelim}`;
 }
 
+type NegatedOutputConditionalParts = {
+  condition: string;
+  consequent: string;
+  alternate: string;
+  hasTrailingSemi: boolean;
+};
+
+/**
+ * Extract ternary parts when an output tag is in the form `!cond ? a : b`.
+ *
+ * Returns null for non-output tags, multiline content, or non-negated tests.
+ */
+export function getNegatedOutputConditionalParts(block: TagBlock): NegatedOutputConditionalParts | null {
+  if (block.tagType !== 'escaped-output' && block.tagType !== 'raw-output') {
+    return null;
+  }
+
+  const partialNode = block.javascriptPartialNode;
+  if (!partialNode || partialNode.multilineOriginal) {
+    return null;
+  }
+
+  const conditionalNode = partialNode.nodes.find(
+    (node) => node.type === 'ternary_expression' && node.parent?.type === 'expression_statement',
+  );
+  if (!conditionalNode) {
+    return null;
+  }
+
+  const conditionNode = conditionalNode.childForFieldName('condition') ?? conditionalNode.child(0);
+  const consequentNode = conditionalNode.childForFieldName('consequence') ?? conditionalNode.child(2);
+  const alternateNode = conditionalNode.childForFieldName('alternative') ?? conditionalNode.child(4);
+  if (!conditionNode || !consequentNode || !alternateNode) {
+    return null;
+  }
+
+  if (conditionNode.type !== 'unary_expression' || !conditionNode.text.trimStart().startsWith('!')) {
+    return null;
+  }
+
+  const argumentNode = conditionNode.childForFieldName('argument') ?? conditionNode.namedChildren.at(0) ?? null;
+  if (!argumentNode) {
+    return null;
+  }
+
+  const condition = argumentNode.text.trim();
+  const consequent = consequentNode.text.trim();
+  const alternate = alternateNode.text.trim();
+  if (!condition || !consequent || !alternate) {
+    return null;
+  }
+
+  return {
+    condition,
+    consequent,
+    alternate,
+    hasTrailingSemi: block.codeContent.trimEnd().endsWith(';'),
+  };
+}
+
 /**
  * Translate an ESLint fix object from the virtual JS code space back to the
  * original EJS source space.
@@ -522,6 +583,17 @@ function translateFix(
     return {
       range: [openStart, fixEnd],
       text: `<%= ${condition} ? '${escapedTruthyContent}' : '${escapedFalsyContent}' %>`,
+    };
+  } else if (fix.text === SENTINEL_NO_OUTPUT_NEGATED_TERNARY) {
+    // no-output-negated-ternary: `<%= !cond ? a : b %>` => `<%= cond ? b : a %>`
+    const parts = getNegatedOutputConditionalParts(block);
+    if (!parts) {
+      return null;
+    }
+
+    return {
+      range: [block.tagOffset, block.tagOffset + block.tagLength],
+      text: `${block.openDelim} ${parts.condition} ? ${parts.alternate} : ${parts.consequent}${parts.hasTrailingSemi ? ';' : ''} ${block.closeDelim}`,
     };
   } else if (fix.text === '') {
     // ── Generic sentinel (fix.text === '') ────────────────────────────────
