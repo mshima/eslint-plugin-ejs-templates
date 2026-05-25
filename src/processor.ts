@@ -327,6 +327,28 @@ type NegatedOutputConditionalParts = {
   hasTrailingSemi: boolean;
 };
 
+function extractPositiveConditionFromNegatedTest(node: SyntaxNode): string | null {
+  if (node.type === 'parenthesized_expression') {
+    const innerNode = node.childForFieldName('expression') ?? node.namedChildren.at(0) ?? null;
+    if (!innerNode) {
+      return null;
+    }
+    return extractPositiveConditionFromNegatedTest(innerNode);
+  }
+
+  if (node.type !== 'unary_expression' || !node.text.trimStart().startsWith('!')) {
+    return null;
+  }
+
+  const argumentNode = node.childForFieldName('argument') ?? node.namedChildren.at(0) ?? null;
+  if (!argumentNode) {
+    return null;
+  }
+
+  const condition = argumentNode.text.trim();
+  return condition.length > 0 ? condition : null;
+}
+
 /**
  * Extract ternary parts when an output tag is in the form `!cond ? a : b`.
  *
@@ -356,16 +378,7 @@ export function getNegatedOutputConditionalParts(block: TagBlock): NegatedOutput
     return null;
   }
 
-  if (conditionNode.type !== 'unary_expression' || !conditionNode.text.trimStart().startsWith('!')) {
-    return null;
-  }
-
-  const argumentNode = conditionNode.childForFieldName('argument') ?? conditionNode.namedChildren.at(0) ?? null;
-  if (!argumentNode) {
-    return null;
-  }
-
-  const condition = argumentNode.text.trim();
+  const condition = extractPositiveConditionFromNegatedTest(conditionNode);
   const consequent = consequentNode.text.trim();
   const alternate = alternateNode.text.trim();
   if (!condition || !consequent || !alternate) {

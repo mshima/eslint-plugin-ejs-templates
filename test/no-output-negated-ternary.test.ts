@@ -92,4 +92,11 @@ describe('autofix: no-output-negated-ternary', () => {
     });
     expect(fixed).toBe(src);
   });
+
+  test('handles parenthesized negated test with escaped string literal', () => {
+    const fixed = applyFix("<%- (!isNumeric) ? '+ \"\\'\" ' : '' %>", {
+      'ejs-templates/no-output-negated-ternary': 'error',
+    });
+    expect(fixed).toBe("<%- isNumeric ? '' : '+ \"\\'\" ' %>");
+  });
 });
