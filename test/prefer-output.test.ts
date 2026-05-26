@@ -187,4 +187,14 @@ describe('rule: ejs-templates/prefer-output (in code tags)', () => {
     });
     expect(fixed).toBe('<% if (show) { %>a\n<% } %>');
   });
+
+  test('autofix works when file includes EJS eslint directives', () => {
+    const fixed = applyFix(
+      '<%# eslint-disable no-console %>\n<% if (show) { %>content<% } %>\n<%# eslint-enable no-console %>',
+      {
+        'ejs-templates/prefer-output': 'error',
+      },
+    );
+    expect(fixed).toContain("<%= (show) ? 'content' : '' %>");
+  });
 });

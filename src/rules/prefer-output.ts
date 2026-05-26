@@ -9,7 +9,6 @@
 import type { Rule } from 'eslint';
 import { getFileBlocks, SENTINEL_PREFER_OUTPUT, SENTINEL_PREFER_OUTPUT_ELSE } from '../processor.js';
 import { getTagTypeComments } from '../utils.js';
-import type { TagBlock } from '../ejs-parser.ts';
 
 /**
  * ESLint rule: suggest converting conditional output patterns to ternary expressions.
@@ -46,15 +45,27 @@ export const preferOutput: Rule.RuleModule = {
 
     return {
       Program() {
-        const tagTypeComments = getTagTypeComments(sourceCode.getAllComments());
+        const tagTypeComments = getTagTypeComments(sourceCode.text);
         const fileBlocks = getFileBlocks(context.filename);
+
+        if (!fileBlocks) {
+          throw new Error(`Unexpected missing file blocks for file ${context.filename}`);
+        }
+
+        const { nonDirectiveSegments } = fileBlocks;
+        if (nonDirectiveSegments.length !== tagTypeComments.length) {
+          throw new Error(
+            `Unexpected mismatch between tag type comments (${String(tagTypeComments.length)}) and file blocks (${String(nonDirectiveSegments.length)}) for file ${context.filename}`,
+          );
+        }
 
         for (let i = 0; i < tagTypeComments.length; i++) {
           const { comment, tagType } = tagTypeComments[i];
           if (tagType !== 'code') continue;
 
-          const firstBlock = fileBlocks?.segments[i]?.block;
-          if (!firstBlock) continue;
+          const firstSegment = nonDirectiveSegments[i];
+          const firstBlock = firstSegment.block;
+
           const firstPartialNode = firstBlock.javascriptPartialNode;
           if (!firstPartialNode || firstPartialNode.multilineOriginal || firstPartialNode.contentNode.childCount !== 1)
             continue;
@@ -66,8 +77,9 @@ export const preferOutput: Rule.RuleModule = {
           const nextTagTypeComment = tagTypeComments.at(i + 1);
           if (nextTagTypeComment?.tagType !== 'code') continue;
 
-          const nextBlock = fileBlocks.segments[i + 1]?.block as TagBlock | undefined;
-          if (nextBlock?.originalLine !== firstBlock.originalLine) continue;
+          const nextBlock = nonDirectiveSegments.at(i + 1)?.block;
+          if (nextBlock?.tagType !== 'code') continue;
+          if (nextBlock.originalLine !== firstBlock.originalLine) continue;
           const nextPartialNode = nextBlock.javascriptPartialNode;
           if (!nextPartialNode || nextPartialNode.multilineOriginal || nextPartialNode.contentNode.childCount !== 1) {
             continue;
@@ -81,7 +93,7 @@ export const preferOutput: Rule.RuleModule = {
             // Treat else clauses
             if (errorNode.child(1)?.type !== 'else' || errorNode.child(2)?.type !== '{') continue;
 
-            const elseCloseBlock = fileBlocks.segments[i + 2]?.block as TagBlock | undefined;
+            const elseCloseBlock = nonDirectiveSegments.at(i + 2)?.block;
             if (elseCloseBlock?.originalLine !== firstBlock.originalLine) continue;
             const elseCloseErrorNode = elseCloseBlock.javascriptPartialNode?.contentNode.child(0);
             if (elseCloseErrorNode?.type !== 'ERROR' || elseCloseErrorNode.child(0)?.type !== '}') continue;

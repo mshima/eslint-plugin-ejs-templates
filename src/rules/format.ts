@@ -49,14 +49,15 @@ export const format: Rule.RuleModule = {
     return {
       Program() {
         const sourceCode = context.sourceCode;
-        const tagTypeComments = getTagTypeComments(sourceCode.getAllComments());
+        const tagTypeComments = getTagTypeComments(sourceCode.text);
         const metadata = getVirtualCodeMetadata(sourceCode.text);
         const tagFormatState = metadata?.tagFormat;
         const fileBlocks = getFileBlocks(context.filename);
+        const nonDirectiveSegments = fileBlocks?.nonDirectiveSegments;
 
         for (let i = 0; i < tagTypeComments.length; i++) {
           const { comment } = tagTypeComments[i];
-          const firstBlock = fileBlocks?.segments[i]?.block;
+          const firstBlock = nonDirectiveSegments?.[i]?.block;
           if (!firstBlock) continue;
 
           const firstPartialNode = firstBlock.javascriptPartialNode;

@@ -50,7 +50,7 @@ export const outputSemi: Rule.RuleModule = {
     return {
       Program() {
         const sourceCode = context.sourceCode;
-        const tagTypeComments = getTagTypeComments(sourceCode.getAllComments());
+        const tagTypeComments = getTagTypeComments(sourceCode.text);
         const text = sourceCode.text;
 
         for (const { comment, tagType } of tagTypeComments) {

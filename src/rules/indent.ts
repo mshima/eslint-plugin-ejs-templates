@@ -63,7 +63,7 @@ export const indent: Rule.RuleModule = {
     return {
       Program() {
         const sourceCode = context.sourceCode;
-        const tagTypeComments = getTagTypeComments(sourceCode.getAllComments());
+        const tagTypeComments = getTagTypeComments(sourceCode.text);
         const metadata = normalizeContent ? getVirtualCodeMetadata(sourceCode.text) : undefined;
         const needsNormalizeByTag = metadata?.needsNormalize;
 
