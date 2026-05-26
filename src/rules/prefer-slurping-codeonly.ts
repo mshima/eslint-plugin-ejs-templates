@@ -36,7 +36,7 @@ export const preferSlurpingCodeonly: Rule.RuleModule = {
     return {
       Program() {
         const sourceCode = context.sourceCode;
-        const tagTypeComments = getTagTypeComments(sourceCode.getAllComments());
+        const tagTypeComments = getTagTypeComments(sourceCode.text);
         for (const { comment, tagType } of tagTypeComments) {
           if (tagType === 'code-slurpable') {
             const { range = [0, 0] } = comment;

@@ -50,7 +50,7 @@ export const slurpNewline: Rule.RuleModule = {
     return {
       Program() {
         const sourceCode = context.sourceCode;
-        const tagTypeComments = getTagTypeComments(sourceCode.getAllComments());
+        const tagTypeComments = getTagTypeComments(sourceCode.text);
         for (const { comment, tagType } of tagTypeComments) {
           if (tagType === 'slurp-not-standalone') {
             const { range = [0, 0] } = comment;

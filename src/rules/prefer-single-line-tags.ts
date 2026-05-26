@@ -36,11 +36,12 @@ export const preferSingleLineTags: Rule.RuleModule = {
     return {
       Program() {
         const sourceCode = context.sourceCode;
-        const tagTypeComments = getTagTypeComments(sourceCode.getAllComments());
+        const tagTypeComments = getTagTypeComments(sourceCode.text);
         const fileBlocks = getFileBlocks(context.filename);
         if (!fileBlocks) {
           return;
         }
+        const { nonDirectiveSegments } = fileBlocks;
 
         for (const [index, tagTypeComment] of tagTypeComments.entries()) {
           const { comment, tagType } = tagTypeComment;
@@ -48,7 +49,7 @@ export const preferSingleLineTags: Rule.RuleModule = {
             continue;
           }
 
-          const block = fileBlocks.segments.at(index)?.block;
+          const block = nonDirectiveSegments.at(index)?.block;
           if (!block?.javascriptPartialNode) {
             continue;
           }

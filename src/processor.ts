@@ -704,26 +704,25 @@ const processedFilesMap = new Map<
   }
 >();
 
+type FileBlocks = {
+  segments: VirtualBlockSegment[];
+  nonDirectiveSegments: VirtualBlockSegment[];
+  rawSegments: VirtualBlockSegment[];
+};
+
 /**
  * File-level mapping from ESLint virtual code to position metadata.
  *
  * Stores two VirtualBlockSegment arrays for each file:
  * - segments: Block positions in wrapped virtual code (for main linting)
+ * - nonDirectiveSegments: Wrapped virtual segments excluding directive-comment blocks
  * - rawSegments: Block positions in raw virtual code (for fallback validation)
  *
  * Lifecycle: set in preprocess(), deleted in postprocess().
  */
-const fileBlocksMap = new Map<
-  string,
-  {
-    segments: VirtualBlockSegment[];
-    rawSegments: VirtualBlockSegment[];
-  }
->();
+const fileBlocksMap = new Map<string, FileBlocks>();
 
-export const getFileBlocks = (
-  filename: string,
-): { segments: VirtualBlockSegment[]; rawSegments: VirtualBlockSegment[] } | undefined => {
+export const getFileBlocks = (filename: string): FileBlocks | undefined => {
   return fileBlocksMap.get(filename);
 };
 
@@ -1185,7 +1184,7 @@ export const processor: Linter.Processor = {
     });
 
     if (blocks.length === 0) {
-      fileBlocksMap.set(filename, { segments: [], rawSegments: [] });
+      fileBlocksMap.set(filename, { segments: [], nonDirectiveSegments: [], rawSegments: [] });
       return [];
     }
 
@@ -1227,7 +1226,8 @@ export const processor: Linter.Processor = {
       rawOffsetCursor += block.virtualCode.length + 1; // +1 for separator newline
     }
 
-    fileBlocksMap.set(filename, { segments, rawSegments });
+    const nonDirectiveSegments = segments.filter(({ block }) => !block.isDirectiveComment);
+    fileBlocksMap.set(filename, { segments, nonDirectiveSegments, rawSegments });
 
     const joinedBlocksVirtualCode = blocks.map((b) => b.virtualCode).join('\n');
     const virtualCode = `${GLOBAL_VIRTUAL_OPEN}${joinedBlocksVirtualCode}${GLOBAL_VIRTUAL_CLOSE}`;
@@ -1435,13 +1435,6 @@ export const processor: Linter.Processor = {
           });
           if (translated) {
             return [{ ...mapped, fix: translated }];
-          }
-
-          // prefer-output uses a sentinel fix even for rule applicability checks.
-          // If sentinel translation fails, suppress the report so the rule only
-          // applies when it can safely transform a single-line wrapper.
-          if (mapped.ruleId === 'ejs-templates/prefer-output' && mapped.fix.text === SENTINEL_PREFER_OUTPUT) {
-            return [];
           }
 
           // No translation available – drop the fix.

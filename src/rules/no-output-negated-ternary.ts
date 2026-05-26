@@ -37,11 +37,12 @@ export const noOutputNegatedTernary: Rule.RuleModule = {
 
     return {
       Program() {
-        const tagTypeComments = getTagTypeComments(sourceCode.getAllComments());
+        const tagTypeComments = getTagTypeComments(sourceCode.text);
         const fileBlocks = getFileBlocks(context.filename);
         if (!fileBlocks) {
           return;
         }
+        const { nonDirectiveSegments } = fileBlocks;
 
         for (const { comment, tagType } of tagTypeComments) {
           if (tagType !== 'escaped-output' && tagType !== 'raw-output') {
@@ -53,7 +54,7 @@ export const noOutputNegatedTernary: Rule.RuleModule = {
             continue;
           }
 
-          const segment = fileBlocks.segments.find((s) => s.startLine === commentLine);
+          const segment = nonDirectiveSegments.find((s) => s.startLine === commentLine);
           const block = segment?.block;
           if (!block) {
             continue;
