@@ -2,10 +2,9 @@
 
 ## [0.4.6](https://github.com/mshima/eslint-plugin-ejs-templates/compare/v0.4.5...v0.4.6) (2026-05-27)
 
-
 ### Bug Fixes
 
-* keep basic close delimiter on same line ([#75](https://github.com/mshima/eslint-plugin-ejs-templates/issues/75)) ([eb8dd5d](https://github.com/mshima/eslint-plugin-ejs-templates/commit/eb8dd5d4b516e5eaca1d9e43a2df4856a62c3844))
+- keep basic close delimiter on same line ([#75](https://github.com/mshima/eslint-plugin-ejs-templates/issues/75)) ([eb8dd5d](https://github.com/mshima/eslint-plugin-ejs-templates/commit/eb8dd5d4b516e5eaca1d9e43a2df4856a62c3844))
 
 ## [0.4.5](https://github.com/mshima/eslint-plugin-ejs-templates/compare/v0.4.4...v0.4.5) (2026-05-26)
 
