@@ -66,4 +66,28 @@ describe('autofix: format', () => {
     const input = '  <%\n  doWork(); %>';
     expect(applyFix(input, { 'ejs-templates/format': 'error' })).toBe('  <% doWork(); %>');
   });
+
+  test('keeps basic close delimiter on same line for multiline raw-output expression', () => {
+    const input = `<%- viaService
+                ? \`Service.\${searchEngineElasticsearch ? 'searchCount' : 'countAll'}\`
+                : \`\${searchEngineElasticsearch ? 'Search' : ''}Repository.count\`; %>`;
+
+    const fixed = applyFix(input, { 'ejs-templates/format': 'error' });
+
+    expect(fixed).toBe(`<%- viaService
+                ? \`Service.\${searchEngineElasticsearch ? 'searchCount' : 'countAll'}\`
+                : \`\${searchEngineElasticsearch ? 'Search' : ''}Repository.count\`; %>`);
+  });
+
+  test('keeps basic close delimiter on same line for multiline non-output tag', () => {
+    const input = `<% if (viaService) {
+  doWork();
+} %>`;
+
+    const fixed = applyFix(input, { 'ejs-templates/format': 'error' });
+
+    expect(fixed).toBe(`<% if (viaService) {
+  doWork();
+} %>`);
+  });
 });

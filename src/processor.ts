@@ -316,8 +316,16 @@ function buildFormattedTag(block: TagBlock, options?: { multilineCloseOnNewLine?
     return `${block.openDelim} ${trimmedContent} ${block.closeDelim}`;
   }
 
-  const lines = trimmedContent.split('\n').map((line) => line.trimEnd());
-  return `${block.openDelim} ${lines.join('\n')}\n${block.lineIndent}${block.closeDelim}`;
+  const lines = trimmedContent
+    .split('\n')
+    .map((line) => line.trimEnd())
+    .join('\n');
+
+  if (block.closeDelim === '%>') {
+    return `${block.openDelim} ${lines} ${block.closeDelim}`;
+  }
+
+  return `${block.openDelim} ${lines}\n${block.lineIndent}${block.closeDelim}`;
 }
 
 type NegatedOutputConditionalParts = {
