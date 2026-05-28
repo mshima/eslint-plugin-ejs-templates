@@ -8,8 +8,6 @@
 
 export const input = `<%_
 if (generateSpringAuditor) {
-_%>
-<%_
   const x = 1;
   const y = 2;
 _%>
@@ -23,12 +21,14 @@ _%>
 `;
 
 export const expected = `<%_ if (generateSpringAuditor) { _%>
-<%_
-  const x = 1;
-  const y = 2;
-_%>
-<% doSomething(); %>
-<h1><%- title %></h1>
+<%_ const x = 1;
+  const y = 2; _%>
+<%
+  doSomething();
+%>
+<h1><%=
+  title
+%></h1>
 <%_ } _%>
 `;
 

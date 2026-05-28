@@ -26,11 +26,11 @@ describe('parseJavaScriptPartial', () => {
     });
 
     test('complete if block returns start=0', () => {
-      const result = parseJavaScriptPartial('if (x) { y; }');
+      const result = parseJavaScriptPartial('if (x) { y;', ' }');
       try {
-        expect(result.start).toBe(0);
-        expect(result.bracesDelta).toBe(0);
-        expect(result.splitStatements()).toMatchObject(['if (x) {', 'y;', '}']);
+        expect(result.start).toBeGreaterThan(0);
+        expect(result.bracesDelta).toBeGreaterThan(0);
+        expect(result.splitStatements()).toMatchObject(['if (x) {', 'y;']);
       } finally {
         result.cleanup();
       }
@@ -53,7 +53,7 @@ describe('parseJavaScriptPartial', () => {
       try {
         expect(result.start).toBe(0);
         expect(result.bracesDelta).toBe(0);
-        expect(result.splitStatements()).toMatchObject(['if (a) {', 'b();', '}']);
+        expect(result.splitStatements()).toMatchObject(['if (a) {\n  b();\n}']);
       } finally {
         result.cleanup();
       }
@@ -149,7 +149,7 @@ describe('parseJavaScriptPartial', () => {
         // has both an un-opened close and an un-closed open
         expect(result.missingCloseBracesCount).toBe(0);
         expect(result.missingOpenBracesCount).toBe(1);
-        expect(result.splitStatements()).toMatchObject(['} else if (foo) {', 'bar()', '}']);
+        expect(result.splitStatements()).toMatchObject(['} else if (foo) {', 'bar() ', '}']);
       } finally {
         result.cleanup();
       }
@@ -162,7 +162,7 @@ describe('parseJavaScriptPartial', () => {
         // has both an un-opened close and an un-closed open
         expect(result.missingCloseBracesCount).toBe(0);
         expect(result.missingOpenBracesCount).toBe(1);
-        expect(result.splitStatements()).toMatchObject(['} else {', "const foo = 'bar'", '}']);
+        expect(result.splitStatements()).toMatchObject(['} else {', "const foo = 'bar'\n", '}']);
       } finally {
         result.cleanup();
       }

@@ -202,7 +202,7 @@ function buildCollapsedTag(block: TagBlock, options?: { applyIndent?: boolean })
 
   if (tags.length === 1) {
     const baseIndent = applyIndent ? block.expectedIndent : '';
-    return `${baseIndent}${block.openDelim} ${tags[0].trim()} ${block.closeDelim}`;
+    return `${baseIndent}${block.openDelim} ${tags[0]} ${block.closeDelim}`;
   }
 
   if (!applyIndent) {
@@ -214,7 +214,7 @@ function buildCollapsedTag(block: TagBlock, options?: { applyIndent?: boolean })
         const openDelim = isFirst ? block.openDelim : '<%_';
         const closeDelim = isLast ? block.closeDelim : '_%>';
         const prefix = i === 0 ? '' : block.lineIndent;
-        return `${prefix}${openDelim} ${tag.trim()} ${closeDelim}`;
+        return `${prefix}${openDelim} ${tag} ${closeDelim}`;
       })
       .join('\n');
   }

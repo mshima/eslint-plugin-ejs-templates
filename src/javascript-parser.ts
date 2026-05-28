@@ -35,7 +35,14 @@ const STATEMENT_OPEN_IN_SINGLE_LINE = [
   'switch_statement',
   'try_statement',
   'with_statement',
-];
+] as const;
+
+type SplitStatementType = 'open' | 'close' | 'balanced' | 'text';
+
+type SplitStatement = {
+  text: string;
+  type: SplitStatementType;
+};
 
 const collectParentTypes = (node: SyntaxNode): string[] => {
   return [node.type, ...(node.parent ? collectParentTypes(node.parent) : [])];
@@ -114,6 +121,7 @@ export function parseJavaScriptPartial(text: string, incrementalCode = ''): Rela
 
   const contentStart = wrapperPrefix.length;
   const contentEnd = wrapperPrefix.length + text.length;
+  const bracesDelta = missingCloseBracesCount - missingOpenBracesCount;
   const nodes = collectNodesStartingInRange((contentTreeBestGuess ?? contentTree).rootNode, contentStart, contentEnd);
   return {
     nodes,
@@ -123,7 +131,7 @@ export function parseJavaScriptPartial(text: string, incrementalCode = ''): Rela
     multilineTrimmed: text.trim().includes('\n'),
     missingCloseBracesCount,
     missingOpenBracesCount,
-    bracesDelta: missingCloseBracesCount - missingOpenBracesCount,
+    bracesDelta,
     hasStructuralBraces: nodes.some(
       (n) => n.type === 'statement_block' || missingCloseBracesCount > 0 || missingOpenBracesCount > 0,
     ),
@@ -132,17 +140,36 @@ export function parseJavaScriptPartial(text: string, incrementalCode = ''): Rela
       contentTree.delete();
     },
     splitStatements: () => {
+      const createStatement = (statementText: string, type: SplitStatementType): SplitStatement | null => {
+        if (statementText.length === 0) {
+          return null;
+        }
+
+        if (type === 'open' && statementText.trim().startsWith('}')) {
+          return { text: statementText, type: 'balanced' };
+        }
+
+        return { text: statementText, type };
+      };
+
+      let statements: SplitStatement[] = [];
+      const pushStatement = (statementText: string, type: SplitStatementType) => {
+        const statement = createStatement(statementText, type);
+        if (statement) {
+          statements.push(statement);
+        }
+      };
+
       let cursor = 0;
-      let statements: string[] = [];
       for (const n of nodes) {
         let lastCursor = cursor;
-        if (STATEMENT_OPEN_IN_SINGLE_LINE.includes(n.type)) {
+        if (STATEMENT_OPEN_IN_SINGLE_LINE.includes(n.type as (typeof STATEMENT_OPEN_IN_SINGLE_LINE)[number])) {
           // else if (foo) {
           if (n.parent?.type === 'else_clause') {
             continue;
           }
           cursor = n.startIndex - contentStart;
-          statements.push(text.slice(lastCursor, cursor));
+          pushStatement(text.slice(lastCursor, cursor), 'text');
         } else if ((n.type === '{' || n.type === '}') && n.parent?.type == 'statement_block') {
           const parentTypes = collectParentTypes(n.parent);
           if (parentTypes.includes('call_expression') || parentTypes.includes('try_statement')) {
@@ -151,15 +178,11 @@ export function parseJavaScriptPartial(text: string, incrementalCode = ''): Rela
 
           if (n.type === '{') {
             cursor = n.endIndex - contentStart;
-            if (STATEMENT_OPEN_IN_SINGLE_LINE.includes(parentTypes[1])) {
-              statements.push(text.slice(lastCursor, cursor).replaceAll(/\n/g, ' ').replaceAll(/\s+/g, ' '));
-            } else {
-              statements.push(text.slice(lastCursor, cursor));
-            }
+            pushStatement(text.slice(lastCursor, cursor), 'open');
           } else {
             // Add the content before }.
             cursor = n.startIndex - contentStart;
-            statements.push(text.slice(lastCursor, cursor));
+            pushStatement(text.slice(lastCursor, cursor), 'text');
             lastCursor = cursor;
 
             // Parent is a statement_block, an else/elseif/catch/finally may immediately follow the closing brace.
@@ -180,13 +203,55 @@ export function parseJavaScriptPartial(text: string, incrementalCode = ''): Rela
             } else {
               cursor = n.endIndex - contentStart;
             }
-            statements.push(text.slice(lastCursor, cursor));
+            pushStatement(text.slice(lastCursor, cursor), 'close');
           }
         }
       }
-      statements.push(text.slice(cursor));
-      statements = statements.map((s) => s.trim()).filter((s) => s.length > 0);
-      return statements;
+      pushStatement(text.slice(cursor), 'text');
+
+      const mergeBalanced = (): boolean => {
+        let open: SplitStatement | null = null;
+        let balanced: SplitStatement | null = null;
+        for (const statement of statements) {
+          if (statement.type === 'open') {
+            open = statement;
+          } else if (statement.type === 'balanced' && open) {
+            balanced = statement;
+          } else if (statement.type === 'close' && open) {
+            open.type = 'text';
+            if (balanced) {
+              balanced.type = 'text';
+            }
+            statement.type = 'text';
+            return true;
+          }
+        }
+        return false;
+      };
+      let mergedBalanced = mergeBalanced();
+      while (mergedBalanced) {
+        mergedBalanced = mergeBalanced();
+      }
+
+      const joinTexts = (): void => {
+        let textStatement: SplitStatement | null = null;
+        for (const statement of statements) {
+          if (statement.type === 'text') {
+            if (textStatement) {
+              textStatement.text += statement.text;
+              statement.text = '';
+            } else {
+              textStatement = statement;
+            }
+          } else {
+            textStatement = null;
+          }
+        }
+        statements = statements.filter((s) => s.text.length > 0);
+      };
+      joinTexts();
+
+      return statements.map((s) => s.text.trimStart()).filter((s) => s.trim().length > 0);
     },
   };
 }

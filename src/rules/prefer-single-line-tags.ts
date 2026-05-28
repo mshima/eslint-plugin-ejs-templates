@@ -58,6 +58,11 @@ export const preferSingleLineTags: Rule.RuleModule = {
             continue;
           }
 
+          const splitStatements = block.javascriptPartialNode.splitStatements();
+          if (splitStatements.length <= 1) {
+            continue;
+          }
+
           const { range = [0, 0] } = comment;
           context.report({
             loc: comment.loc ?? { line: 0, column: 0 },
