@@ -50,6 +50,13 @@ describe('autofix: format', () => {
     expect(applyFix('<%_  doWork();   _%>', { 'ejs-templates/format': 'error' })).toBe('<%_ doWork(); _%>');
   });
 
+  test('collapses a multiline slurp block comment onto one line', () => {
+    const input = '<%_ /* ======== End removed relationships should be written ======== */\n_%>';
+    expect(applyFix(input, { 'ejs-templates/format': 'error' })).toBe(
+      '<%_ /* ======== End removed relationships should be written ======== */ _%>',
+    );
+  });
+
   test("moves multiline close to a new line aligned with opening indent by default (multilineClose='new-line')", () => {
     const input = '  <%_\n  doWork(); _%>';
     expect(applyFix(input, { 'ejs-templates/format': 'error' })).toBe('  <%_ doWork(); _%>');

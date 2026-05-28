@@ -316,12 +316,10 @@ function buildFormattedTag(block: TagBlock, options?: { multilineCloseOnNewLine?
     return `${block.openDelim} ${trimmedContent} ${block.closeDelim}`;
   }
 
-  const lines = trimmedContent
-    .split('\n')
-    .map((line) => line.trimEnd())
-    .join('\n');
+  const split = trimmedContent.split('\n').map((line) => line.trimEnd());
+  const lines = split.join('\n');
 
-  if (block.closeDelim === '%>') {
+  if (block.closeDelim === '%>' || split.length === 1) {
     return `${block.openDelim} ${lines} ${block.closeDelim}`;
   }
 
