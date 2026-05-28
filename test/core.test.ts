@@ -890,3 +890,77 @@ describe('void() wrapping for output tags', () => {
     expect(debugErrors).toHaveLength(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Slurp marker handling (tree-sitter integration)
+// ---------------------------------------------------------------------------
+
+describe('slurp marker parsing', () => {
+  test('raw-output tag with identifier does not cause parse error', () => {
+    // Regression test: <%- testcontainerClassInitialization _%> used to fail
+    // because tree-sitter includes trailing `_` in code node text
+    const msgs = lint('<%- testcontainerClassInitialization _%>', {});
+    const fatalErrors = msgs.filter((msg) => msg.fatal);
+    expect(fatalErrors).toHaveLength(0);
+  });
+
+  test('escaped-output tag with slurp close does not cause parse error', () => {
+    // <%= expression _%> should not produce "Missing token: _" error
+    const msgs = lint('<%= testcontainerClassInitialization _%>', {});
+    const fatalErrors = msgs.filter((msg) => msg.fatal);
+    expect(fatalErrors).toHaveLength(0);
+  });
+
+  test('code tag with slurp open does not cause parse error', () => {
+    // <%_ expression %> should be parseable
+    const msgs = lint('<%_ testcontainerClassInitialization %>', {});
+    const fatalErrors = msgs.filter((msg) => msg.fatal);
+    expect(fatalErrors).toHaveLength(0);
+  });
+
+  test('code tag with slurp delimiters does not cause parse error', () => {
+    // <%_ expression _%> should be parseable
+    const msgs = lint('<%_ testcontainerClassInitialization _%>', {});
+    const fatalErrors = msgs.filter((msg) => msg.fatal);
+    expect(fatalErrors).toHaveLength(0);
+  });
+
+  test('multiline raw-output tag with slurp close does not cause parse error', () => {
+    const msgs = lint('<%- line1\nline2 _%>', {});
+    const fatalErrors = msgs.filter((msg) => msg.fatal);
+    expect(fatalErrors).toHaveLength(0);
+  });
+
+  test('code node strips slurp markers correctly', () => {
+    const [b] = extractTagBlocks(getEjsNodes('<%- identifier _%>'));
+    // codeContent should have underscores stripped
+    expect(b.codeContent).toMatch(/identifier/);
+    // After stripping underscore from " identifier _", we get " identifier "
+    // Then normalizeLintCodeContent removes the trailing space, so lintCodeContent = " identifier"
+    expect(b.lintCodeContent).toBe(' identifier ');
+  });
+
+  test('multiline slurp tags parse without fatal errors', () => {
+    const msgs = lint(
+      `<%_
+      const x = 1;
+      const y = 2;
+    _%>`,
+      {},
+    );
+    const fatalErrors = msgs.filter((msg) => msg.fatal);
+    expect(fatalErrors).toHaveLength(0);
+  });
+
+  test('mixed slurp and non-slurp tags all parse correctly', () => {
+    const msgs = lint(
+      `<%- raw _%>
+<%= escaped %>
+<%_ code _%>
+<% balanced %>`,
+      {},
+    );
+    const fatalErrors = msgs.filter((msg) => msg.fatal);
+    expect(fatalErrors).toHaveLength(0);
+  });
+});

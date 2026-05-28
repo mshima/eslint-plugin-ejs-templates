@@ -57,6 +57,25 @@ _javascriptParser.setLanguage(_javascriptLanguage);
 export function parseEjs(text: string): Tree {
   const tree = _parser.parse(text);
   if (!tree) throw new Error('tree-sitter failed to parse EJS template');
+
+  // Work around tree-sitter-embedded-template treating slurp tag markers as part of the code node.
+  // https://github.com/tree-sitter/tree-sitter-embedded-template/issues/46
+  let hasChanges = false;
+  const cleanup = (node: SyntaxNode) => {
+    if (node.type === 'output_directive' && node.children.length > 1 && node.children[1].text.endsWith('_')) {
+      const codeNode = node.children[1];
+      text = text.slice(0, codeNode.endIndex - 1) + ' ' + text.slice(codeNode.endIndex);
+      hasChanges = true;
+    }
+    for (const child of node.children) {
+      cleanup(child);
+    }
+  };
+  cleanup(tree.rootNode);
+  if (hasChanges) {
+    return parseEjs(text);
+  }
+
   return tree;
 }
 
