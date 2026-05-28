@@ -156,3 +156,25 @@ npm run typecheck # typecheck only
 - No default exports — only named exports.
 - Rule modules use `camelCase` for the exported constant name; the rule name in the plugin
   registry uses `kebab-case`.
+
+---
+
+## Test assertion preferences
+
+When editing or adding tests in this repository:
+
+- Prefer `toBe(...)` with exact expected values whenever practical.
+- Avoid `toContain(...)` for cases where the full output is deterministic.
+- Avoid normalizing/rewriting strings in assertions (for example `replaceAll(/\s+/g, ' ')`)
+  unless the test explicitly targets whitespace-insensitive behavior.
+- Avoid `not.toBe(...)` when an explicit exact value can be asserted.
+- If a matcher replacement is requested (for example replacing `toBeGreaterThan*`), keep the
+  original intent and update expected values so tests remain strict and readable.
+
+## Test with applyFix preferences
+
+When assertions for applyFix result are added to this repository:
+
+- Prefer `toMatchInlineSnapshot()` snapshot style checks.
+- After converting to inline snapshots, run Vitest with update mode to materialize snapshots
+  in the test file.
