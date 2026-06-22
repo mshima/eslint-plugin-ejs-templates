@@ -57,7 +57,7 @@
     "@stylistic/eslint-plugin": "^5.10.0",
     "@types/debug": "^4.1.13",
     "@types/emscripten": "^1.41.5",
-    "@types/node": "^25.5.0",
+    "@types/node": "^26.0.0",
     "cpy-cli": "^7.0.0",
     "eslint": "^10.1.0",
     "eslint-config-prettier": "^10.1.8",
