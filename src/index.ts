@@ -138,14 +138,14 @@ const customize = (
     allowedGlobals,
     experimental,
     html = 'extension',
-    stylisticBlacklist = false,
-    prettierBlacklist = false,
+    stylisticBlocklist = false,
+    prettierBlocklist = false,
   }: {
     allowedGlobals?: string[];
     experimental?: boolean;
     html?: 'always' | 'never' | 'extension';
-    stylisticBlacklist?: boolean;
-    prettierBlacklist?: boolean;
+    stylisticBlocklist?: boolean;
+    prettierBlocklist?: boolean;
   },
   ...configs: Parameters<typeof defineConfig>
 ): Config[] => {
@@ -168,8 +168,8 @@ const customize = (
           preferEncoded: html === 'extension' ? undefined : html,
           ignoredRules: collectEjsRules(otherConfigs),
         }),
-        ...(stylisticBlacklist ? stylisticIgnoredRules : {}),
-        ...(prettierBlacklist ? { 'prettier/prettier': 'off' } : {}),
+        ...(stylisticBlocklist ? stylisticIgnoredRules : {}),
+        ...(prettierBlocklist ? { 'prettier/prettier': 'off' } : {}),
       },
     },
     ...(html === 'extension'
