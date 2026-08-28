@@ -9,6 +9,7 @@
 import type { Rule } from 'eslint';
 import { SENTINEL_INDENT, SENTINEL_INDENT_NORMALIZE, getVirtualCodeMetadata } from '../processor.js';
 import { getTagTypeComments } from '../utils.js';
+import { isRecord } from '../utils.js';
 
 /**
  * ESLint rule: enforce brace-depth–based indentation on standalone
@@ -57,8 +58,8 @@ export const indent: Rule.RuleModule = {
   },
 
   create(context) {
-    const normalizeContent =
-      (context.options[0] as { normalizeContent?: boolean } | undefined)?.normalizeContent ?? true;
+    const option: unknown = context.options[0];
+    const normalizeContent = !isRecord(option) || option.normalizeContent !== false;
 
     return {
       Program() {

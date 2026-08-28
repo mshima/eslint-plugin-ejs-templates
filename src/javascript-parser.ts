@@ -163,7 +163,7 @@ export function parseJavaScriptPartial(text: string, incrementalCode = ''): Rela
       let cursor = 0;
       for (const n of nodes) {
         let lastCursor = cursor;
-        if (STATEMENT_OPEN_IN_SINGLE_LINE.includes(n.type as (typeof STATEMENT_OPEN_IN_SINGLE_LINE)[number])) {
+        if (STATEMENT_OPEN_IN_SINGLE_LINE.some((statementType) => statementType === n.type)) {
           // else if (foo) {
           if (n.parent?.type === 'else_clause') {
             continue;

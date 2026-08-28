@@ -32,17 +32,14 @@ export const noFunctionBlock: Rule.RuleModule = {
   },
 
   create(context) {
-    const reportIfBlockBody = (node: { body: unknown }) => {
-      if (
-        typeof node.body === 'object' &&
-        node.body !== null &&
-        'type' in node.body &&
-        node.body.type === 'BlockStatement'
-      ) {
-        context.report({
-          node: node.body as Rule.Node,
-          messageId: 'noFunctionBlock',
-        });
+    // Reported by location rather than by node: `body` is typed as a bare ESTree node, so
+    // passing it as `node` would require asserting it to `Rule.Node`. Reporting the same
+    // `loc` that `node` reporting would have used avoids the assertion without moving the
+    // reported position.
+    const reportIfBlockBody = (node: { body: { type: string; loc?: Rule.Node['loc'] } }) => {
+      const { body } = node;
+      if (body.type === 'BlockStatement' && body.loc) {
+        context.report({ loc: body.loc, messageId: 'noFunctionBlock' });
       }
     };
 

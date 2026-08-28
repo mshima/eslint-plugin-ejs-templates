@@ -502,7 +502,7 @@ describe('plugin shape', () => {
   test('all config targets *.ejs files', () => {
     const config = plugin.configs.customize({});
     for (const cfg of config) {
-      expect(cfg.files?.every((f) => (f as string).endsWith('.ejs'))).toBe(true);
+      expect(cfg.files?.flat().every((pattern) => pattern.endsWith('.ejs'))).toBe(true);
     }
   });
   test('enable prefer-encoded rule based on file extension', () => {
@@ -581,7 +581,7 @@ describe('plugin shape', () => {
     );
 
     for (const cfg of configs) {
-      expect(cfg.files?.every((f) => (f as string).endsWith('.ejs'))).toBe(true);
+      expect(cfg.files?.flat().every((pattern) => pattern.endsWith('.ejs'))).toBe(true);
     }
   });
 });

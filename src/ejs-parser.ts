@@ -9,7 +9,10 @@ export const getTagTypeFromLine = (line: string): EjsTagType | null => {
   line = line.trim();
   if (!line.startsWith(EJS_MARKER_PREFIX)) return null;
   const tagType = line.slice(EJS_MARKER_PREFIX.length);
-  return tagType as EjsTagType;
+  // Matched against the known set rather than asserted: the marker is read back out of the
+  // virtual file, so anything unrecognised should be reported as "no tag type" rather than
+  // travelling on as a tag type the rest of the code will never match.
+  return EJS_TAG_TYPES.find((known) => known === tagType) ?? null;
 };
 
 const _TAG_TYPES_WITH_MULTILINE = [
@@ -24,9 +27,16 @@ const _TAG_TYPES = ['directive-comment', 'comment-empty-line', 'slurp-not-standa
 type EjsBaseTagType = (typeof _TAG_TYPES_WITH_MULTILINE)[number];
 type EjsTagType = EjsBaseTagType | (typeof _TAG_TYPES)[number] | `${EjsBaseTagType}-multiline`;
 
-const _EJS_OPENING_DELIMS = ['<%=', '<%-', '<%_', '<%#', '<%'] as const;
+/** Every value {@link EjsTagType} admits, for validating a marker read back out of a file. */
+const EJS_TAG_TYPES: readonly EjsTagType[] = [
+  ..._TAG_TYPES_WITH_MULTILINE,
+  ..._TAG_TYPES,
+  ..._TAG_TYPES_WITH_MULTILINE.map((base): EjsTagType => `${base}-multiline`),
+];
+
+const EJS_OPENING_DELIMS = ['<%=', '<%-', '<%_', '<%#', '<%'] as const;
 const EJS_CLOSING_DELIMS = ['-%>', '_%>', '%>'] as const;
-type EjsOpeningDelimiter = (typeof _EJS_OPENING_DELIMS)[number];
+type EjsOpeningDelimiter = (typeof EJS_OPENING_DELIMS)[number];
 type EjsClosingDelimiter = (typeof EJS_CLOSING_DELIMS)[number];
 
 /** A single extracted EJS tag together with its position in the original file. */
@@ -153,18 +163,19 @@ export const getEjsNodes = (text: string): EjsSyntaxNode[] => {
     if (!errorNode) {
       throw new Error('Unexpectedly did not find error node in tree with hasError=true');
     }
-    const error = new Error(
-      `Failed to parse EJS template at line ${String(errorNode.startPosition.row + 1)}, column ${String(errorNode.startPosition.column + 1)}: unexpected token '${text.slice(errorNode.startIndex, errorNode.endIndex)}'`,
-    ) as Error & { line: number; column: number };
-    error.line = errorNode.startPosition.row + 1;
-    error.column = errorNode.startPosition.column + 1;
-    throw error;
+    throw Object.assign(
+      new Error(
+        `Failed to parse EJS template at line ${String(errorNode.startPosition.row + 1)}, column ${String(errorNode.startPosition.column + 1)}: unexpected token '${text.slice(errorNode.startIndex, errorNode.endIndex)}'`,
+      ),
+      { line: errorNode.startPosition.row + 1, column: errorNode.startPosition.column + 1 },
+    );
   }
 
-  return tree.rootNode.children.map((node) => {
-    (node as EjsSyntaxNode).linePrefix = text.slice(node.startIndex - node.startPosition.column, node.startIndex);
-    return node as EjsSyntaxNode;
-  });
+  return tree.rootNode.children.map((node) =>
+    Object.assign(node, {
+      linePrefix: text.slice(node.startIndex - node.startPosition.column, node.startIndex),
+    }),
+  );
 };
 
 function extractEslintDirectiveFromEjsComment(commentText: string): string | null {
@@ -378,8 +389,10 @@ export function extractTagBlocks(nodes: EjsSyntaxNode[]): TagBlock[] {
     }
 
     // Extract opening/closing delimiters and code content from tree-sitter nodes.
-    const openDelim = (node.children[0]?.text ?? '<%') as EjsOpeningDelimiter;
-    const closeDelim = (node.children[node.childCount - 1]?.text ?? '%>') as EjsClosingDelimiter;
+    const openDelimText = node.children[0]?.text;
+    const closeDelimText = node.children[node.childCount - 1]?.text;
+    const openDelim = EJS_OPENING_DELIMS.find((delim) => delim === openDelimText) ?? '<%';
+    const closeDelim = EJS_CLOSING_DELIMS.find((delim) => delim === closeDelimText) ?? '%>';
     const codeNode = node.namedChildren.find((c) => c.type === 'code');
     const codeContent: string = codeNode?.text ?? '';
     const lintCodeContent = normalizeLintCodeContent(codeContent);
@@ -480,13 +493,14 @@ export function extractTagBlocks(nodes: EjsSyntaxNode[]): TagBlock[] {
     if (isStandalone && isSlurpTag && lineIndent !== expectedIndent) {
       tagType = isMultiline ? 'slurp-needs-indent-multiline' : 'slurp-needs-indent';
     } else if (isMultiline) {
-      tagType += '-multiline';
+      // Built from `baseType` rather than appended to `tagType`: `+=` widens the result to
+      // `string`, which is what previously needed an assertion to narrow back.
+      tagType = `${baseType}-multiline`;
     } else if (isSlurpTag && !isStandalone) {
       // Slurp tag that is inline (not at the start of its own line).
       // The `slurp-newline` rule will move it to its own line.
       tagType = 'slurp-not-standalone';
     }
-    tagType = tagType as EjsTagType; // for TS narrowing
 
     // ── Virtual body extras (void-expression wrapping) ────────────────────
     // For output tags: append `;` so the expression is a valid statement in

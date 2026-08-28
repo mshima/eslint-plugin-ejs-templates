@@ -7,6 +7,7 @@
 //     http://www.apache.org/licenses/LICENSE-2.0
 
 import type { Rule } from 'eslint';
+import { isRecord, isUnknownArray } from '../utils.js';
 
 /**
  * ESLint rule: disallow direct function calls inside EJS tags.
@@ -43,8 +44,11 @@ export const noGlobalFunctionCall: Rule.RuleModule = {
   },
 
   create(context) {
-    const allowFromOptions =
-      (context.options[0] as { allow?: string[] } | undefined)?.allow?.filter((name) => name.trim().length > 0) ?? [];
+    const option: unknown = context.options[0];
+    const allowOption = isRecord(option) ? option.allow : undefined;
+    const allowFromOptions = isUnknownArray(allowOption)
+      ? allowOption.filter((name): name is string => typeof name === 'string' && name.trim().length > 0)
+      : [];
     const allowedCalls = new Set<string>(['include', ...allowFromOptions]);
 
     return {
