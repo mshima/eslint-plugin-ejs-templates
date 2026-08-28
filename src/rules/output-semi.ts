@@ -7,7 +7,7 @@
 //     http://www.apache.org/licenses/LICENSE-2.0
 
 import type { Rule } from 'eslint';
-import { SENTINEL_OUTPUT_SEMI_ADD, SENTINEL_OUTPUT_SEMI_REMOVE } from '../processor.js';
+import { getFileBlocks, isOutputTagType, SENTINEL_OUTPUT_SEMI_ADD, SENTINEL_OUTPUT_SEMI_REMOVE } from '../processor.js';
 import { getTagTypeComments } from '../utils.js';
 
 /**
@@ -52,19 +52,25 @@ export const outputSemi: Rule.RuleModule = {
       Program() {
         const sourceCode = context.sourceCode;
         const tagTypeComments = getTagTypeComments(sourceCode.text);
-        const text = sourceCode.text;
+        const fileBlocks = getFileBlocks(context.filename);
+        if (!fileBlocks) {
+          return;
+        }
+        const { nonDirectiveSegments } = fileBlocks;
 
         for (const { comment, tagType } of tagTypeComments) {
-          if (tagType !== 'escaped-output' && tagType !== 'raw-output') continue;
+          if (!isOutputTagType(tagType)) continue;
 
-          // The virtual code line after the marker is: <lintCodeContent><virtualBodyInlineSuffix>
-          // virtualBodyInlineSuffix is always ';' for single-line output tags.
-          // If the original EJS content already ends with ';', lintCodeContent ends with ';'
-          // and the virtual line ends with ';;'.
-          const [, end] = comment.range ?? [0, 0];
-          const afterMarker = text.slice(end + 1); // skip '\n'
-          const contentLine = afterMarker.split('\n')[0];
-          const hasTrailingSemi = contentLine.trimEnd().endsWith(';;');
+          const commentLine = comment.loc?.start.line;
+          if (commentLine === undefined) continue;
+          const block = nonDirectiveSegments.find((segment) => segment.startLine === commentLine)?.block;
+          if (!block) continue;
+
+          // Read the tag's own content rather than the virtual line. The previous check looked
+          // for a doubled `;;` on the first virtual line — the tag's semicolon plus the
+          // synthetic one the processor appends — which cannot work for a multiline tag: no
+          // synthetic semicolon is added for those, and the semicolon is not on the first line.
+          const hasTrailingSemi = block.codeContent.trimEnd().endsWith(';');
 
           if (option === 'always' && !hasTrailingSemi) {
             const { range = [0, 0] } = comment;

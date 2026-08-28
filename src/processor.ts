@@ -624,6 +624,17 @@ export function findNegatedConditionBranches(
   return { elseBlock: followingBlocks[elseIndex], closeBlock: followingBlocks[closeIndex] };
 }
 
+/** Output tag types, including the multiline variants. */
+const OUTPUT_TAG_TYPES = new Set<string>([
+  'escaped-output',
+  'raw-output',
+  'escaped-output-multiline',
+  'raw-output-multiline',
+]);
+
+/** Whether a tag renders a value, regardless of whether its content spans lines. */
+export const isOutputTagType = (tagType: string): boolean => OUTPUT_TAG_TYPES.has(tagType);
+
 /** Rule id of the built-in ESLint rule this plugin supplies an autofix for. */
 const CORE_NO_NEGATED_CONDITION = 'no-negated-condition';
 
@@ -837,14 +848,14 @@ function translateFix(
     return null;
   } else if (fix.text === SENTINEL_OUTPUT_SEMI_ADD) {
     // output-semi (always): insert `;` at the end of the trimmed code content
-    if (block.tagType === 'escaped-output' || block.tagType === 'raw-output') {
+    if (isOutputTagType(block.tagType)) {
       const insertPos = block.tagOffset + block.openDelim.length + block.codeContent.trimEnd().length;
       return { range: [insertPos, insertPos], text: ';' };
     }
     return null;
   } else if (fix.text === SENTINEL_OUTPUT_SEMI_REMOVE) {
     // output-semi (never): remove the trailing `;` from the code content
-    if (block.tagType === 'escaped-output' || block.tagType === 'raw-output') {
+    if (isOutputTagType(block.tagType)) {
       const trimmedContent = block.codeContent.trimEnd();
       if (trimmedContent.endsWith(';')) {
         const semiPos = block.tagOffset + block.openDelim.length + trimmedContent.length - 1;
