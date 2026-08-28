@@ -78,8 +78,8 @@ export default defineConfig([
     // allowedGlobals: ['include'],   // extra global functions to allow (default: [])
     // experimental: true,            // enable experimental rules (default: false)
     // html: 'extension',             // 'always' | 'never' | 'extension' (default)
-    // stylisticBlacklist: false,     // disable conflicting @stylistic rules (default: false)
-    // prettierBlacklist: false,      // disable prettier/prettier rule (default: false)
+    // stylisticBlocklist: false,     // disable conflicting @stylistic rules (default: false)
+    // prettierBlocklist: false,      // disable prettier/prettier rule (default: false)
   }),
 ]);
 ```
@@ -108,8 +108,8 @@ export default defineConfig([
 | `allowedGlobals`     | `string[]`                           | `[]`          | Extra global function names that `no-global-function-call` will not flag                                                                                 |
 | `experimental`       | `boolean`                            | `false`       | Enables experimental features                                                                                                                            |
 | `html`               | `'always' \| 'never' \| 'extension'` | `'extension'` | Controls the `prefer-encoded` option: `always` for all `.ejs` files, `never` for all `.ejs` files, or `always` for `*.html.ejs` and `never` for the rest |
-| `stylisticBlacklist` | `boolean`                            | `false`       | Turns off `@stylistic` rules that conflict with EJS formatting (for example `eol-last`, `indent`, `brace-style` and `multiline-ternary`)                 |
-| `prettierBlacklist`  | `boolean`                            | `false`       | Turns off the `prettier/prettier` rule when Prettier is also configured                                                                                  |
+| `stylisticBlocklist` | `boolean`                            | `false`       | Turns off `@stylistic` rules that conflict with EJS formatting (for example `eol-last`, `indent`, `brace-style` and `multiline-ternary`)                 |
+| `prettierBlocklist`  | `boolean`                            | `false`       | Turns off the `prettier/prettier` rule when Prettier is also configured                                                                                  |
 
 Then run ESLint as usual:
 
