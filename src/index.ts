@@ -196,7 +196,10 @@ const customize = (
 // Final plugin export
 // ---------------------------------------------------------------------------
 
-const configs = { base, customize } as const;
+// Annotated explicitly rather than inferred: `Config` is re-exported by `eslint/config`
+// but declared in `@eslint/config-helpers`, so declaration emit cannot name the inferred
+// type portably (TS2883). Naming the members via `typeof` keeps the public shape identical.
+const configs: { readonly base: typeof base; readonly customize: typeof customize } = { base, customize };
 
 const plugin = {
   ...pluginCore,
