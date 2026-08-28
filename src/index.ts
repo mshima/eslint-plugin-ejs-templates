@@ -95,7 +95,7 @@ const stylisticIgnoredRules = {
 
   // Interoperability issues
   '@stylistic/indent': 'off',
-};
+} as const;
 
 const collectEjsRules = (configs: Config[]): string[] =>
   configs
@@ -169,11 +169,14 @@ const customize = (
           ignoredRules: collectEjsRules(otherConfigs),
         }),
         ...(stylisticBlocklist ? stylisticIgnoredRules : {}),
-        ...(prettierBlocklist ? { 'prettier/prettier': 'off' } : {}),
+        ...(prettierBlocklist ? ({ 'prettier/prettier': 'off' } as const) : {}),
       },
     },
+    // `satisfies` rather than a cast: a conditional expression gets no contextual type from
+    // the enclosing array, so without it the rule entries widen to `string[]` and the whole
+    // array stops matching `Config[]` — which is what the removed assertion was hiding.
     ...(html === 'extension'
-      ? [
+      ? ([
           {
             files: ['**/*.html.ejs'],
             rules: {
@@ -187,9 +190,9 @@ const customize = (
               [`${pluginName}/prefer-encoded`]: ['error', 'never'],
             },
           },
-        ]
+        ] satisfies Config[])
       : []),
-  ] as Config[];
+  ];
 };
 
 // ---------------------------------------------------------------------------

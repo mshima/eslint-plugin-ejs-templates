@@ -58,3 +58,17 @@ export const getTagTypeComments = (sourceText: string): CommentWithTagType<Virtu
 
   return result;
 };
+
+/**
+ * Narrow a value to a record so its properties can be read.
+ *
+ * ESLint types `context.options` as `any[]`, so reading a rule option is otherwise an
+ * assertion from `any`. A type predicate narrows it without one. The option has already been
+ * validated against the rule's `schema` by the time `create()` runs, so these checks exist to
+ * satisfy the type system rather than to guard against shapes that can actually occur.
+ */
+export const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null;
+
+/** Narrow a value to an array whose elements still need checking individually. */
+export const isUnknownArray = (value: unknown): value is readonly unknown[] => Array.isArray(value);

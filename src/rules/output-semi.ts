@@ -45,7 +45,8 @@ export const outputSemi: Rule.RuleModule = {
   },
 
   create(context) {
-    const option: 'always' | 'never' = (context.options[0] as 'always' | 'never' | undefined) ?? 'never';
+    const rawOption: unknown = context.options[0];
+    const option: 'always' | 'never' = rawOption === 'always' ? 'always' : 'never';
 
     return {
       Program() {

@@ -44,7 +44,8 @@ export const preferEncoded: Rule.RuleModule = {
   },
 
   create(context) {
-    const when = (context.options[0] as 'always' | 'never' | undefined) ?? 'always';
+    const rawWhen: unknown = context.options[0];
+    const when: 'always' | 'never' = rawWhen === 'never' ? 'never' : 'always';
 
     return {
       Program() {

@@ -14,6 +14,7 @@ import {
   getVirtualCodeMetadata,
 } from '../processor.js';
 import { getTagTypeComments } from '../utils.js';
+import { isRecord } from '../utils.js';
 
 export const format: Rule.RuleModule = {
   meta: {
@@ -43,8 +44,9 @@ export const format: Rule.RuleModule = {
   },
 
   create(context) {
-    const multilineClose =
-      (context.options[0] as { multilineClose?: 'new-line' | 'same-line' } | undefined)?.multilineClose ?? 'new-line';
+    const option: unknown = context.options[0];
+    const multilineClose: 'new-line' | 'same-line' =
+      isRecord(option) && option.multilineClose === 'same-line' ? 'same-line' : 'new-line';
 
     return {
       Program() {

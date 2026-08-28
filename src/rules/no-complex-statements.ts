@@ -7,6 +7,13 @@
 //     http://www.apache.org/licenses/LICENSE-2.0
 
 import type { Rule } from 'eslint';
+import { isRecord, isUnknownArray } from '../utils.js';
+
+/** A `disallow` option entry: a bare statement type, or one paired with a custom message. */
+type DisallowEntry = string | { type: string; message?: string };
+
+const isDisallowEntry = (value: unknown): value is DisallowEntry =>
+  typeof value === 'string' || (isRecord(value) && typeof value.type === 'string');
 
 /**
  * ESLint rule: disallow complex statements in EJS tags.
@@ -90,9 +97,11 @@ export const noComplexStatements: Rule.RuleModule = {
       SwitchStatement: 'forbiddenSwitch',
     };
 
-    const options =
-      (context.options[0] as { disallow?: (string | { type: string; message?: string })[] } | undefined) ?? {};
-    const optionsDisallow = options.disallow ?? DEFAULT_FORBIDDEN;
+    const option: unknown = context.options[0];
+    const disallowOption = isRecord(option) ? option.disallow : undefined;
+    const optionsDisallow: readonly DisallowEntry[] = isUnknownArray(disallowOption)
+      ? disallowOption.filter(isDisallowEntry)
+      : DEFAULT_FORBIDDEN;
 
     // Build a map of disallowed types and their custom messages
     const forbiddenMap = new Map<string, string | undefined>();
