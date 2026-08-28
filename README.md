@@ -13,6 +13,7 @@ EJS files are parsed by [tree-sitter-embedded-template](https://github.com/tree-
 - [`ejs-templates/no-complex-statements`](#ejs-templatesno-complex-statements) – disallows complex statements (try, while, switch, etc.) in templates to keep them simple
 - [`ejs-templates/no-function-block`](#ejs-templatesno-function-block) – disallows function/arrow statement blocks in templates to keep logic simple
 - [`ejs-templates/no-global-function-call`](#ejs-templatesno-global-function-call) – disallows direct function calls in EJS tags (with `include()` allowed by default)
+- [`ejs-templates/no-multiline-output`](#ejs-templatesno-multiline-output) – flags (and auto-fixes) output tags whose conditional renders multiple lines
 - [`ejs-templates/no-output-negated-condition`](#ejs-templatesno-output-negated-condition) – renamed rule; see `no-output-negated-ternary`
 - [`ejs-templates/output-semi`](#ejs-templatesoutput-semi) – enforces semicolon style for output tags (`<%= %>`, `<%- %>`) (default: `never`)
 - [`ejs-templates/prefer-encoded`](#ejs-templatespreferencoded) – flags `<%- … %>` and suggests `<%= … %>` (`always`, default), or flags `<%= … %>` and suggests `<%- … %>` (`never`)
@@ -151,6 +152,7 @@ The following rules have no specific ordering requirement (they can appear in an
 - [`no-complex-statements`](#ejs-templatesno-complex-statements)
 - [`no-function-block`](#ejs-templatesno-function-block)
 - [`no-global-function-call`](#ejs-templatesno-global-function-call)
+- [`no-multiline-output`](#ejs-templatesno-multiline-output)
 - [`no-output-negated-condition`](#ejs-templatesno-output-negated-condition)
 - [`output-semi`](#ejs-templatesoutput-semi)
 
@@ -465,6 +467,65 @@ not preserve the chain). The built-in rule also reports the ternary form, which
 [`no-output-negated-ternary`](#ejs-templatesno-output-negated-condition) covers.
 
 [`no-negated-condition`]: https://eslint.org/docs/latest/rules/no-negated-condition
+
+### `ejs-templates/no-multiline-output`
+
+Flags output tags whose conditional renders multiple lines, and auto-fixes them
+into a conditional block. Escaping markup into a string hides the template's
+structure: the output cannot be seen, indented, or edited as markup.
+
+```ejs
+<!-- ✗ violation -->
+<%- condition ? 'first\nsecond' : '' %>
+
+<!-- ✓ fixed -->
+<% if (condition) { %>first
+second<% } %>
+```
+
+The branch text is written flush against plain `<% %>` tags. Slurp tags would
+swallow the whitespace and newlines around them, so the block would render
+differently from the output tag it replaced; plain tags emit nothing themselves
+and consume nothing around them, so the rendered output is unchanged — including
+for an indented or inline tag, whose surrounding text is preserved exactly.
+
+A non-empty alternate branch becomes an `else`:
+
+```ejs
+<!-- ✗ violation -->
+<%- condition ? 'aaa\nbbb' : 'ccc\nddd' %>
+
+<!-- ✓ fixed -->
+<% if (condition) { %>aaa
+bbb<% } else { %>ccc
+ddd<% } %>
+```
+
+This is the counterpart to [`prefer-output`](#ejs-templatesprefer-output), which
+collapses the opposite case. The two never apply to the same tag: `prefer-output`
+only produces single-line ternaries, and this rule only reports multiline ones.
+
+Only ternaries whose branches are plain string literals are reported — a template
+literal can interpolate, so its rendered text is not known statically.
+
+One case is **reported but deliberately not fixed**: a `<%=` tag whose text
+contains `&`, `<`, `>`, `"` or `'`. `<%=` escapes its value, while the template
+text the fix produces is emitted raw, so no rewrite preserves the output. A `<%-`
+tag has no such limit.
+
+This rule is enabled by default by `customize()`. To turn it off, set it in a
+config entry of your own — `customize()` leaves any `ejs-templates` rule you
+configure yourself untouched:
+
+```js
+// eslint.config.js
+{
+  files: ['**/*.ejs'],
+  rules: {
+    'ejs-templates/no-multiline-output': 'off',
+  },
+}
+```
 
 ### `ejs-templates/no-output-negated-condition`
 

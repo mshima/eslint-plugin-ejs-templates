@@ -528,6 +528,7 @@ describe('plugin shape', () => {
             "allow": [],
           },
         ],
+        "ejs-templates/no-multiline-output": "error",
         "ejs-templates/no-output-negated-ternary": "off",
         "ejs-templates/output-semi": "error",
         "ejs-templates/prefer-encoded": [
@@ -567,6 +568,7 @@ describe('plugin shape', () => {
     expect(config?.rules).toMatchInlineSnapshot(`
       {
         "ejs-templates/experimental-prefer-slurp-multiline": "off",
+        "ejs-templates/no-multiline-output": "error",
       }
     `);
   });

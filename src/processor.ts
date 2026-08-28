@@ -95,6 +95,7 @@ export const SENTINEL_OUTPUT_SEMI_REMOVE = 'OUTPUT_SEMI_REMOVE';
 export const SENTINEL_PREFER_OUTPUT = 'PREFER_OUTPUT';
 export const SENTINEL_PREFER_OUTPUT_ELSE = 'PREFER_OUTPUT_ELSE';
 export const SENTINEL_NO_OUTPUT_NEGATED_TERNARY = 'NO_OUTPUT_NEGATED_TERNARY';
+export const SENTINEL_NO_MULTILINE_OUTPUT = 'NO_MULTILINE_OUTPUT';
 
 /** Opening line of the function wrapper injected around the full virtual file. */
 const GLOBAL_VIRTUAL_OPEN = '(function() {\n';
@@ -360,6 +361,98 @@ function extractPositiveConditionFromNegatedTest(node: SyntaxNode): string | nul
  *
  * Returns null for non-output tags, multiline content, or non-negated tests.
  */
+/** Escape sequences a single- or double-quoted literal may contain and still be decodable. */
+const STRING_ESCAPES = new Map<string, string>([
+  ['\\n', '\n'],
+  ['\\r', '\r'],
+  ['\\t', '\t'],
+  ["\\'", "'"],
+  ['\\"', '"'],
+  ['\\\\', '\\'],
+]);
+
+/**
+ * Text a quoted string literal evaluates to, or null when it is not a plain decodable literal.
+ *
+ * Decoded from the parse tree's own `string_fragment` / `escape_sequence` children rather than
+ * by unescaping the raw text, so an escape this code does not understand causes a bail-out
+ * instead of a wrong result. Template literals are rejected: they can interpolate.
+ */
+function decodeStringLiteral(node: SyntaxNode): string | null {
+  if (node.type !== 'string') {
+    return null;
+  }
+  let decoded = '';
+  for (const child of node.children) {
+    if (child.type === 'string_fragment') {
+      decoded += child.text;
+    } else if (child.type === 'escape_sequence') {
+      const value = STRING_ESCAPES.get(child.text);
+      if (value === undefined) {
+        return null;
+      }
+      decoded += value;
+    } else if (child.type !== "'" && child.type !== '"') {
+      return null;
+    }
+  }
+  return decoded;
+}
+
+/** An output ternary whose branches are literals and whose rendered text spans lines. */
+export type MultilineOutputConditionalParts = {
+  condition: string;
+  consequent: string;
+  alternate: string;
+};
+
+/**
+ * Extract the parts of an output tag of the form `<%- cond ? 'a\nb' : '' %>`.
+ *
+ * Returns null unless the tag is a single-line output tag holding one ternary whose branches
+ * are both plain string literals and whose rendered output actually contains a newline — the
+ * case where a conditional block reads better than an escaped one-liner.
+ */
+export function getMultilineOutputConditionalParts(block: TagBlock): MultilineOutputConditionalParts | null {
+  if (block.tagType !== 'escaped-output' && block.tagType !== 'raw-output') {
+    return null;
+  }
+
+  const partialNode = block.javascriptPartialNode;
+  if (!partialNode || partialNode.multilineOriginal) {
+    return null;
+  }
+
+  const conditionalNode = partialNode.nodes.find(
+    (node) => node.type === 'ternary_expression' && node.parent?.type === 'expression_statement',
+  );
+  if (!conditionalNode) {
+    return null;
+  }
+
+  const conditionNode = conditionalNode.childForFieldName('condition');
+  const consequentNode = conditionalNode.childForFieldName('consequence');
+  const alternateNode = conditionalNode.childForFieldName('alternative');
+  if (!conditionNode || !consequentNode || !alternateNode) {
+    return null;
+  }
+
+  const consequent = decodeStringLiteral(consequentNode);
+  const alternate = decodeStringLiteral(alternateNode);
+  const condition = conditionNode.text.trim();
+  if (consequent === null || alternate === null || condition.length === 0) {
+    return null;
+  }
+
+  // Only the multiline case: a single-line ternary is already the more readable form, and is
+  // what `prefer-output` deliberately produces.
+  if (!consequent.includes('\n') && !alternate.includes('\n')) {
+    return null;
+  }
+
+  return { condition, consequent, alternate };
+}
+
 export function getNegatedOutputConditionalParts(block: TagBlock): NegatedOutputConditionalParts | null {
   if (block.tagType !== 'escaped-output' && block.tagType !== 'raw-output') {
     return null;
@@ -808,6 +901,37 @@ function translateFix(
     return {
       range: [openStart, fixEnd],
       text: `<%= ${condition} ? '${escapedTruthyContent}' : '${escapedFalsyContent}' %>`,
+    };
+  } else if (fix.text === SENTINEL_NO_MULTILINE_OUTPUT) {
+    // no-multiline-output: `<%- cond ? 'a\nb' : '' %>` => a slurp conditional block.
+    const parts = getMultilineOutputConditionalParts(block);
+    if (!parts) {
+      return null;
+    }
+
+    // `<%=` escapes its value, whereas the template text the fix produces is emitted raw. The
+    // two only agree when the rendered text has nothing to escape, so a `<%=` tag carrying any
+    // of EJS's escaped characters is reported without a fix rather than silently changing what
+    // the template renders.
+    if (block.tagType === 'escaped-output' && /[&<>"']/u.test(parts.consequent + parts.alternate)) {
+      return null;
+    }
+
+    // Non-slurp tags, with the branch text written flush against them. `<%_`/`_%>` would
+    // swallow the surrounding whitespace and newlines, so a slurp block renders differently
+    // from the output tag it replaces — it drops the newline the original tag's own line
+    // contributes, and drops a leading indent that was literal output. Plain `<% %>` tags emit
+    // nothing themselves and consume nothing around them, so writing the text with no added
+    // line breaks reproduces the original output exactly, wherever the tag sits.
+    const pieces = [`<% if (${parts.condition}) { %>`, parts.consequent];
+    if (parts.alternate.length > 0) {
+      pieces.push('<% } else { %>', parts.alternate);
+    }
+    pieces.push('<% } %>');
+
+    return {
+      range: [block.tagOffset, block.tagOffset + block.tagLength],
+      text: pieces.join(''),
     };
   } else if (fix.text === SENTINEL_NO_OUTPUT_NEGATED_TERNARY) {
     // no-output-negated-ternary: `<%= !cond ? a : b %>` => `<%= cond ? b : a %>`
