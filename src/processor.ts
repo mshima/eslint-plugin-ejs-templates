@@ -399,6 +399,212 @@ export function getNegatedOutputConditionalParts(block: TagBlock): NegatedOutput
   };
 }
 
+/** Unwrap one layer of parentheses, so `(a && b)` yields `a && b`. */
+function unwrapParentheses(node: SyntaxNode): SyntaxNode {
+  if (node.type !== 'parenthesized_expression') {
+    return node;
+  }
+  return node.childForFieldName('expression') ?? node.namedChildren.at(0) ?? node;
+}
+
+/**
+ * Positive form of a negated `if` test, or null when the test is not negated.
+ *
+ * Mirrors what the core `no-negated-condition` rule treats as negated: a `!` unary and the
+ * `!==` / `!=` binaries. Inverting the operator (rather than wrapping the whole test in
+ * another `!`) is what lets the fix read as if it had been written that way by hand.
+ */
+function invertNegatedTest(conditionNode: SyntaxNode): string | null {
+  const test = unwrapParentheses(conditionNode);
+
+  if (test.type === 'unary_expression' && test.text.trimStart().startsWith('!')) {
+    const argument = test.childForFieldName('argument') ?? test.namedChildren.at(0) ?? null;
+    if (!argument) {
+      return null;
+    }
+    // `!(a && b)` becomes `a && b` rather than `(a && b)`: the `if (…)` already
+    // supplies the parentheses, so keeping them would double them up.
+    const positive = unwrapParentheses(argument).text.trim();
+    return positive.length > 0 ? positive : null;
+  }
+
+  if (test.type === 'binary_expression') {
+    const left = test.child(0);
+    const operator = test.child(1);
+    const right = test.child(2);
+    if (!left || !operator || !right) {
+      return null;
+    }
+    const positiveOperator = operator.type === '!==' ? '===' : operator.type === '!=' ? '==' : null;
+    if (!positiveOperator) {
+      return null;
+    }
+    return `${left.text.trim()} ${positiveOperator} ${right.text.trim()}`;
+  }
+
+  return null;
+}
+
+/**
+ * Positive condition for a tag holding exactly `if (<negated test>) {`, or null.
+ *
+ * Only the opening tag is inspected here; whether the statement actually has an `else`
+ * branch to swap with is decided by the caller from the surrounding blocks.
+ */
+export function getNegatedIfCondition(block: TagBlock): string | null {
+  const partialNode = block.javascriptPartialNode;
+  if (!partialNode || partialNode.multilineOriginal || partialNode.contentNode.childCount !== 1) {
+    return null;
+  }
+
+  const ifStatement = partialNode.contentNode.child(0);
+  if (ifStatement?.type !== 'if_statement' || ifStatement.child(ifStatement.childCount - 1)?.text !== '{') {
+    return null;
+  }
+
+  const conditionNode = ifStatement.childForFieldName('condition') ?? ifStatement.child(1);
+  return conditionNode ? invertNegatedTest(conditionNode) : null;
+}
+
+/** Whether a tag is exactly `} else {` — an `else if` continuation deliberately does not match. */
+export function isElseOpeningBlock(block: TagBlock): boolean {
+  const errorNode = block.javascriptPartialNode?.contentNode.child(0);
+  return (
+    errorNode?.type === 'ERROR' &&
+    errorNode.child(0)?.type === '}' &&
+    errorNode.child(1)?.type === 'else' &&
+    errorNode.child(2)?.type === '{'
+  );
+}
+
+/**
+ * Whether a tag closes a branch and continues the chain with `else if` rather than a plain
+ * `else` — e.g. `} else if (other) {`.
+ *
+ * Such a statement must not be swapped: its branches form a chain, and moving the first body
+ * past the remaining `else if` links would neither preserve behaviour nor stay syntactically
+ * valid. The core `no-negated-condition` rule likewise leaves these alone.
+ */
+export function isElseIfContinuationBlock(block: TagBlock): boolean {
+  const errorNode = block.javascriptPartialNode?.contentNode.child(0);
+  return (
+    errorNode?.type === 'ERROR' &&
+    errorNode.child(0)?.type === '}' &&
+    errorNode.child(1)?.type === 'else' &&
+    errorNode.child(2)?.type !== '{'
+  );
+}
+
+/** Whether a tag is exactly `}`, closing a block without opening another. */
+export function isBlockClosingBlock(block: TagBlock): boolean {
+  const errorNode = block.javascriptPartialNode?.contentNode.child(0);
+  return errorNode?.type === 'ERROR' && errorNode.childCount === 1 && errorNode.child(0)?.type === '}';
+}
+
+/**
+ * Locate the `} else {` and closing `}` tags belonging to an `if` tag, given the blocks that
+ * follow it.
+ *
+ * The branches cannot be found positionally: a branch body normally holds further tags —
+ * output tags, nested conditionals, loops — so the matching `else` is rarely the next block.
+ * Nesting is tracked through each block's brace delta and only tags at depth zero are
+ * considered, which is what makes the match the *own* branches of this `if`.
+ *
+ * Returns null when the statement has no `else` (a closing `}` is reached first), when the
+ * `else` is an `else if` continuation, or when the template ends unbalanced.
+ */
+export function findNegatedConditionBranches(
+  followingBlocks: TagBlock[],
+): { elseBlock: TagBlock; closeBlock: TagBlock } | null {
+  const findAtSameDepth = (from: number, wanted: 'else' | 'close'): number => {
+    let depth = 0;
+    for (let index = from; index < followingBlocks.length; index++) {
+      const candidate = followingBlocks[index];
+      if (depth === 0) {
+        // An `else if` link belongs to this statement but cannot be swapped, so the whole
+        // match is abandoned rather than skipped over — skipping would pair the `if` with a
+        // later `else` from further down the chain and reorder unrelated branches.
+        if (isElseIfContinuationBlock(candidate)) {
+          return -1;
+        }
+        if (isElseOpeningBlock(candidate)) {
+          return wanted === 'else' ? index : -1;
+        }
+        if (isBlockClosingBlock(candidate)) {
+          return wanted === 'close' ? index : -1;
+        }
+      }
+      depth += candidate.javascriptPartialNode?.bracesDelta ?? 0;
+      if (depth < 0) {
+        return -1;
+      }
+    }
+    return -1;
+  };
+
+  const elseIndex = findAtSameDepth(0, 'else');
+  if (elseIndex === -1) {
+    return null;
+  }
+  const closeIndex = findAtSameDepth(elseIndex + 1, 'close');
+  if (closeIndex === -1) {
+    return null;
+  }
+
+  return { elseBlock: followingBlocks[elseIndex], closeBlock: followingBlocks[closeIndex] };
+}
+
+/** Rule id of the built-in ESLint rule this plugin supplies an autofix for. */
+const CORE_NO_NEGATED_CONDITION = 'no-negated-condition';
+
+/**
+ * Build the EJS source edit that resolves a core `no-negated-condition` report.
+ *
+ * ```
+ * <% if (!c) { %>A<% } else { %>B<% } %>  =>  <% if (c) { %>B<% } else { %>A<% } %>
+ * ```
+ *
+ * The core rule reports this correctly in EJS templates — the virtual JavaScript keeps the
+ * `if`/`else` structure intact — but cannot fix it, because the branch bodies are template
+ * markup sitting between tags, outside the JavaScript it sees. Rather than duplicating the
+ * rule, the processor attaches this fix to the core rule's own report.
+ *
+ * Returns null whenever the construct is not a swappable negated `if`/`else`, which also
+ * covers the ternary form the core rule reports (handled by `no-output-negated-ternary`).
+ */
+function buildNegatedConditionFix(
+  block: TagBlock,
+  followingBlocks: TagBlock[],
+  sourceText: string,
+): { range: [number, number]; text: string } | null {
+  const positiveCondition = getNegatedIfCondition(block);
+  const branches = findNegatedConditionBranches(followingBlocks);
+  if (!positiveCondition || !branches) {
+    return null;
+  }
+
+  const { elseBlock, closeBlock } = branches;
+  const ifTagEnd = block.tagOffset + block.tagLength;
+  const elseTagStart = elseBlock.tagOffset;
+  const elseTagEnd = elseBlock.tagOffset + elseBlock.tagLength;
+  const closeTagStart = closeBlock.tagOffset;
+  const closeTagEnd = closeBlock.tagOffset + closeBlock.tagLength;
+
+  // Branch bodies and the trailing tags are carried over verbatim, so template markup,
+  // indentation and delimiter style survive the swap untouched; only the opening tag is
+  // rebuilt, and only to drop the negation.
+  const consequentBody = sourceText.slice(ifTagEnd, elseTagStart);
+  const alternateBody = sourceText.slice(elseTagEnd, closeTagStart);
+  const elseTag = sourceText.slice(elseTagStart, elseTagEnd);
+  const closeTag = sourceText.slice(closeTagStart, closeTagEnd);
+  const ifTag = `${block.openDelim} if (${positiveCondition}) { ${block.closeDelim}`;
+
+  return {
+    range: [block.tagOffset, closeTagEnd],
+    text: `${ifTag}${alternateBody}${elseTag}${consequentBody}${closeTag}`,
+  };
+}
+
 /**
  * Translate an ESLint fix object from the virtual JS code space back to the
  * original EJS source space.
@@ -1432,9 +1638,15 @@ export const processor: Linter.Processor = {
           }
 
           const sentinel = mapped.fix.text;
-          const nextBlocks = sentinel.startsWith(SENTINEL_PREFER_OUTPUT)
-            ? blocks.slice(segmentIndex + 1, segmentIndex + 1 + (sentinel === SENTINEL_PREFER_OUTPUT_ELSE ? 2 : 1))
-            : undefined;
+          // Sentinels whose fix spans more than the reporting tag get the following blocks
+          // handed to the translator; it re-checks their shape before using them.
+          let nextBlocks: TagBlock[] | undefined;
+          if (sentinel.startsWith(SENTINEL_PREFER_OUTPUT)) {
+            nextBlocks = blocks.slice(
+              segmentIndex + 1,
+              segmentIndex + 1 + (sentinel === SENTINEL_PREFER_OUTPUT_ELSE ? 2 : 1),
+            );
+          }
           const translated = translateFix(mapped.fix, segment.block, sourceText, {
             applyIndentForSingleLineTags: hasIndentMessages,
             nextBlocks,
@@ -1447,6 +1659,17 @@ export const processor: Linter.Processor = {
           const result = { ...mapped };
           delete result.fix;
           return [result];
+        }
+
+        // Supply the fix core ESLint cannot produce itself. The report is already correct;
+        // only the edit is missing, so it is attached to the core rule's own message rather
+        // than duplicated into a plugin rule.
+        if (mapped.ruleId === CORE_NO_NEGATED_CONDITION) {
+          const followingBlocks = segments.slice(segmentIndex + 1).map((s) => s.block);
+          const negatedConditionFix = buildNegatedConditionFix(segment.block, followingBlocks, sourceText);
+          if (negatedConditionFix) {
+            return [{ ...mapped, fix: negatedConditionFix }];
+          }
         }
 
         return [mapped];

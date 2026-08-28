@@ -8,6 +8,7 @@ EJS files are parsed by [tree-sitter-embedded-template](https://github.com/tree-
 
 - **EJS processor** – extracts each EJS tag into its own virtual JS block so standard ESLint rules can inspect the embedded JavaScript
 - **Autofix support** – most rules support autofix; run `eslint --fix` to apply fixes (`no-global-function-call` and `no-function-block` have no autofix)
+- **Autofix for built-in [`no-negated-condition`](#autofix-for-the-built-in-no-negated-condition-rule)** – supplies the fix ESLint itself cannot produce for EJS `if`/`else` tag pairs
 - [`ejs-templates/no-comment-empty-line`](#ejs-templatesno-comment-empty-line) – flags comment tags that leave an empty line (missing `-%>` close)
 - [`ejs-templates/no-complex-statements`](#ejs-templatesno-complex-statements) – disallows complex statements (try, while, switch, etc.) in templates to keep them simple
 - [`ejs-templates/no-function-block`](#ejs-templatesno-function-block) – disallows function/arrow statement blocks in templates to keep logic simple
@@ -414,6 +415,56 @@ calls like `method()`.
 Options:
 
 - `{ allow: ['name1', 'name2'] }` — adds direct function names to the allowlist
+
+### Autofix for the built-in `no-negated-condition` rule
+
+ESLint's own [`no-negated-condition`] rule already reports negated `if`/`else`
+conditions inside EJS templates: the virtual JavaScript this plugin builds keeps
+the `if`/`else` structure intact, so the rule sees it and reports it at the right
+position. What ESLint cannot do is fix it — the branch bodies are template markup
+living between tags, outside the JavaScript the rule has access to.
+
+This plugin supplies that missing fix. There is no `ejs-templates` rule to enable:
+turn on the built-in rule and `eslint --fix` will apply the swap.
+
+```js
+// eslint.config.js
+{
+  files: ['**/*.ejs'],
+  rules: {
+    'no-negated-condition': 'error',
+  },
+}
+```
+
+```ejs
+<!-- ✗ violation -->
+<% if (!user.active) { %>
+  <span>Inactive</span>
+<% } else { %>
+  <span>Active</span>
+<% } %>
+
+<!-- ✓ fixed -->
+<% if (user.active) { %>
+  <span>Active</span>
+<% } else { %>
+  <span>Inactive</span>
+<% } %>
+```
+
+Negated tests are recognised as `!cond`, `!(a && b)`, `a !== b` and `a != b`; the
+comparison operators are inverted (`!==` becomes `===`) rather than wrapped in a
+further negation. Branch bodies are moved verbatim, so markup, indentation and
+delimiter style — including `<%_ … _%>` — are preserved, and bodies may contain
+any number of nested tags.
+
+Nothing is fixed where the built-in rule does not report: an `if` without an
+`else` (there is no branch to swap with), or an `else if` chain (swapping would
+not preserve the chain). The built-in rule also reports the ternary form, which
+[`no-output-negated-ternary`](#ejs-templatesno-output-negated-condition) covers.
+
+[`no-negated-condition`]: https://eslint.org/docs/latest/rules/no-negated-condition
 
 ### `ejs-templates/no-output-negated-condition`
 
