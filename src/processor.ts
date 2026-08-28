@@ -94,7 +94,6 @@ export const SENTINEL_OUTPUT_SEMI_REMOVE = 'OUTPUT_SEMI_REMOVE';
  */
 export const SENTINEL_PREFER_OUTPUT = 'PREFER_OUTPUT';
 export const SENTINEL_PREFER_OUTPUT_ELSE = 'PREFER_OUTPUT_ELSE';
-export const SENTINEL_NO_OUTPUT_NEGATED_TERNARY = 'NO_OUTPUT_NEGATED_TERNARY';
 export const SENTINEL_NO_MULTILINE_OUTPUT = 'NO_MULTILINE_OUTPUT';
 
 /** Opening line of the function wrapper injected around the full virtual file. */
@@ -334,28 +333,6 @@ type NegatedOutputConditionalParts = {
   hasTrailingSemi: boolean;
 };
 
-function extractPositiveConditionFromNegatedTest(node: SyntaxNode): string | null {
-  if (node.type === 'parenthesized_expression') {
-    const innerNode = node.childForFieldName('expression') ?? node.namedChildren.at(0) ?? null;
-    if (!innerNode) {
-      return null;
-    }
-    return extractPositiveConditionFromNegatedTest(innerNode);
-  }
-
-  if (node.type !== 'unary_expression' || !node.text.trimStart().startsWith('!')) {
-    return null;
-  }
-
-  const argumentNode = node.childForFieldName('argument') ?? node.namedChildren.at(0) ?? null;
-  if (!argumentNode) {
-    return null;
-  }
-
-  const condition = argumentNode.text.trim();
-  return condition.length > 0 ? condition : null;
-}
-
 /**
  * Extract ternary parts when an output tag is in the form `!cond ? a : b`.
  *
@@ -477,7 +454,7 @@ export function getNegatedOutputConditionalParts(block: TagBlock): NegatedOutput
     return null;
   }
 
-  const condition = extractPositiveConditionFromNegatedTest(conditionNode);
+  const condition = invertNegatedTest(conditionNode);
   const consequent = consequentNode.text.trim();
   const alternate = alternateNode.text.trim();
   if (!condition || !consequent || !alternate) {
@@ -651,6 +628,24 @@ export function findNegatedConditionBranches(
 const CORE_NO_NEGATED_CONDITION = 'no-negated-condition';
 
 /**
+ * Rewrite an output tag whose ternary test is negated: `<%= !c ? a : b %>` => `<%= c ? b : a %>`.
+ *
+ * The core rule reports this form too, and likewise cannot fix it — its fixer would have to
+ * rewrite the EJS tag around the expression.
+ */
+function buildNegatedTernaryFix(block: TagBlock): { range: [number, number]; text: string } | null {
+  const parts = getNegatedOutputConditionalParts(block);
+  if (!parts) {
+    return null;
+  }
+
+  return {
+    range: [block.tagOffset, block.tagOffset + block.tagLength],
+    text: `${block.openDelim} ${parts.condition} ? ${parts.alternate} : ${parts.consequent}${parts.hasTrailingSemi ? ';' : ''} ${block.closeDelim}`,
+  };
+}
+
+/**
  * Build the EJS source edit that resolves a core `no-negated-condition` report.
  *
  * ```
@@ -662,8 +657,8 @@ const CORE_NO_NEGATED_CONDITION = 'no-negated-condition';
  * markup sitting between tags, outside the JavaScript it sees. Rather than duplicating the
  * rule, the processor attaches this fix to the core rule's own report.
  *
- * Returns null whenever the construct is not a swappable negated `if`/`else`, which also
- * covers the ternary form the core rule reports (handled by `no-output-negated-ternary`).
+ * Handles both forms the core rule reports in EJS: a negated `if`/`else` pair spanning tags,
+ * and a negated ternary inside a single output tag. Returns null for anything else.
  */
 function buildNegatedConditionFix(
   block: TagBlock,
@@ -673,7 +668,8 @@ function buildNegatedConditionFix(
   const positiveCondition = getNegatedIfCondition(block);
   const branches = findNegatedConditionBranches(followingBlocks);
   if (!positiveCondition || !branches) {
-    return null;
+    // Not an `if`/`else` pair; the other form the core rule reports is an output ternary.
+    return buildNegatedTernaryFix(block);
   }
 
   const { elseBlock, closeBlock } = branches;
@@ -932,17 +928,6 @@ function translateFix(
     return {
       range: [block.tagOffset, block.tagOffset + block.tagLength],
       text: pieces.join(''),
-    };
-  } else if (fix.text === SENTINEL_NO_OUTPUT_NEGATED_TERNARY) {
-    // no-output-negated-ternary: `<%= !cond ? a : b %>` => `<%= cond ? b : a %>`
-    const parts = getNegatedOutputConditionalParts(block);
-    if (!parts) {
-      return null;
-    }
-
-    return {
-      range: [block.tagOffset, block.tagOffset + block.tagLength],
-      text: `${block.openDelim} ${parts.condition} ? ${parts.alternate} : ${parts.consequent}${parts.hasTrailingSemi ? ';' : ''} ${block.closeDelim}`,
     };
   } else if (fix.text === '') {
     // ── Generic sentinel (fix.text === '') ────────────────────────────────
