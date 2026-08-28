@@ -270,6 +270,23 @@ export function extractTagBlocks(nodes: EjsSyntaxNode[]): TagBlock[] {
   const blocks: TagBlock[] = [];
 
   let braceDepth = 0;
+  /**
+   * Still-open brace context preceding the current tag, as a stack rather than a
+   * flat accumulating string.
+   *
+   * Only unbalanced (error) content is recorded here, so every entry exists purely
+   * to give tree-sitter the enclosing block structure a later tag needs — e.g. the
+   * `if (a) {` that makes a subsequent `<% } %>` parse as a close rather than an
+   * error. Once a block closes, its context can no longer affect any following tag,
+   * so the entry is dropped.
+   *
+   * Each entry remembers the brace depth it was pushed at; a tag that nets a close
+   * prunes every entry at or above the new depth. Keeping this pruned bounds the
+   * context by nesting depth instead of template length, which is what keeps
+   * `extractTagBlocks` linear — an ever-growing string made tag N re-parse all
+   * preceding tags, giving O(n²) bytes through the parser.
+   */
+  const openContext: { depth: number; code: string; isContinuation: boolean }[] = [];
   let incrementalCode = '';
   let pendingNextLineDirective: {
     disableText: string;
@@ -376,7 +393,38 @@ export function extractTagBlocks(nodes: EjsSyntaxNode[]): TagBlock[] {
     // If contentNode doesn't have errors, its a balanced snippet we can just use current depth.
     if (contentNode.hasError) {
       braceDepth += javascriptPartialNode.bracesDelta;
-      incrementalCode += lintCodeContent + '\n';
+      const { missingOpenBracesCount, missingCloseBracesCount, bracesDelta } = javascriptPartialNode;
+      // A continuation both closes the previous branch and opens the next one
+      // (`<% } else if (c) { %>`, `<% } catch (e) { %>`, `<% } finally { %>`), so it is
+      // self-balancing: the branch it opens is closed by the next continuation at the
+      // same depth. That makes the earlier continuation droppable — the survivor's `}`
+      // still pairs with the chain head's `{`, so the context stays textually coherent
+      // and the enclosing structure a later tag parses inside is unchanged. Without
+      // this, a long `else if` ladder never prunes (its delta is 0) and the context
+      // grows with the chain, which is the remaining quadratic case.
+      const isContinuation = bracesDelta === 0 && missingOpenBracesCount > 0 && missingCloseBracesCount > 0;
+      if (isContinuation) {
+        const superseded = openContext.findIndex((entry) => entry.depth === oldBraceDepth && entry.isContinuation);
+        if (superseded !== -1) {
+          openContext.splice(superseded, 1);
+        }
+      }
+      openContext.push({ depth: oldBraceDepth, code: lintCodeContent, isContinuation });
+      if (bracesDelta < 0) {
+        // This tag closed one or more blocks. Their context is now unreachable for
+        // any following tag, so drop it — including this tag's own entry when it
+        // sits at or above the depth we just returned to. A tag that opens or merely
+        // continues a block (`<% } else { %>`, delta 0) keeps its context, since the
+        // next tag still parses inside it.
+        const keepBelow = Math.max(braceDepth, 0);
+        let keep = openContext.length;
+        while (keep > 0 && openContext[keep - 1].depth >= keepBelow) {
+          keep--;
+        }
+        openContext.length = keep;
+      }
+      incrementalCode = openContext.map((entry) => entry.code).join('\n');
+      if (incrementalCode) incrementalCode += '\n';
     }
 
     // tree-sitter gives us precise position info directly.
