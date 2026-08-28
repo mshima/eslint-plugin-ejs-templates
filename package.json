@@ -35,8 +35,8 @@
     "README.md"
   ],
   "scripts": {
-    "build": "tsc",
-    "dev": "tsc --watch",
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsc -p tsconfig.build.json --watch",
     "fix": "prettier . --write && eslint . --fix",
     "lint": "eslint .",
     "prepare": "husky && npm run build && cpy node_modules/tree-sitter-embedded-template/tree-sitter-embedded_template.wasm node_modules/tree-sitter-javascript/tree-sitter-javascript.wasm wasm --flat",
@@ -44,7 +44,7 @@
     "pretest": "prettier . --check && eslint .",
     "test": "vitest run",
     "posttest": "npm run typecheck",
-    "typecheck": "tsc -p tsconfig.spec.json --noEmit"
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "debug": "^4.4.3",
