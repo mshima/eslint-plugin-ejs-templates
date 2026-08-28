@@ -14,7 +14,6 @@ EJS files are parsed by [tree-sitter-embedded-template](https://github.com/tree-
 - [`ejs-templates/no-function-block`](#ejs-templatesno-function-block) – disallows function/arrow statement blocks in templates to keep logic simple
 - [`ejs-templates/no-global-function-call`](#ejs-templatesno-global-function-call) – disallows direct function calls in EJS tags (with `include()` allowed by default)
 - [`ejs-templates/no-multiline-output`](#ejs-templatesno-multiline-output) – flags (and auto-fixes) output tags whose conditional renders multiple lines
-- [`ejs-templates/no-output-negated-condition`](#ejs-templatesno-output-negated-condition) – renamed rule; see `no-output-negated-ternary`
 - [`ejs-templates/output-semi`](#ejs-templatesoutput-semi) – enforces semicolon style for output tags (`<%= %>`, `<%- %>`) (default: `never`)
 - [`ejs-templates/prefer-encoded`](#ejs-templatespreferencoded) – flags `<%- … %>` and suggests `<%= … %>` (`always`, default), or flags `<%= … %>` and suggests `<%- … %>` (`never`)
 - [`ejs-templates/prefer-output`](#ejs-templatesprefer-output) – suggests (and auto-fixes) simple if-wrappers into output ternaries
@@ -153,7 +152,6 @@ The following rules have no specific ordering requirement (they can appear in an
 - [`no-function-block`](#ejs-templatesno-function-block)
 - [`no-global-function-call`](#ejs-templatesno-global-function-call)
 - [`no-multiline-output`](#ejs-templatesno-multiline-output)
-- [`no-output-negated-condition`](#ejs-templatesno-output-negated-condition)
 - [`output-semi`](#ejs-templatesoutput-semi)
 
 Apply [`prefer-output`](#ejs-templatesprefer-output) before [`prefer-encoded`](#ejs-templatespreferencoded).
@@ -461,10 +459,23 @@ further negation. Branch bodies are moved verbatim, so markup, indentation and
 delimiter style — including `<%_ … _%>` — are preserved, and bodies may contain
 any number of nested tags.
 
+The same fix covers the ternary form the built-in rule reports, inside an output
+tag:
+
+```ejs
+<!-- ✗ violation -->
+<%= !cond ? a : b %>
+<%= a !== b ? x : y %>
+
+<!-- ✓ fixed -->
+<%= cond ? b : a %>
+<%= a === b ? y : x %>
+```
+
 Nothing is fixed where the built-in rule does not report: an `if` without an
 `else` (there is no branch to swap with), or an `else if` chain (swapping would
-not preserve the chain). The built-in rule also reports the ternary form, which
-[`no-output-negated-ternary`](#ejs-templatesno-output-negated-condition) covers.
+not preserve the chain). A ternary in a code tag is reported but not fixed, since
+it produces no output to swap.
 
 [`no-negated-condition`]: https://eslint.org/docs/latest/rules/no-negated-condition
 
@@ -529,28 +540,21 @@ configure yourself untouched:
 
 ### `ejs-templates/no-output-negated-condition`
 
-This rule name was renamed to `ejs-templates/no-output-negated-ternary`.
+Removed, along with its later name `ejs-templates/no-output-negated-ternary`.
+Negated output ternaries are reported by ESLint's built-in `no-negated-condition`
+rule, and this plugin supplies the autofix — see
+[Autofix for the built-in `no-negated-condition` rule](#autofix-for-the-built-in-no-negated-condition-rule).
 
-Use `ejs-templates/no-output-negated-ternary` in your ESLint config:
+Replace either rule name with the built-in one:
 
 ```js
 // eslint.config.js
 {
   files: ['**/*.ejs'],
   rules: {
-    'ejs-templates/no-output-negated-ternary': 'error',
+    'no-negated-condition': 'error',
   },
 }
-```
-
-The renamed rule reports negated ternary output conditions and auto-fixes them:
-
-```ejs
-<!-- ✗ violation -->
-<%= !cond ? a : b %>
-
-<!-- ✓ fixed -->
-<%= cond ? b : a %>
 ```
 
 ### `ejs-templates/output-semi`

@@ -128,3 +128,43 @@ describe('autofix: core no-negated-condition', () => {
     expect(lint(fixed, {}).filter((msg) => msg.fatal)).toHaveLength(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Output ternaries
+//
+// The core rule reports a negated ternary inside an output tag as well as an if/else pair,
+// and cannot fix either: its fixer would have to rewrite the EJS tag around the expression.
+// This coverage moved here when the separate no-output-negated-ternary rule was removed.
+// ---------------------------------------------------------------------------
+
+describe('output ternaries', () => {
+  test.each([
+    ['an escaped output tag', '<%= !cond ? a : b %>', '<%= cond ? b : a %>'],
+    ['a raw output tag', '<%- !cond ? a : b %>', '<%- cond ? b : a %>'],
+    ['a parenthesised negation', '<%= !(a && b) ? x : y %>', '<%= a && b ? y : x %>'],
+    ['a strict inequality', '<%= a !== b ? x : y %>', '<%= a === b ? y : x %>'],
+    ['a loose inequality', '<%= a != b ? x : y %>', '<%= a == b ? y : x %>'],
+    ['a trailing semicolon, which is preserved', '<%= !cond ? a : b; %>', '<%= cond ? b : a; %>'],
+  ])('inverts %s', (_label, template, expected) => {
+    expect(lint(template, rules)).toHaveLength(1);
+    expect(applyFix(template, rules)).toBe(expected);
+  });
+
+  test('does not report a positive ternary', () => {
+    expect(lint('<%= cond ? a : b %>', rules)).toHaveLength(0);
+  });
+
+  test('reports but does not fix a ternary in a code tag, which produces no output', () => {
+    const template = '<% !cond ? a : b %>';
+    expect(lint(template, rules)).toHaveLength(1);
+    expect(applyFix(template, rules)).toBe(template);
+  });
+
+  test('produces output that is stable and no longer reports', () => {
+    const fixed = applyFix('<%= !cond ? a : b %>', rules);
+
+    expect(fixed).toBe('<%= cond ? b : a %>');
+    expect(applyFix(fixed, rules)).toBe(fixed);
+    expect(lint(fixed, rules)).toHaveLength(0);
+  });
+});

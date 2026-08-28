@@ -63,7 +63,6 @@ src/
     no-complex-statements.ts
     no-function-block.ts
     no-global-function-call.ts
-    no-output-negated-ternary.ts
     output-semi.ts
     prefer-encoded.ts
     prefer-output.ts
@@ -138,7 +137,6 @@ ESLint rules.
 | `SENTINEL_OUTPUT_SEMI_ADD` / `_REMOVE`    | `output-semi`                         | add / remove trailing `;`            |
 | `SENTINEL_PREFER_OUTPUT`                  | `prefer-output`                       | if-wrapper → output ternary          |
 | `SENTINEL_PREFER_OUTPUT_ELSE`             | `prefer-output`                       | if/else wrapper → output ternary     |
-| `SENTINEL_NO_OUTPUT_NEGATED_TERNARY`      | `no-output-negated-ternary`           | `!c ? a : b` → `c ? b : a`           |
 | `''` (empty string)                       | most single-delimiter rules           | generic: fix determined by `tagType` |
 
 Rules without autofix (`no-function-block`, `no-global-function-call`) do not use sentinels.
@@ -169,7 +167,9 @@ supply the fix by attaching it to that rule's own report. **Do not add a paralle
 configure two rules for one concern, lets the two detections drift, and double-reports when both
 are enabled.
 
-`no-negated-condition` is the reference example. `postprocess()` already maps every message back
+`no-negated-condition` is the reference example — it covers both the `if`/`else` pair and the
+output ternary, and a `no-output-negated-ternary` plugin rule that duplicated the latter was
+removed in favour of it. `postprocess()` already maps every message back
 to EJS source positions, so the fix is attached there:
 
 ```ts
