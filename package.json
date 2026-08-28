@@ -67,7 +67,7 @@
     "prettier-plugin-packagejson": "^3.0.2",
     "tree-sitter-embedded-template": "0.25.0",
     "tree-sitter-javascript": "0.25.0",
-    "typescript": "^6.0.2",
+    "typescript": "^7.0.2",
     "typescript-eslint": "^8.68.0",
     "vitest": "^4.1.11"
   },
