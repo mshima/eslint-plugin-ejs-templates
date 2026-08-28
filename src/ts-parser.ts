@@ -9,7 +9,7 @@
 import { existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { Parser as CodeParser, Tree, Node as SyntaxNode } from '../web-tree-sitter.js';
+import type { Tree, Node as SyntaxNode } from '../web-tree-sitter.js';
 
 export type { SyntaxNode };
 
@@ -37,10 +37,10 @@ await Parser.init({
 const _language = await Language.load(resolveWasm('tree-sitter-embedded_template.wasm'));
 const _javascriptLanguage = await Language.load(resolveWasm('tree-sitter-javascript.wasm'));
 
-const _parser = new Parser() as CodeParser;
+const _parser = new Parser();
 _parser.setLanguage(_language);
 
-const _javascriptParser = new Parser() as CodeParser;
+const _javascriptParser = new Parser();
 _javascriptParser.setLanguage(_javascriptLanguage);
 
 // ---------------------------------------------------------------------------
