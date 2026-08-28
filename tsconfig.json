@@ -15,9 +15,8 @@
     "rewriteRelativeImportExtensions": true,
     "noUnusedParameters": true,
     "verbatimModuleSyntax": true,
-    "rootDir": "src",
-    "outDir": "dist"
+    "noEmit": true
   },
-  "include": ["src/**/*", "web-tree-sitter.d.ts"],
+  "include": ["**/*.ts"],
   "exclude": ["node_modules", "dist"]
 }

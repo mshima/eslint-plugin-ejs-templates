@@ -16,12 +16,25 @@ virtual JavaScript block that ESLint rules can inspect.
 ## Commands
 
 ```sh
-npm run build      # tsc -> dist/
+npm run build      # tsc -p tsconfig.build.json -> dist/
 npm test           # vitest run   (pretest: prettier --check && eslint .; posttest: typecheck)
-npm run typecheck  # tsc -p tsconfig.spec.json --noEmit
+npm run typecheck  # tsc --noEmit  (whole repo: src, test, config files)
 npm run lint       # eslint .
 npm run fix        # prettier --write && eslint --fix
 ```
+
+### TypeScript projects
+
+`tsconfig.json` is the project the editor, ESLint and `npm run typecheck` all use. It covers
+**everything** (`**/*.ts` — `src`, `test`, and the root config files) and sets `noEmit`, so the
+language server checks test files with the same options CI does. Keeping test files out of it
+makes VSCode fall back to an inferred project and report errors the CLI never sees.
+
+`tsconfig.build.json` extends it and is the only config that emits: it narrows the inputs back
+to `src/**/*` plus `web-tree-sitter.d.ts` and restores `rootDir`/`outDir`. Add compiler options
+to `tsconfig.json` so every consumer gets them; put anything emit-specific in the build config.
+`declaration` deliberately stays on in `tsconfig.json` — declaration-emit errors such as TS2883
+only surface with it, and they should fail `typecheck`, not just `build`.
 
 `npm test` runs `pretest` and `posttest` around it, so formatting, lint and typecheck all gate
 the suite. Running `npx vitest run` alone skips those.
