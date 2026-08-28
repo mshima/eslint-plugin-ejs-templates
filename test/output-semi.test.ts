@@ -149,3 +149,51 @@ describe('autofix: output-semi', () => {
     expect(applyFix('<%= name; %>', { 'ejs-templates/output-semi': 'error' })).toBe('<%= name %>');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Multiline output tags
+//
+// These were skipped entirely: the tag-type guard rejected the `-multiline` variants, and the
+// check looked for a doubled `;;` on the first virtual line — the tag's semicolon plus the
+// synthetic one the processor appends — which a multiline tag never has, since no synthetic
+// semicolon is added for those and the semicolon is not on the first line.
+// ---------------------------------------------------------------------------
+
+type RuleConfigMap = Parameters<typeof lint>[1];
+
+describe('rule: ejs-templates/output-semi (multiline tags)', () => {
+  const never: RuleConfigMap = { 'ejs-templates/output-semi': ['error', 'never'] };
+  const always: RuleConfigMap = { 'ejs-templates/output-semi': ['error', 'always'] };
+
+  test.each([
+    ['escaped', '<%=\n  foo;\n%>', '<%=\n  foo\n%>'],
+    ['raw', '<%-\n  foo;\n%>', '<%-\n  foo\n%>'],
+    ['a trailing member access', '<%= foo\n  .bar; %>', '<%= foo\n  .bar %>'],
+    ['a multiline ternary', "<%= cond\n  ? 'a'\n  : 'b'; %>", "<%= cond\n  ? 'a'\n  : 'b' %>"],
+  ])('never: removes the semicolon from %s multiline output', (_label, template, expected) => {
+    expect(lint(template, never)).toHaveLength(1);
+    expect(applyFix(template, never)).toBe(expected);
+  });
+
+  test.each([
+    ['escaped', '<%=\n  foo\n%>', '<%=\n  foo;\n%>'],
+    ['raw', '<%-\n  foo\n%>', '<%-\n  foo;\n%>'],
+  ])('always: adds the semicolon to %s multiline output', (_label, template, expected) => {
+    expect(lint(template, always)).toHaveLength(1);
+    expect(applyFix(template, always)).toBe(expected);
+  });
+
+  test.each([
+    ['never on multiline without a semicolon', '<%=\n  foo\n%>', never],
+    ['always on multiline with a semicolon', '<%=\n  foo;\n%>', always],
+  ])('reports nothing for %s', (_label, template, rules) => {
+    expect(lint(template, rules)).toHaveLength(0);
+    expect(applyFix(template, rules)).toBe(template);
+  });
+
+  test('leaves a multiline code tag alone', () => {
+    const template = '<%\n  foo;\n%>';
+    expect(lint(template, never)).toHaveLength(0);
+    expect(applyFix(template, never)).toBe(template);
+  });
+});
