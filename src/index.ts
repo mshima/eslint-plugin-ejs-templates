@@ -17,6 +17,7 @@ import { noGlobalFunctionCall } from './rules/no-global-function-call.js';
 import { noFunctionBlock } from './rules/no-function-block.js';
 import { noComplexStatements } from './rules/no-complex-statements.js';
 import { noCommentEmptyLine } from './rules/no-comment-empty-line.js';
+import { noMultilineOutput } from './rules/no-multiline-output.js';
 import { noOutputNegatedTernary } from './rules/no-output-negated-ternary.js';
 import { preferEncoded } from './rules/prefer-encoded.js';
 import { outputSemi } from './rules/output-semi.js';
@@ -49,6 +50,7 @@ const pluginCore = {
     'no-function-block': noFunctionBlock,
     'no-complex-statements': noComplexStatements,
     'no-comment-empty-line': noCommentEmptyLine,
+    'no-multiline-output': noMultilineOutput,
     'no-output-negated-ternary': noOutputNegatedTernary,
     'prefer-output': preferOutput,
     'prefer-encoded': preferEncoded,
@@ -119,6 +121,7 @@ const defaultRules = ({
       [`${pluginName}/no-function-block`]: 'error',
       [`${pluginName}/no-complex-statements`]: 'error',
       [`${pluginName}/no-comment-empty-line`]: 'error',
+      [`${pluginName}/no-multiline-output`]: 'error',
       [`${pluginName}/no-output-negated-ternary`]: 'off',
       [`${pluginName}/output-semi`]: 'error',
       [`${pluginName}/prefer-output`]: 'error',
@@ -222,6 +225,7 @@ export {
   noFunctionBlock,
   noComplexStatements,
   noCommentEmptyLine,
+  noMultilineOutput,
   noOutputNegatedTernary,
   preferEncoded,
   preferOutput,
