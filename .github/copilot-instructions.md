@@ -151,9 +151,12 @@ to fixes attached to core-rule reports, which take the following blocks directly
 
 Do not locate related tags positionally. A branch body normally contains further tags, so the
 matching `} else {` is rarely the next block; walk forward tracking brace depth and match only
-tags at depth zero (`findNegatedConditionBranches()` is the reference implementation). An
-`else if` link must abort such a match rather than be skipped — skipping it pairs the `if` with
-a later `else` and silently produces invalid output.
+tags at depth zero (`findNegatedConditionBranches()` is the reference implementation).
+
+An `else if` link must abort such a _search_ rather than be skipped: skipping it pairs the `if`
+with a later `else` from further down the chain and silently produces invalid output. That is
+distinct from starting a match _at_ a link, which is how an `} else if (…) {` tag is fixed —
+the search then begins after that tag and finds the link's own `else` and closing tag.
 
 ---
 
@@ -167,10 +170,11 @@ supply the fix by attaching it to that rule's own report. **Do not add a paralle
 configure two rules for one concern, lets the two detections drift, and double-reports when both
 are enabled.
 
-`no-negated-condition` is the reference example — it covers both the `if`/`else` pair and the
-output ternary, and a `no-output-negated-ternary` plugin rule that duplicated the latter was
-removed in favour of it. `postprocess()` already maps every message back
-to EJS source positions, so the fix is attached there:
+`no-negated-condition` is the reference example. Core ships **no fixer and no suggestions** for
+it (`meta.fixable` and `meta.hasSuggestions` are both `undefined`), so every fix a user sees for
+that rule in an EJS file comes from here. A `no-output-negated-ternary` plugin rule that
+duplicated part of it was removed in favour of this arrangement. `postprocess()` already maps
+every message back to EJS source positions, so the fix is attached there:
 
 ```ts
 if (mapped.ruleId === CORE_NO_NEGATED_CONDITION) {
@@ -181,9 +185,18 @@ if (mapped.ruleId === CORE_NO_NEGATED_CONDITION) {
 ```
 
 ESLint applies fixes from the messages `postprocess()` returns, so this needs no rule module and
-no sentinel round-trip. The builder returns null unless the construct is exactly the shape it
-knows how to rewrite, so unrelated reports from the same rule (the ternary form, for instance)
-pass through unfixed.
+no sentinel round-trip. The builder returns null unless the construct is a shape it knows how to
+rewrite, so anything else passes through reported but unfixed.
+
+Three shapes are handled, and the difference between them is worth understanding before
+extending this:
+
+- **`if`/`else` spanning tags** — rebuilds the opening tag and swaps the branch bodies.
+- **An `} else if (…) {` link** — the same swap applied to that link alone. The chain around it,
+  including the outer `if` and the closing tag, is untouched. Core only reports a link whose own
+  `else` is a plain block (it skips an `if` whose `else` is another `if`), which is exactly the
+  shape the branch matcher already looks for.
+- **A negated ternary in an output tag** — rebuilds the tag with the branches swapped.
 
 Before adding any rule, check what core already reports — write a throwaway test that lints a
 sample with the core rule enabled. A plugin rule is the right answer only when the pattern is
