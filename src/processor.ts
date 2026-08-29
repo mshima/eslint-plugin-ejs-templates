@@ -597,6 +597,28 @@ export function isElseIfContinuationBlock(block: TagBlock): boolean {
   );
 }
 
+/**
+ * Positive form of a negated `} else if (…) {` link's test, or null when it is not one.
+ *
+ * The link parses as an `ERROR` node — `}`, `else`, `if`, the condition, `{` — rather than an
+ * `if_statement`, because the braces it opens and closes live in other tags.
+ */
+export function getNegatedElseIfCondition(block: TagBlock): string | null {
+  const errorNode = block.javascriptPartialNode?.contentNode.child(0);
+  if (
+    errorNode?.type !== 'ERROR' ||
+    errorNode.child(0)?.type !== '}' ||
+    errorNode.child(1)?.type !== 'else' ||
+    errorNode.child(2)?.type !== 'if' ||
+    errorNode.child(errorNode.childCount - 1)?.type !== '{'
+  ) {
+    return null;
+  }
+
+  const conditionNode = errorNode.child(3);
+  return conditionNode ? invertNegatedTest(conditionNode) : null;
+}
+
 /** Whether a tag is exactly `}`, closing a block without opening another. */
 export function isBlockClosingBlock(block: TagBlock): boolean {
   const errorNode = block.javascriptPartialNode?.contentNode.child(0);
@@ -766,9 +788,15 @@ function buildNegatedConditionFix(
   sourceText: string,
   targetOffset?: number,
 ): { range: [number, number]; text: string } | null {
-  const positiveCondition = getNegatedIfCondition(block);
-  const branches = findNegatedConditionBranches(followingBlocks);
-  if (!positiveCondition || !branches) {
+  // Either an `if` tag or an `} else if (…) {` link. Swapping a link's own two branches keeps
+  // the chain around it intact — the outer `if` and the closing tag are never touched — and the
+  // core rule only reports a link whose own `else` is a plain block, which is exactly the shape
+  // the branch matcher looks for.
+  const ifCondition = getNegatedIfCondition(block);
+  const elseIfCondition = ifCondition === null ? getNegatedElseIfCondition(block) : null;
+  const positiveCondition = ifCondition ?? elseIfCondition;
+  const branches = positiveCondition === null ? null : findNegatedConditionBranches(followingBlocks);
+  if (positiveCondition === null || !branches) {
     // Not an `if`/`else` pair; the other form the core rule reports is a negated ternary.
     return buildNegatedTernaryFix(block, targetOffset);
   }
@@ -787,11 +815,14 @@ function buildNegatedConditionFix(
   const alternateBody = sourceText.slice(elseTagEnd, closeTagStart);
   const elseTag = sourceText.slice(elseTagStart, elseTagEnd);
   const closeTag = sourceText.slice(closeTagStart, closeTagEnd);
-  const ifTag = `${block.openDelim} if (${positiveCondition}) { ${block.closeDelim}`;
+  const openingTag =
+    elseIfCondition === null
+      ? `${block.openDelim} if (${positiveCondition}) { ${block.closeDelim}`
+      : `${block.openDelim} } else if (${positiveCondition}) { ${block.closeDelim}`;
 
   return {
     range: [block.tagOffset, closeTagEnd],
-    text: `${ifTag}${alternateBody}${elseTag}${consequentBody}${closeTag}`,
+    text: `${openingTag}${alternateBody}${elseTag}${consequentBody}${closeTag}`,
   };
 }
 
