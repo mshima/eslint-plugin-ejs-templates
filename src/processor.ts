@@ -645,22 +645,79 @@ export const isOutputTagType = (tagType: string): boolean => OUTPUT_TAG_TYPES.ha
 /** Rule id of the built-in ESLint rule this plugin supplies an autofix for. */
 const CORE_NO_NEGATED_CONDITION = 'no-negated-condition';
 
+/** Source offset of a 1-based line and 1-based column. */
+function offsetOfPosition(sourceText: string, line: number, column: number): number {
+  let offset = 0;
+  for (let currentLine = 1; currentLine < line; currentLine++) {
+    const lineBreak = sourceText.indexOf('\n', offset);
+    if (lineBreak === -1) {
+      return sourceText.length;
+    }
+    offset = lineBreak + 1;
+  }
+  return offset + column - 1;
+}
+
 /**
- * Rewrite an output tag whose ternary test is negated: `<%= !c ? a : b %>` => `<%= c ? b : a %>`.
+ * Rewrite a negated ternary in place: `!c ? a : b` => `c ? b : a`.
  *
- * The core rule reports this form too, and likewise cannot fix it — its fixer would have to
- * rewrite the EJS tag around the expression.
+ * The ternary's own source range is replaced rather than the surrounding tag, so this works
+ * wherever the expression sits — the whole content of an output tag, a nested
+ * `${…}` inside a template literal, or an assignment inside a code tag. Nothing outside the
+ * expression is touched, so delimiters, spacing and any trailing semicolon survive untouched.
+ *
+ * `targetOffset` is the source offset the rule reported at; a tag may hold several ternaries,
+ * and only the reported one should be rewritten.
  */
-function buildNegatedTernaryFix(block: TagBlock): { range: [number, number]; text: string } | null {
-  const parts = getNegatedOutputConditionalParts(block);
-  if (!parts) {
+function buildNegatedTernaryFix(
+  block: TagBlock,
+  targetOffset: number | undefined,
+): { range: [number, number]; text: string } | null {
+  const partialNode = block.javascriptPartialNode;
+  if (!partialNode) {
     return null;
   }
 
-  return {
-    range: [block.tagOffset, block.tagOffset + block.tagLength],
-    text: `${block.openDelim} ${parts.condition} ? ${parts.alternate} : ${parts.consequent}${parts.hasTrailingSemi ? ';' : ''} ${block.closeDelim}`,
-  };
+  const contentStart = block.tagOffset + block.openDelim.length;
+  let best: { range: [number, number]; text: string; size: number } | null = null;
+
+  for (const node of partialNode.nodes) {
+    if (node.type !== 'ternary_expression') {
+      continue;
+    }
+
+    const conditionNode = node.childForFieldName('condition');
+    const consequentNode = node.childForFieldName('consequence');
+    const alternateNode = node.childForFieldName('alternative');
+    if (!conditionNode || !consequentNode || !alternateNode) {
+      continue;
+    }
+
+    const positiveCondition = invertNegatedTest(conditionNode);
+    if (!positiveCondition) {
+      continue;
+    }
+
+    const start = contentStart + (node.startIndex - partialNode.start);
+    const end = start + (node.endIndex - node.startIndex);
+    if (targetOffset !== undefined && (targetOffset < start || targetOffset >= end)) {
+      continue;
+    }
+
+    // Ternaries nest, so prefer the smallest one covering the reported position — that is the
+    // expression the rule actually reported on.
+    const size = end - start;
+    if (best && best.size <= size) {
+      continue;
+    }
+    best = {
+      range: [start, end],
+      text: `${positiveCondition} ? ${alternateNode.text.trim()} : ${consequentNode.text.trim()}`,
+      size,
+    };
+  }
+
+  return best ? { range: best.range, text: best.text } : null;
 }
 
 /**
@@ -682,12 +739,13 @@ function buildNegatedConditionFix(
   block: TagBlock,
   followingBlocks: TagBlock[],
   sourceText: string,
+  targetOffset?: number,
 ): { range: [number, number]; text: string } | null {
   const positiveCondition = getNegatedIfCondition(block);
   const branches = findNegatedConditionBranches(followingBlocks);
   if (!positiveCondition || !branches) {
-    // Not an `if`/`else` pair; the other form the core rule reports is an output ternary.
-    return buildNegatedTernaryFix(block);
+    // Not an `if`/`else` pair; the other form the core rule reports is a negated ternary.
+    return buildNegatedTernaryFix(block, targetOffset);
   }
 
   const { elseBlock, closeBlock } = branches;
@@ -1797,7 +1855,12 @@ export const processor: Linter.Processor = {
         // than duplicated into a plugin rule.
         if (mapped.ruleId === CORE_NO_NEGATED_CONDITION) {
           const followingBlocks = segments.slice(segmentIndex + 1).map((s) => s.block);
-          const negatedConditionFix = buildNegatedConditionFix(segment.block, followingBlocks, sourceText);
+          const negatedConditionFix = buildNegatedConditionFix(
+            segment.block,
+            followingBlocks,
+            sourceText,
+            offsetOfPosition(sourceText, mapped.line, mapped.column),
+          );
           if (negatedConditionFix) {
             return [{ ...mapped, fix: negatedConditionFix }];
           }
