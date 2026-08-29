@@ -4,8 +4,69 @@ updates:
     directory: '/'
     schedule:
       interval: weekly
+    # Only major updates are raised, except for tree-sitter-embedded-template: it is pinned to
+    # an exact version and its grammar decides how every template parses, so a patch release
+    # can fix or change parsing behaviour and is worth seeing.
+    #
+    # The exception has to be written as patterns that do not match it. Dependabot ignores a
+    # dependency matched by both `allow` and `ignore`, and `dependency-name` has no negation
+    # syntax, so a `dependency-name: '*'` rule cannot carry an exception. A dependency added
+    # later is not covered by these patterns and will raise minor and patch pull requests until
+    # it is added here.
     ignore:
-      - dependency-name: '*'
+      - dependency-name: '@*/*'
+        update-types:
+          - version-update:semver-minor
+          - version-update:semver-patch
+      - dependency-name: 'cpy-cli'
+        update-types:
+          - version-update:semver-minor
+          - version-update:semver-patch
+      - dependency-name: 'debug'
+        update-types:
+          - version-update:semver-minor
+          - version-update:semver-patch
+      - dependency-name: 'eslint'
+        update-types:
+          - version-update:semver-minor
+          - version-update:semver-patch
+      - dependency-name: 'eslint-config-prettier'
+        update-types:
+          - version-update:semver-minor
+          - version-update:semver-patch
+      - dependency-name: 'husky'
+        update-types:
+          - version-update:semver-minor
+          - version-update:semver-patch
+      - dependency-name: 'jiti'
+        update-types:
+          - version-update:semver-minor
+          - version-update:semver-patch
+      - dependency-name: 'prettier'
+        update-types:
+          - version-update:semver-minor
+          - version-update:semver-patch
+      - dependency-name: 'prettier-plugin-packagejson'
+        update-types:
+          - version-update:semver-minor
+          - version-update:semver-patch
+      - dependency-name: 'tree-sitter-javascript'
+        update-types:
+          - version-update:semver-minor
+          - version-update:semver-patch
+      - dependency-name: 'typescript'
+        update-types:
+          - version-update:semver-minor
+          - version-update:semver-patch
+      - dependency-name: 'typescript-eslint'
+        update-types:
+          - version-update:semver-minor
+          - version-update:semver-patch
+      - dependency-name: 'vitest'
+        update-types:
+          - version-update:semver-minor
+          - version-update:semver-patch
+      - dependency-name: 'web-tree-sitter'
         update-types:
           - version-update:semver-minor
           - version-update:semver-patch
