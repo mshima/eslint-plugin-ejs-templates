@@ -707,8 +707,43 @@ Flags multiline tags when either:
 - their content has structural braces, or
 - their content becomes a single line after trimming.
 
+It also flags a **single-line** tag that closes more than one block, such as
+`<%_ } } _%>`:
+
+```ejs
+<!-- ✗ violation -->
+<%_ } } _%>
+
+<!-- ✓ fixed -->
+<%_ } _%>
+<%_ } _%>
+```
+
+A tag closing two blocks at once cannot sit at a single indent depth, so
+[`indent`](#ejs-templatesindent) has no correct answer for it and a reader has to
+count braces to follow the nesting. A tag that closes one block and opens another
+(`<%_ } else { _%>`) is an ordinary continuation and is left alone.
+
 For structural-brace cases, autofix keeps brace boundaries (`{` and `}`) as
 separate tags and keeps the content between them in a single tag.
+
+A tag on its own line becomes one tag per line, and the generated tags close with
+`_%>` and open with `<%_` so the line break between them is slurped away.
+
+An **inline** tag — one with template text either side of it — instead becomes
+adjacent tags on the same line. The opening delimiter the author wrote stays on
+the first tag only, since repeating `<%_` would ask for the whitespace before the
+tag to be slurped once per generated tag; later tags open with whatever pairs with
+the closing delimiter:
+
+```ejs
+<% } } %>      becomes    <% } %><% } %>
+<% } } _%>     becomes    <% } _%><%_ } _%>
+<%_ } } %>     becomes    <%_ } %><% } %>
+<%_ } } _%>    becomes    <%_ } _%><%_ } _%>
+```
+
+Either way the rendered output is unchanged.
 
 Keeping tags single-line avoids visual confusion between template output text
 and EJS control flow, making template intent easier to scan.
