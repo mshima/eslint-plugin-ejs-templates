@@ -124,6 +124,31 @@ const GLOBAL_VIRTUAL_CLOSE = '\n})();';
  * Line 2+m: [virtualBodyExtraLine]            ← filtered out (maps to tag position)
  * ```
  */
+/**
+ * Whether a message points at the synthetic `;` appended to an output tag's expression.
+ *
+ * That character exists only to make the virtual JavaScript a statement; it is not in the
+ * template, so a rule reporting on it is reporting on generated code. Messages from this
+ * plugin's own rules and ESLint's system messages are left alone.
+ */
+function isSyntheticSuffixMessage(msg: Linter.LintMessage, segment: VirtualBlockSegment): boolean {
+  const { block } = segment;
+  if (block.virtualBodyInlineSuffix.length === 0) {
+    return false;
+  }
+  if (msg.ruleId === null || msg.ruleId.startsWith('ejs-templates/')) {
+    return false;
+  }
+
+  // The suffix sits at the end of the last line of the tag's content, which is the line after
+  // the marker comment plus however many lines that content spans.
+  const codeLines = block.lintCodeContent.split('\n');
+  const suffixLine = segment.startLine + codeLines.length;
+  const suffixColumn = (codeLines.at(-1)?.length ?? 0) + 1;
+
+  return msg.line === suffixLine && msg.column >= suffixColumn;
+}
+
 function mapMessage(msg: Linter.LintMessage, block: TagBlock): Linter.LintMessage {
   // Line 1 is the marker comment; code starts on line 2.
   const codeStartLine = 2;
@@ -1714,6 +1739,14 @@ export const processor: Linter.Processor = {
           return [];
         }
 
+        // The `;` appended to an output tag's expression is generated too, and unlike the
+        // marker it shares a line with real code. A semicolon rule reporting on it is talking
+        // about a character the author never wrote — `@stylistic/semi` in `never` mode would
+        // otherwise flag every output tag for a semicolon that is not in the template.
+        if (isSyntheticSuffixMessage(normalizedMsg, segment)) {
+          return [];
+        }
+
         // Convert global (combined-file) positions to per-block positions.
         const localMsg: Linter.LintMessage = {
           ...normalizedMsg,
@@ -1868,6 +1901,12 @@ export const processor: Linter.Processor = {
           normalizedMsg.ruleId !== null &&
           !normalizedMsg.ruleId.startsWith('ejs-templates/')
         ) {
+          return [];
+        }
+
+        // Same for the synthetic `;`; this pass sees the blocks through `rawSegments`, so it
+        // needs the check as well — the wrapped pass alone would leave these messages standing.
+        if (isSyntheticSuffixMessage(normalizedMsg, segment)) {
           return [];
         }
 

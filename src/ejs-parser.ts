@@ -546,8 +546,18 @@ export function extractTagBlocks(nodes: EjsSyntaxNode[]): TagBlock[] {
     let virtualBodyInlineSuffix = '';
     let virtualBodyExtraLine = '';
 
-    if (!isMultiline && isOutputTag) {
-      virtualBodyInlineSuffix = ';';
+    if (isOutputTag) {
+      // An output tag holds an expression; the `;` makes it a statement in the virtual JS.
+      //
+      // Applied to multiline tags too, not just single-line ones. Leaving a multiline tag
+      // without a terminator makes the virtual statement look unterminated to semicolon rules:
+      // `@stylistic/semi` in `always` mode then demands a `;` that `output-semi` in `never`
+      // mode removes, and the two fix each other forever (ESLintCircularFixesWarning).
+      //
+      // Nothing is added when the content already ends with one, so the virtual statement
+      // carries exactly one terminator either way rather than a synthetic `;;` for rules to
+      // trip over.
+      virtualBodyInlineSuffix = lintCodeContent.trimEnd().endsWith(';') ? '' : ';';
     } else if (endsWithOpenBrace) {
       virtualBodyExtraLine = '\nvoid 0;';
     }
