@@ -154,10 +154,36 @@ describe('output ternaries', () => {
     expect(lint('<%= cond ? a : b %>', rules)).toHaveLength(0);
   });
 
-  test('reports but does not fix a ternary in a code tag, which produces no output', () => {
-    const template = '<% !cond ? a : b %>';
-    expect(lint(template, rules)).toHaveLength(1);
-    expect(applyFix(template, rules)).toBe(template);
+  test('inverts a ternary in a code tag', () => {
+    expect(lint('<% !cond ? a : b %>', rules)).toHaveLength(1);
+    expect(applyFix('<% !cond ? a : b %>', rules)).toBe('<% cond ? b : a %>');
+  });
+
+  // The expression's own range is replaced rather than the surrounding tag, so a ternary is
+  // fixable wherever it sits — including where it is not the tag's whole content.
+  test.each([
+    [
+      'an assignment inside a code tag',
+      "<% const v = !fake ? gen('x') : fake[name]; %>",
+      "<% const v = fake ? fake[name] : gen('x'); %>",
+    ],
+    [
+      'a nested template-literal interpolation',
+      '<%- a ? `x${b !== c ? `y` : ``}` : `` %>',
+      '<%- a ? `x${b === c ? `` : `y`}` : `` %>',
+    ],
+    ['a ternary alongside other content', '<%- prefix + (!c ? a : b) %>', '<%- prefix + (c ? b : a) %>'],
+    ['a ternary in a slurp tag', '<%_ const v = !c ? a : b; _%>', '<%_ const v = c ? b : a; _%>'],
+  ])('inverts %s', (_label, template, expected) => {
+    expect(applyFix(template, rules)).toBe(expected);
+  });
+
+  test('leaves a positive ternary in the same tag untouched', () => {
+    const template = '<%- a ? `x${b !== c ? `y` : ``}` : `` %>';
+    const fixed = applyFix(template, rules);
+
+    expect(fixed).toBe('<%- a ? `x${b === c ? `` : `y`}` : `` %>');
+    expect(lint(fixed, rules)).toHaveLength(0);
   });
 
   test('produces output that is stable and no longer reports', () => {
