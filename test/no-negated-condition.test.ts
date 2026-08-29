@@ -114,8 +114,71 @@ describe('autofix: core no-negated-condition', () => {
     );
   });
 
-  test('leaves an else if chain untouched', () => {
+  // An `if` whose `else` is another `if` is not reported by the built-in rule at all, so there
+  // is nothing to fix; the negation lives on a link the rule deliberately skips.
+  test('leaves an if whose else is an else if untouched', () => {
     const template = '<% if (!foo) { %>A<% } else if (bar) { %>B<% } else { %>C<% } %>';
+    expect(lint(template, rules)).toHaveLength(0);
+    expect(applyFix(template, rules)).toBe(template);
+  });
+
+  // A link whose own `else` is a plain block *is* reported, and swapping just that link's two
+  // branches leaves the chain around it — the outer `if` and the closing tag — untouched.
+  test.each([
+    [
+      'an else if link',
+      '<% if (a) { %>A<% } else if (!b) { %>B<% } else { %>C<% } %>',
+      '<% if (a) { %>A<% } else if (b) { %>C<% } else { %>B<% } %>',
+    ],
+    [
+      'an else if link with an inequality',
+      '<% if (a) { %>A<% } else if (x !== y) { %>B<% } else { %>C<% } %>',
+      '<% if (a) { %>A<% } else if (x === y) { %>C<% } else { %>B<% } %>',
+    ],
+    [
+      'an else if link in slurp tags',
+      '<%_ if (a) { _%>\nA\n<%_ } else if (!b) { _%>\nB\n<%_ } else { _%>\nC\n<%_ } _%>\n',
+      '<%_ if (a) { _%>\nA\n<%_ } else if (b) { _%>\nC\n<%_ } else { _%>\nB\n<%_ } _%>\n',
+    ],
+  ])('inverts %s', (_label, template, expected) => {
+    expect(applyFix(template, rules)).toBe(expected);
+  });
+
+  test('moves branch bodies containing further tags when swapping an else if link', () => {
+    const template = '<%_ if (a) { _%>\nA\n<%_ } else if (!b) { _%>\n<%= x %>\n<%_ } else { _%>\nC\n<%_ } _%>\n';
+    const fixed = applyFix(template, rules);
+
+    expect(fixed).toBe('<%_ if (a) { _%>\nA\n<%_ } else if (b) { _%>\nC\n<%_ } else { _%>\n<%= x %>\n<%_ } _%>\n');
+    expect(lint(fixed, rules)).toHaveLength(0);
+    expect(lint(fixed, {}).filter((msg) => msg.fatal)).toHaveLength(0);
+  });
+
+  // The link is fixable however many links precede it. Only the last link of a chain is ever
+  // reported — the built-in rule skips an `if` whose `else` is another `if` — so the matcher
+  // always finds a plain `} else {` as the next tag at the same depth.
+  test.each([1, 2, 3, 4])('inverts the negated link of a chain with %i preceding links', (preceding) => {
+    const links = Array.from(
+      { length: preceding },
+      (_unused, index) => `<%_ } else if (c${String(index + 1)}) { _%>\nB${String(index + 1)}\n`,
+    ).join('');
+    const negatedAt = preceding + 1;
+    const template =
+      `<%_ if (c0) { _%>\nB0\n${links}` +
+      `<%_ } else if (!c${String(negatedAt)}) { _%>\nB${String(negatedAt)}\n` +
+      '<%_ } else { _%>\nBE\n<%_ } _%>\n';
+    const expected =
+      `<%_ if (c0) { _%>\nB0\n${links}` +
+      `<%_ } else if (c${String(negatedAt)}) { _%>\nBE\n` +
+      `<%_ } else { _%>\nB${String(negatedAt)}\n<%_ } _%>\n`;
+
+    expect(lint(template, rules)).toHaveLength(1);
+    expect(applyFix(template, rules)).toBe(expected);
+    expect(lint(expected, rules)).toHaveLength(0);
+  });
+
+  test('leaves an else if link with no final else untouched', () => {
+    const template = '<% if (a) { %>A<% } else if (!b) { %>B<% } %>';
+    expect(lint(template, rules)).toHaveLength(0);
     expect(applyFix(template, rules)).toBe(template);
   });
 
