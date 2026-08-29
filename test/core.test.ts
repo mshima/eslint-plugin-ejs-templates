@@ -992,3 +992,63 @@ describe('slurp marker parsing', () => {
     expect(fatalErrors).toHaveLength(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// The synthetic semicolon appended to output tags
+//
+// An output tag holds an expression, so the processor appends a `;` to make the virtual
+// JavaScript a statement. That character is generated, not written by the author, so semicolon
+// rules must not see it — and it must be appended consistently, whether or not the tag's
+// content spans lines.
+// ---------------------------------------------------------------------------
+
+describe('synthetic semicolon in virtual code', () => {
+  const multiline = ['<%- a', '  ? `x`', '  : `y` %>'].join('\n');
+  const multilineWithSemi = ['<%- a', '  ? `x`', '  : `y`; %>'].join('\n');
+
+  test.each([
+    ['a single-line output tag', '<%- foo %>'],
+    ['an escaped output tag', '<%= foo %>'],
+    ['a multiline output tag', multiline],
+  ])('semi:never does not report the synthetic semicolon on %s', (_label, template) => {
+    expect(lintWithStylistic(template, { '@stylistic/semi': ['error', 'never'] })).toHaveLength(0);
+  });
+
+  test.each([
+    ['a single-line output tag', '<%- foo %>'],
+    ['a multiline output tag', multiline],
+  ])('semi:always is satisfied by the synthetic semicolon on %s', (_label, template) => {
+    expect(lintWithStylistic(template, { '@stylistic/semi': ['error', 'always'] })).toHaveLength(0);
+  });
+
+  // Before the suffix was appended for multiline tags too, `output-semi` removed the semicolon
+  // and `@stylistic/semi` in `always` mode put it straight back, so the two fixed each other
+  // forever and ESLint bailed out with ESLintCircularFixesWarning.
+  test.each([
+    ['a single-line tag', '<%- foo; %>', '<%- foo %>'],
+    ['a multiline tag', multilineWithSemi, ['<%- a', '  ? `x`', '  : `y` %>'].join('\n')],
+  ])('semi:always and output-semi:never converge on %s', (_label, template, expected) => {
+    const rules: RuleConfigMap = {
+      '@stylistic/semi': ['error', 'always'],
+      'ejs-templates/output-semi': ['error', 'never'],
+    };
+    expect(applyFixWithStylistic(template, rules)).toBe(expected);
+    expect(lintWithStylistic(expected, rules)).toHaveLength(0);
+  });
+
+  test('a semicolon the author wrote is still reported by semi:never', () => {
+    const msgs = lintWithStylistic('<%- foo; %>', { '@stylistic/semi': ['error', 'never'] });
+    expect(msgs).toHaveLength(1);
+    expect(msgs[0].ruleId).toBe('@stylistic/semi');
+  });
+
+  test('the semicolon is not doubled when the content already ends with one', () => {
+    const [block] = extractTagBlocks(getEjsNodes('<%- foo; %>'));
+    try {
+      expect(block.virtualBodyInlineSuffix).toBe('');
+      expect(block.virtualCode.endsWith(';;')).toBe(false);
+    } finally {
+      block.javascriptPartialNode?.cleanup();
+    }
+  });
+});

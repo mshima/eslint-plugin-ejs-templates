@@ -239,6 +239,24 @@ stacking. `test/performance.test.ts` guards this by counting characters fed to t
 asserting that doubling a template does not much more than double them; it deliberately does
 not assert wall-clock time, which flakes in CI.
 
+### Generated characters must stay invisible to rules
+
+The virtual JavaScript contains characters the author never wrote: the `//@ejs-tag:` marker, and
+a `;` appended to an output tag's expression so it forms a statement. A rule reporting on one of
+those is reporting on generated code, and its message must be dropped in `postprocess()` — both
+in the wrapped pass and in the raw-validation fallback, since a check added to only one leaves
+the messages standing.
+
+The suffix is appended for every output tag, single-line or multiline, and skipped when the
+content already ends with a semicolon. Both halves matter. Appending it inconsistently left a
+multiline tag's statement unterminated, so `@stylistic/semi` in `always` mode demanded a
+semicolon that `output-semi` in `never` mode removed, and the two fixed each other forever
+(ESLint reports `ESLintCircularFixesWarning` and gives up). Appending it unconditionally would
+produce a synthetic `;;` for rules to trip over.
+
+Any future synthetic text should follow the same two rules: apply it uniformly, and suppress
+messages that land on it.
+
 ### WASM location fallback
 
 `Parser.init({ locateFile })` in `src/ts-parser.ts` uses `require.resolve`, which is not defined
