@@ -239,6 +239,28 @@ stacking. `test/performance.test.ts` guards this by counting characters fed to t
 asserting that doubling a template does not much more than double them; it deliberately does
 not assert wall-clock time, which flakes in CI.
 
+### Splitting a tag keeps the output identical only via slurp delimiters
+
+`buildCollapsedTag()` turns one tag into several — a multiline tag with structural braces, or a
+single-line tag closing more than one block (`<%_ } } _%>`).
+
+For a tag on its own line the generated tags are joined with a newline, which would change the
+rendered output were it not for the delimiters it picks: every tag but the first opens with
+`<%_` and every tag but the last closes with `_%>`, so the inserted line break and indentation
+are slurped away. Keep that pairing if you touch this.
+
+An inline tag is split differently: its tags stay adjacent on the same line. Splitting it
+across lines would insert a break that only slurp delimiters could take back out, which means
+rewriting delimiters the author chose; leaving the tags adjacent introduces nothing to undo.
+
+The author's opening delimiter goes on the first tag only — repeating `<%_` would ask for the
+whitespace before the tag to be slurped once per generated tag rather than once. Later tags open
+with whatever pairs with the closing delimiter (`<%_` for `_%>`, otherwise `<%`), keeping the
+seams inside the delimiter family the tag already uses.
+
+Verify any change here by rendering with `ejs` rather than by reading the output — whitespace
+slurping is easy to reason about wrongly in either direction.
+
 ### Generated characters must stay invisible to rules
 
 The virtual JavaScript contains characters the author never wrote: the `//@ejs-tag:` marker, and
