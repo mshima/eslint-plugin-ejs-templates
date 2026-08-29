@@ -458,3 +458,66 @@ describe('autofix: prefer-single-line-tags', () => {
     expect(msgs.filter((m) => m.ruleId === 'ejs-templates/prefer-single-line-tags')).toHaveLength(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Single-line tags holding more than one brace boundary
+//
+// `<%_ } } _%>` closes two blocks at once, so neither `indent` nor a reader can place it at a
+// single depth. The rule already keeps brace boundaries in separate tags for multiline content;
+// these cases are single-line, which previously excluded them from the rule entirely.
+// ---------------------------------------------------------------------------
+
+describe('rule: ejs-templates/prefer-single-line-tags – multiple brace boundaries', () => {
+  const rules = { 'ejs-templates/prefer-single-line-tags': 'error' } as const;
+
+  test('splits a tag closing two blocks into one tag per brace', () => {
+    const template = '<%_ if (a) { _%>\nA\n<%_ if (b) { _%>\nB\n<%_ } } _%>\n';
+    expect(lint(template, rules)).toHaveLength(1);
+    expect(applyFix(template, rules)).toBe('<%_ if (a) { _%>\nA\n<%_ if (b) { _%>\nB\n<%_ } _%>\n<%_ } _%>\n');
+  });
+
+  test('splits a tag closing three blocks', () => {
+    const template = '<%_ if(a){ _%>\n<%_ if(b){ _%>\n<%_ if(c){ _%>\nX\n<%_ } } } _%>\n';
+    expect(applyFix(template, rules)).toBe(
+      '<%_ if(a){ _%>\n<%_ if(b){ _%>\n<%_ if(c){ _%>\nX\n<%_ } _%>\n<%_ } _%>\n<%_ } _%>\n',
+    );
+  });
+
+  test('keeps a continuation with the brace that opens it', () => {
+    const template = '<%_ if (a) { _%>\nA\n<%_ if (b) { _%>\nB\n<%_ } } else { _%>\nE\n<%_ } _%>\n';
+    expect(applyFix(template, rules)).toBe(
+      '<%_ if (a) { _%>\nA\n<%_ if (b) { _%>\nB\n<%_ } _%>\n<%_ } else { _%>\nE\n<%_ } _%>\n',
+    );
+  });
+
+  // The generated tags close with `_%>` and open with `<%_`, so the line break introduced
+  // between them is slurped away and the rendered output is unchanged — including for a tag
+  // sitting inline in the middle of a line.
+  test('splits an inline tag without changing what surrounds it', () => {
+    const template = 'x<% if (a) { %>A<% if (b) { %>B<% } } %>;\n';
+    expect(applyFix(template, rules)).toBe('x<% if (a) { %>A<% if (b) { %>B<% } _%>\n<%_ } %>;\n');
+  });
+
+  // Filtered by rule id: an unbalanced partial fragment also raises a parse error of its own,
+  // which is unrelated to this rule and predates it.
+  const reportsFromRule = (template: string) =>
+    lint(template, rules).filter((msg) => msg.ruleId === 'ejs-templates/prefer-single-line-tags');
+
+  test.each([
+    ['a tag closing a single block', '<%_ if (a) { _%>\nX\n<%_ } _%>\n'],
+    ['a tag holding one statement', '<% const a = 1; %>'],
+    ['a continuation that closes one block and opens another', '<%_ if (a) { _%>\nA\n<%_ } else { _%>\nB\n<%_ } _%>\n'],
+    ['a partial fragment that only continues a block', '<%_ } else { _%>\nB\n'],
+  ])('does not report %s', (_label, template) => {
+    expect(reportsFromRule(template)).toHaveLength(0);
+    expect(applyFix(template, rules)).toBe(template);
+  });
+
+  test('produces output that is stable and no longer reports', () => {
+    const fixed = applyFix('<%_ if (a) { _%>\nA\n<%_ if (b) { _%>\nB\n<%_ } } _%>\n', rules);
+
+    expect(applyFix(fixed, rules)).toBe(fixed);
+    expect(lint(fixed, rules)).toHaveLength(0);
+    expect(lint(fixed, {}).filter((msg) => msg.fatal)).toHaveLength(0);
+  });
+});

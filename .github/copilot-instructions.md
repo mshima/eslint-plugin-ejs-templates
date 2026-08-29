@@ -264,6 +264,16 @@ stacking. `test/performance.test.ts` guards this by counting characters fed to t
 asserting that doubling a template does not much more than double them; it deliberately does
 not assert wall-clock time, which flakes in CI.
 
+### Splitting a tag keeps the output identical only via slurp delimiters
+
+`buildCollapsedTag()` turns one tag into several — a multiline tag with structural braces, or a
+single-line tag closing more than one block (`<%_ } } _%>`). The generated tags are joined with
+a newline, which would change the rendered output were it not for the delimiters it picks: every
+tag but the first opens with `<%_` and every tag but the last closes with `_%>`, so the inserted
+line break and indentation are slurped away. Keep that pairing if you touch this, and verify any
+change by rendering with `ejs` rather than by reading the output — an inline tag mid-line is the
+case that looks wrong and is not.
+
 ### Generated characters must stay invisible to rules
 
 The virtual JavaScript contains characters the author never wrote: the `//@ejs-tag:` marker, and

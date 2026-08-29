@@ -218,8 +218,11 @@ function buildCollapsedTag(block: TagBlock, options?: { applyIndent?: boolean })
     );
   }
   const applyIndent = options?.applyIndent ?? false;
-  // Also collapse multiline tags that become a single line after trim.
-  if (isSingleLineAfterTrim(block.codeContent)) {
+  // Also collapse multiline tags that become a single line after trim — but only when the
+  // content is a single statement. Content that is already one line can still hold several
+  // brace boundaries (`} }`), and those need the splitting path below rather than being handed
+  // back unchanged.
+  if (isSingleLineAfterTrim(block.codeContent) && javascriptPartialNode.splitStatements().length <= 1) {
     const baseIndent = applyIndent ? block.expectedIndent : '';
     return `${baseIndent}${block.openDelim} ${block.codeContent.trim()} ${block.closeDelim}`;
   }
@@ -939,9 +942,10 @@ function translateFix(
       text: fixedText,
     };
   } else if (fix.text === SENTINEL_PREFER_SINGLE_LINE_TAGS_BRACES) {
-    // prefer-single-line-tags: collapse multiline tag while
-    // keeping content between braces in a single tag.
-    if (block.tagType.endsWith('-multiline')) {
+    // prefer-single-line-tags: collapse a multiline tag while keeping content between braces in
+    // a single tag, and split a single-line tag that carries more than one brace boundary.
+    // `buildCollapsedTag` produces one tag per boundary either way.
+    if (block.tagType.endsWith('-multiline') || (block.javascriptPartialNode?.missingOpenBracesCount ?? 0) > 1) {
       const { javascriptPartialNode } = block;
       if (!javascriptPartialNode) {
         // Should not happen since we only call this on blocks with a successful JS parse, but guard just in case.

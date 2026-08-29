@@ -707,8 +707,28 @@ Flags multiline tags when either:
 - their content has structural braces, or
 - their content becomes a single line after trimming.
 
+It also flags a **single-line** tag that closes more than one block, such as
+`<%_ } } _%>`:
+
+```ejs
+<!-- ✗ violation -->
+<%_ } } _%>
+
+<!-- ✓ fixed -->
+<%_ } _%>
+<%_ } _%>
+```
+
+A tag closing two blocks at once cannot sit at a single indent depth, so
+[`indent`](#ejs-templatesindent) has no correct answer for it and a reader has to
+count braces to follow the nesting. A tag that closes one block and opens another
+(`<%_ } else { _%>`) is an ordinary continuation and is left alone.
+
 For structural-brace cases, autofix keeps brace boundaries (`{` and `}`) as
-separate tags and keeps the content between them in a single tag.
+separate tags and keeps the content between them in a single tag. The generated
+tags close with `_%>` and open with `<%_`, so the line break introduced between
+them is slurped away and the rendered output is unchanged — including for a tag
+sitting inline in the middle of a line.
 
 Keeping tags single-line avoids visual confusion between template output text
 and EJS control flow, making template intent easier to scan.

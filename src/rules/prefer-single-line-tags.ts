@@ -28,6 +28,7 @@ export const preferSingleLineTags: Rule.RuleModule = {
     },
     messages: {
       preferSingleLineTags: 'EJS tag content spans multiple lines; collapse to a single line.',
+      oneBraceBoundaryPerTag: 'EJS tag holds more than one brace boundary; give each its own tag.',
     },
     schema: [],
   },
@@ -45,12 +46,19 @@ export const preferSingleLineTags: Rule.RuleModule = {
 
         for (const [index, tagTypeComment] of tagTypeComments.entries()) {
           const { comment, tagType } = tagTypeComment;
-          if (!tagType.includes('-multiline')) {
-            continue;
-          }
+          const isMultiline = tagType.includes('-multiline');
 
           const block = nonDirectiveSegments.at(index)?.block;
           if (!block?.javascriptPartialNode) {
+            continue;
+          }
+
+          // A single-line tag is only reported when it closes more than one block, which is
+          // what makes `<%_ } } _%>` impossible to place at a single indent depth. A tag that
+          // closes one block and opens another (`<%_ } else { _%>`) is an ordinary
+          // continuation and is left alone — in a partial template, whose enclosing `if` lives
+          // in another file, its content parses as two fragments rather than one continuation.
+          if (!isMultiline && block.javascriptPartialNode.missingOpenBracesCount <= 1) {
             continue;
           }
           const { hasStructuralBraces, multilineTrimmed } = block.javascriptPartialNode;
@@ -63,10 +71,14 @@ export const preferSingleLineTags: Rule.RuleModule = {
             continue;
           }
 
+          // A single-line tag is reported too, when it carries more than one brace boundary —
+          // `<%_ } } _%>` closes two blocks at once, so neither `indent` nor a reader can place
+          // it at a single depth. The fix already puts each boundary in its own tag, which is
+          // what this rule does for the multiline case; only the message differs.
           const { range = [0, 0] } = comment;
           context.report({
             loc: comment.loc ?? { line: 0, column: 0 },
-            messageId: 'preferSingleLineTags',
+            messageId: isMultiline ? 'preferSingleLineTags' : 'oneBraceBoundaryPerTag',
             fix(fixer) {
               return fixer.replaceTextRange([range[0], range[1]], SENTINEL_PREFER_SINGLE_LINE_TAGS_BRACES);
             },
