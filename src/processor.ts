@@ -9,7 +9,14 @@
 import type { Linter } from 'eslint';
 import createDebug from 'debug';
 import { findErrorNode, parseJavaScript, type SyntaxNode } from './ts-parser.js';
-import { EJS_MARKER_PREFIX, type EjsSyntaxNode, extractTagBlocks, getEjsNodes, type TagBlock } from './ejs-parser.js';
+import {
+  EJS_MARKER_PREFIX,
+  type EjsSyntaxNode,
+  extractTagBlocks,
+  getDirectiveCodeText,
+  getEjsNodes,
+  type TagBlock,
+} from './ejs-parser.js';
 
 type VitualJavascriptCode = {
   virtualCode: string;
@@ -1422,14 +1429,18 @@ function normalizeUnusedDisableDirectiveMessage(
  * to original EJS source.
  */
 const buildVirtualCode = (nodes: SyntaxNode[]): VitualJavascriptCode => {
-  const codeNodes = nodes.filter((n) => ['output_directive', 'directive'].includes(n.type)).map((n) => n.children[1]);
+  const codeNodes = nodes
+    .filter((n) => ['output_directive', 'directive'].includes(n.type))
+    // `getDirectiveCodeText` drops the `_` tree-sitter absorbs from a `_%>` close delimiter;
+    // emitting it verbatim would put a stray `_` into the virtual JavaScript and fail the parse.
+    .map((n) => ({ node: n.children[1], text: getDirectiveCodeText(n) }));
   let virtualCode = '';
   const nodeWithPositions: { node: SyntaxNode; startOffset: number; endOffset: number }[] = [];
-  for (const node of codeNodes) {
-    virtualCode += node.text + '\n';
+  for (const { node, text } of codeNodes) {
+    virtualCode += text + '\n';
     nodeWithPositions.push({
       node,
-      startOffset: virtualCode.length - node.text.length - 1,
+      startOffset: virtualCode.length - text.length - 1,
       endOffset: virtualCode.length - 1,
     });
   }

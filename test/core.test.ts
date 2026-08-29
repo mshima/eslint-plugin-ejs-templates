@@ -886,3 +886,109 @@ describe('void() wrapping for output tags', () => {
     expect(debugErrors).toHaveLength(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Slurp marker handling (tree-sitter integration)
+// ---------------------------------------------------------------------------
+
+describe('slurp marker parsing', () => {
+  test('raw-output tag with identifier does not cause parse error', () => {
+    // Regression test: <%- testcontainerClassInitialization _%> used to fail
+    // because tree-sitter includes trailing `_` in code node text
+    const msgs = lint('<%- testcontainerClassInitialization _%>', {});
+    const fatalErrors = msgs.filter((msg) => msg.fatal);
+    expect(fatalErrors).toHaveLength(0);
+  });
+
+  test('escaped-output tag with slurp close does not cause parse error', () => {
+    // <%= expression _%> should not produce "Missing token: _" error
+    const msgs = lint('<%= testcontainerClassInitialization _%>', {});
+    const fatalErrors = msgs.filter((msg) => msg.fatal);
+    expect(fatalErrors).toHaveLength(0);
+  });
+
+  test('code tag with slurp open does not cause parse error', () => {
+    // <%_ expression %> should be parseable
+    const msgs = lint('<%_ testcontainerClassInitialization %>', {});
+    const fatalErrors = msgs.filter((msg) => msg.fatal);
+    expect(fatalErrors).toHaveLength(0);
+  });
+
+  test('code tag with slurp delimiters does not cause parse error', () => {
+    // <%_ expression _%> should be parseable
+    const msgs = lint('<%_ testcontainerClassInitialization _%>', {});
+    const fatalErrors = msgs.filter((msg) => msg.fatal);
+    expect(fatalErrors).toHaveLength(0);
+  });
+
+  test('multiline raw-output tag with slurp close does not cause parse error', () => {
+    const msgs = lint('<%- line1\nline2 _%>', {});
+    const fatalErrors = msgs.filter((msg) => msg.fatal);
+    expect(fatalErrors).toHaveLength(0);
+  });
+
+  test('the absorbed close-delimiter marker is removed from the code', () => {
+    const [b] = extractTagBlocks(getEjsNodes('<%- identifier _%>'));
+    expect(b.codeContent).toBe(' identifier ');
+    expect(b.lintCodeContent).toBe(' identifier');
+  });
+
+  test('the tag keeps its real _%> close delimiter', () => {
+    const [b] = extractTagBlocks(getEjsNodes('<%- identifier _%>'));
+    expect(b.openDelim).toBe('<%-');
+    expect(b.closeDelim).toBe('_%>');
+  });
+
+  test('a trailing underscore that is part of the code is left alone', () => {
+    const [b] = extractTagBlocks(getEjsNodes('<%- identifier_ %>'));
+    expect(b.closeDelim).toBe('%>');
+    expect(b.codeContent).toBe(' identifier_ ');
+  });
+
+  test('an identifier ending in an underscore keeps both it and the slurp close', () => {
+    const [b] = extractTagBlocks(getEjsNodes('<%- identifier_ _%>'));
+    expect(b.closeDelim).toBe('_%>');
+    expect(b.codeContent).toBe(' identifier_ ');
+  });
+
+  // Rules that rebuild a tag from its delimiters must not silently drop the newline-slurping
+  // the author asked for. Rewriting the source to strip the `_` instead of correcting the
+  // delimiter would turn every one of these into a `%>`.
+  const slurpCloseFixCases: [string, string, string, RuleConfigMap][] = [
+    ['no-negated-condition', '<%= !c ? a : b _%>', '<%= c ? b : a _%>', { 'no-negated-condition': 'error' }],
+    ['format', '<%-   foo   _%>', '<%- foo _%>', { 'ejs-templates/format': 'error' }],
+    ['prefer-encoded', '<%- foo _%>', '<%= foo _%>', { 'ejs-templates/prefer-encoded': 'error' }],
+    ['output-semi', '<%- foo _%>', '<%- foo; _%>', { 'ejs-templates/output-semi': ['error', 'always'] }],
+  ];
+
+  test.each(slurpCloseFixCases)(
+    '%s preserves the _%%> close delimiter when fixing',
+    (_label, template, expected, rules) => {
+      expect(applyFix(template, rules)).toBe(expected);
+    },
+  );
+
+  test('multiline slurp tags parse without fatal errors', () => {
+    const msgs = lint(
+      `<%_
+      const x = 1;
+      const y = 2;
+    _%>`,
+      {},
+    );
+    const fatalErrors = msgs.filter((msg) => msg.fatal);
+    expect(fatalErrors).toHaveLength(0);
+  });
+
+  test('mixed slurp and non-slurp tags all parse correctly', () => {
+    const msgs = lint(
+      `<%- raw _%>
+<%= escaped %>
+<%_ code _%>
+<% balanced %>`,
+      {},
+    );
+    const fatalErrors = msgs.filter((msg) => msg.fatal);
+    expect(fatalErrors).toHaveLength(0);
+  });
+});
