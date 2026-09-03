@@ -20,7 +20,7 @@
 ### Bug Fixes
 
 - apply output-semi to multiline output tags ([#98](https://github.com/mshima/eslint-plugin-ejs-templates/issues/98)) ([4818307](https://github.com/mshima/eslint-plugin-ejs-templates/commit/4818307cc11943b2d611449ff3d80a3c517562b4))
-- keep the _%&gt; close delimiter on output tags ([f669638](https://github.com/mshima/eslint-plugin-ejs-templates/commit/f6696387bca1fcf1f8cac3ceeeca167df1617f28))
+- keep the \_%&gt; close delimiter on output tags ([f669638](https://github.com/mshima/eslint-plugin-ejs-templates/commit/f6696387bca1fcf1f8cac3ceeeca167df1617f28))
 - stop the synthetic semicolon leaking into semicolon rules ([#101](https://github.com/mshima/eslint-plugin-ejs-templates/issues/101)) ([f4512b0](https://github.com/mshima/eslint-plugin-ejs-templates/commit/f4512b03f7f103753cc4437a45e799d65b000525))
 - workaround slurp close tag with output directive ([#68](https://github.com/mshima/eslint-plugin-ejs-templates/issues/68)) ([f669638](https://github.com/mshima/eslint-plugin-ejs-templates/commit/f6696387bca1fcf1f8cac3ceeeca167df1617f28))
 

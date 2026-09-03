@@ -19,6 +19,11 @@ describe('rule: ejs-templates/no-global-function-call', () => {
     expect(msgs.filter((m) => m.ruleId === 'ejs-templates/no-global-function-call')).toHaveLength(1);
   });
 
+  test('does not flag a locally declared function call', () => {
+    const msgs = lint('<% function doWork() {} doWork(); %>', { 'ejs-templates/no-global-function-call': 'error' });
+    expect(msgs.filter((m) => m.ruleId === 'ejs-templates/no-global-function-call')).toHaveLength(0);
+  });
+
   test('does not flag method call in code tag', () => {
     const msgs = lint('<% user.save(); %>', { 'ejs-templates/no-global-function-call': 'error' });
     expect(msgs.filter((m) => m.ruleId === 'ejs-templates/no-global-function-call')).toHaveLength(0);

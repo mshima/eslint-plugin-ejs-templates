@@ -6,7 +6,7 @@
 //
 //     http://www.apache.org/licenses/LICENSE-2.0
 
-import type { Rule } from 'eslint';
+import type { Rule, Scope } from 'eslint';
 import { isRecord, isUnknownArray } from '../utils.js';
 
 /**
@@ -58,6 +58,14 @@ export const noGlobalFunctionCall: Rule.RuleModule = {
         }
         if (allowedCalls.has(node.callee.name)) {
           return;
+        }
+        let scope: Scope.Scope | null = context.sourceCode.getScope(node);
+        while (scope) {
+          const variable = scope.set.get(node.callee.name);
+          if (variable?.defs.length) {
+            return;
+          }
+          scope = scope.upper;
         }
         context.report({
           node,
