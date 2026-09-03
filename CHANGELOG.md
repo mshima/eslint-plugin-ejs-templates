@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.0](https://github.com/mshima/eslint-plugin-ejs-templates/compare/v0.5.0...v0.6.0) (2026-09-03)
+
+### Features
+
+- don't report no-global-function-call if the method is declared … ([#104](https://github.com/mshima/eslint-plugin-ejs-templates/issues/104)) ([dfaef5a](https://github.com/mshima/eslint-plugin-ejs-templates/commit/dfaef5a46335b0554e9aa01f3e11f5ecf8ca8170))
+- don't report no-global-function-call if the method is declared locally ([dfaef5a](https://github.com/mshima/eslint-plugin-ejs-templates/commit/dfaef5a46335b0554e9aa01f3e11f5ecf8ca8170))
+
 ## [0.5.0](https://github.com/mshima/eslint-plugin-ejs-templates/compare/v0.4.7...v0.5.0) (2026-08-29)
 
 ### ⚠ BREAKING CHANGES
