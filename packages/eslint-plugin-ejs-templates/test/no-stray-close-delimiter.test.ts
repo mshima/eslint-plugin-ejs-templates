@@ -144,7 +144,8 @@ describe('suggestions: no-stray-close-delimiter', () => {
     ['%> at the end of the template', 'a %>', 'a %%>', 'a '],
     ['%> after a literal', '<%% x %> y %> z\n', '<%% x %> y %%> z\n', '<%% x %> y  z\n'],
     ['-%> before a <%_', 'a -%>\n<%_ x(); _%>\nb\n', 'a -%%>\n<%_ x(); _%>\nb\n', "a<%- ' ' %><%_ x(); _%>\nb\n"],
-    ['%> between blanks before a <%_', 'a %> <%_ x(); _%>\n', 'a %%><%_ x(); _%>\n', "a<%- ' ' %><%_ x(); _%>\n"],
+    // The blank the <%_ slurps stays, slurped.
+    ['%> between blanks before a <%_', 'a %> <%_ x(); _%>\n', 'a %%> <%_ x(); _%>\n', "a<%- ' ' %> <%_ x(); _%>\n"],
   ])('%s: written literally, or deleted', (_label, template, literal, deleted) => {
     const [msg] = lint(template, rules);
     expect(msg.suggestions?.map((suggestion) => applySuggestion(template, suggestion))).toEqual([literal, deleted]);

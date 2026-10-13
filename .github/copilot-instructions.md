@@ -290,7 +290,10 @@ rewrite, so anything else passes through reported but unfixed.
 Three shapes are handled, and the difference between them is worth understanding before
 extending this:
 
-- **`if`/`else` spanning tags** — rebuilds the opening tag and swaps the branch bodies.
+- **`if`/`else` spanning tags** — rebuilds the opening tag and swaps the branch bodies. A body
+  renders after the close delimiter of the tag before it (the line break a `-%>` drops, the blanks
+  a `_%>` slurps) and before the open delimiter of the tag after it (the blanks a `<%_` slurps):
+  these delimiters move with it, so that each branch renders what it rendered.
 - **An `} else if (…) {` link** — the same swap applied to that link alone. The chain around it,
   including the outer `if` and the closing tag, is untouched. Core only reports a link whose own
   `else` is a plain block (it skips an `if` whose `else` is another `if`): the branch after the
@@ -532,7 +535,11 @@ tags across passes: the rules of the layout together at `whitespace`, and a whol
 generator-jhipster's at `compiles`. A snapshot counts the templates each run fixes, so that none stops
 being exercised. A new fixing rule gets a run there, at the strictest level it keeps, and a
 template of the list it fixes. The restructuring fixes, at `compiles` only, render their templates
-with `ejs.render` in their own tests (`test/prefer-output.test.ts`).
+with `ejs.render` in their own tests (`test/prefer-output.test.ts`, `test/no-negated-condition.test.ts`).
+On a directory of templates, `compiles` misses a branch that renders differently once moved: render
+the part a fix rewrites before and after, its condition true then false, every other variable a
+`Proxy` standing for anything. EJS 7 copies the data it renders with into an object of its own, so
+that the `Proxy` is only seen with `unsafePrototypeLocals: true` among the options of `ejs.compile`.
 
 The same runs check any directory of templates, skipped otherwise. Run them on the templates of
 generator-jhipster, current and released ones (`git archive v8.11.0 generators`), for any change to a

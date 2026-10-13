@@ -489,9 +489,11 @@ turn on the built-in rule and `eslint --fix` will apply the swap.
 
 Negated tests are recognised as `!cond`, `!(a && b)`, `a !== b` and `a != b`; the
 comparison operators are inverted (`!==` becomes `===`) rather than wrapped in a
-further negation. Branch bodies are moved verbatim, so markup, indentation and
-delimiter style — including `<%_ … _%>` — are preserved, and bodies may contain
-any number of nested tags.
+further negation. Branch bodies are moved verbatim, so markup and indentation are
+preserved, and bodies may contain any number of nested tags. Each body moves with
+the delimiters next to it, which slurp its blanks and drop its line breaks: the
+close delimiter of the tag before it (`-%>`, `_%>`) and the open delimiter of the
+tag after it (`<%_`). Each branch renders what it rendered.
 
 The same fix covers the ternary form the built-in rule reports, inside an output
 tag:
@@ -614,8 +616,8 @@ CREATE INDEX ON `<%= bucket %>` %%>(tokenDate);
 CREATE INDEX ON `<%= bucket %>` (tokenDate);
 ```
 
-The two suggestions, written with `escapeText()` of ejs-template-parser from what EJS renders of the
-text:
+The two suggestions, written with `editTemplate()` of ejs-template-parser, the rest of the template
+rendering as before:
 
 - **Write it literally**: `%>` becomes `%%>`, `-%>` `-%%>` and `_%>` `_%%>`; the output then has
   the delimiter, and what EJS dropped along with it.

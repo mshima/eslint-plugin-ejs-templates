@@ -7,6 +7,7 @@
 //     http://www.apache.org/licenses/LICENSE-2.0
 
 import { describe, test, expect } from 'vitest';
+import ejs from 'ejs';
 import { applyFix, lint } from './helpers.js';
 
 // The built-in ESLint rule does the reporting; this plugin only supplies the autofix it
@@ -174,6 +175,39 @@ describe('autofix: core no-negated-condition', () => {
     expect(lint(template, rules)).toHaveLength(1);
     expect(applyFix(template, rules)).toBe(expected);
     expect(lint(expected, rules)).toHaveLength(0);
+  });
+
+  // A body renders after the close delimiter of the tag before it and before the open delimiter
+  // of the tag after it: they move with it, each body keeping its neighbours.
+  test.each([
+    [
+      '-%> on the if',
+      '<% if (!a) { -%>\nA\n<% } else { %>\nB\n<% } %>\n',
+      '<% if (a) { %>\nB\n<% } else { -%>\nA\n<% } %>\n',
+    ],
+    [
+      '_%> on the else',
+      '<% if (!a) { %>\nA\n<% } else { _%>  \nB\n<% } %>\n',
+      '<% if (a) { _%>  \nB\n<% } else { %>\nA\n<% } %>\n',
+    ],
+    [
+      '<%_ on the else',
+      '<% if (!a) { %>A  <%_ } else { %>B  <% } %>\n',
+      '<% if (a) { %>B  <% } else { %>A  <%_ } %>\n',
+    ],
+    [
+      'an else if link',
+      '<% if (c) { %>C<% } else if (!a) { -%>\nA\n<% } else { %>\nB\n<% } %>\n',
+      '<% if (c) { %>C<% } else if (a) { %>\nB\n<% } else { -%>\nA\n<% } %>\n',
+    ],
+  ])('keeps what each branch renders, delimiters differing: %s', (_label, input, fixed) => {
+    const output = applyFix(input, rules);
+    expect(output).toBe(fixed);
+    const data = [true, false].flatMap((a) => [
+      { a, c: false },
+      { a, c: true },
+    ]);
+    expect(data.map((locals) => ejs.render(output, locals))).toEqual(data.map((locals) => ejs.render(input, locals)));
   });
 
   test('leaves an else if link with no final else untouched', () => {

@@ -12,12 +12,14 @@ import {
   buildTemplate,
   cleanupTemplate,
   type EjsBlock,
+  type EjsCodeTag,
   type EjsDiagnostic,
   type EjsDiagnosticCode,
+  type EjsEdit,
   type EjsTemplate,
   type EjsTemplateNode,
   type EjsText,
-  escapeText,
+  editTemplate,
   findErrorNode,
   getDirectiveCodeText,
   parseJavaScript,
@@ -613,7 +615,7 @@ function findBranch(children: EjsTemplateNode[], offset: number): { block: EjsBl
 export function findNegatedConditionBranches(
   template: EjsTemplate,
   block: TagBlock,
-): { elseTag: { offset: number; length: number }; closeTag: { offset: number; length: number } } | null {
+): { elseTag: EjsCodeTag; closeTag: EjsCodeTag } | null {
   const found = findBranch(template.children, block.tagOffset);
   if (!found) return null;
   const { branches, close } = found.block;
@@ -772,17 +774,19 @@ function buildNegatedConditionFix(
   const closeTagStart = closeNode.offset;
   const closeTagEnd = closeNode.offset + closeNode.length;
 
-  // Branch bodies and the trailing tags are carried over verbatim, so template markup,
-  // indentation and delimiter style survive the swap untouched; only the opening tag is
-  // rebuilt, and only to drop the negation.
+  // Branch bodies are carried over verbatim, so template markup and indentation survive the swap
+  // untouched. What a body renders depends on the delimiters around it as well: the close
+  // delimiter of the tag before it (the line break a `-%>` drops, the blanks a `_%>` slurps)
+  // and the open delimiter of the tag after it (the blanks a `<%_` slurps). They move with it:
+  // each body keeps its neighbours, and the delimiters out of the statement stay as they are.
   const consequentBody = sourceText.slice(ifTagEnd, elseTagStart);
   const alternateBody = sourceText.slice(elseTagEnd, closeTagStart);
-  const elseTag = sourceText.slice(elseTagStart, elseTagEnd);
-  const closeTag = sourceText.slice(closeTagStart, closeTagEnd);
+  const elseTag = `${closeNode.openDelim}${elseNode.code}${block.closeDelim}`;
+  const closeTag = `${elseNode.openDelim}${closeNode.code}${closeNode.closeDelim}`;
   const openingTag =
     elseIfCondition === null
-      ? `${block.openDelim} if (${positiveCondition}) { ${block.closeDelim}`
-      : `${block.openDelim} } else if (${positiveCondition}) { ${block.closeDelim}`;
+      ? `${block.openDelim} if (${positiveCondition}) { ${elseNode.closeDelim}`
+      : `${block.openDelim} } else if (${positiveCondition}) { ${elseNode.closeDelim}`;
 
   return {
     range: [block.tagOffset, closeTagEnd],
@@ -1322,88 +1326,59 @@ function droppedEnd(sourceText: string, texts: EjsText[], offset: number): numbe
 }
 
 /**
- * The fix replacing a part of a template that renders nothing of its own, from `start` to `end` (a tag, a delimiter of
- * a text, with what EJS drops along with it), by a text rendered literally there, the rest of the template rendering as
- * before. Deleting the part would join the blanks of the texts around it, which a `<%_` after or a `_%>` before could
- * then slurp: the blanks and the part are written again, by `escapeText()`, with what EJS rendered of the blanks.
- * Null when `escapeText()` cannot write it (it throws a RangeError).
+ * The fix of edits of the template, the rest of it rendering as before (`editTemplate()` of the parser, on the template
+ * built already): one replacement, of the edits and of what is written again around them, without what is left as it
+ * was. Null when they cannot be applied (`editTemplate()` throws a RangeError).
  */
-function replaceRendering(
-  sourceText: string,
-  texts: EjsText[],
-  start: number,
-  end: number,
-  written: string,
-): Rule.Fix | null {
-  const isBlank = (char: string | undefined) => char === ' ' || char === '\t';
-  const textBefore = texts.find((t) => t.offset < start && start <= t.offset + t.length);
-  const textAfter = texts.find((t) => t.offset <= end && end < t.offset + t.length);
-  let from = start;
-  while (textBefore && from > textBefore.offset && isBlank(sourceText[from - 1])) from--;
-  let to = end;
-  while (textAfter && to < textAfter.offset + textAfter.length && isBlank(sourceText[to])) to++;
-  const renderedIn = (rangeStart: number, rangeEnd: number) => {
-    let rendered = '';
-    for (const text of texts) {
-      for (let index = 0; index < text.rendered.length; index++) {
-        const renderedOffset = text.renderedOffsets[index];
-        if (rangeStart <= renderedOffset && renderedOffset < rangeEnd) rendered += text.rendered[index];
-      }
-    }
-    return rendered;
-  };
-  let replacement: string;
+function editFix(template: EjsTemplate, edits: EjsEdit[]): Rule.Fix | null {
+  let edited: string;
   try {
-    replacement = escapeText(
-      sourceText.slice(0, from) + sourceText.slice(to),
-      from,
-      renderedIn(from, start) + written + renderedIn(end, to),
-    );
+    edited = editTemplate(template, edits).template;
   } catch (error) {
     if (error instanceof RangeError) return null;
     throw error;
   }
-  // The fix without what it leaves as it is.
-  const original = sourceText.slice(from, to);
-  let prefix = 0;
-  while (prefix < replacement.length && prefix < original.length && replacement[prefix] === original[prefix]) {
-    prefix++;
+  const source = template.text;
+  // The edits, with what is written again around them but not what is left as it was. Never short of an edit: a
+  // deletion followed by the characters it starts with would otherwise move onto them.
+  const first = Math.min(...edits.map(({ offset }) => offset));
+  const last = Math.max(...edits.map(({ offset, length }) => offset + length));
+  let start = 0;
+  while (start < first && source[start] === edited[start]) start++;
+  let end = source.length;
+  let editedEnd = edited.length;
+  while (end > last && editedEnd > start && source[end - 1] === edited[editedEnd - 1]) {
+    end--;
+    editedEnd--;
   }
-  let suffix = 0;
-  while (
-    suffix < replacement.length - prefix &&
-    suffix < original.length - prefix &&
-    replacement[replacement.length - 1 - suffix] === original[original.length - 1 - suffix]
-  ) {
-    suffix++;
+  // Then, inside the edits, what they leave as it was.
+  while (start < end && start < editedEnd && source[start] === edited[start]) start++;
+  while (end > start && editedEnd > start && source[end - 1] === edited[editedEnd - 1]) {
+    end--;
+    editedEnd--;
   }
-  return { range: [from + prefix, to - suffix], text: replacement.slice(prefix, replacement.length - suffix) };
+  return { range: [start, end], text: edited.slice(start, editedEnd) };
 }
 
-/**
- * The fix removing a tag with what EJS drops after it, the rest of the template rendering as before; null when it
- * cannot be written so.
- */
-function removeTag(block: TagBlock, sourceText: string, texts: EjsText[]): Rule.Fix | null {
-  const tagEnd = block.tagOffset + block.tagLength;
-  return replaceRendering(sourceText, texts, block.tagOffset, droppedEnd(sourceText, texts, tagEnd), '');
+/** The fix removing a tag, with what EJS drops after it, the rest of the template rendering as before. */
+function removeTag(block: TagBlock, template: EjsTemplate): Rule.Fix | null {
+  return editFix(template, [{ offset: block.tagOffset, length: block.tagLength }]);
 }
 
 /**
  * The suggestions of a stray close delimiter, deleted with what EJS drops along with it, the output unchanged, or
- * written literally, the output then has what is deleted (see `replaceRendering()`).
+ * written literally, the output then has what is deleted (see `editFix()`).
  */
-function strayCloseDelimiterSuggestions(
-  diagnostic: EjsDiagnostic,
-  sourceText: string,
-  texts: EjsText[],
-): Linter.LintSuggestion[] {
+function strayCloseDelimiterSuggestions(diagnostic: EjsDiagnostic, template: EjsTemplate): Linter.LintSuggestion[] {
   const { offset, length } = diagnostic;
-  const deletedEnd = droppedEnd(sourceText, texts, offset + length);
+  const texts = template.nodes.filter((node) => node.kind === 'text');
+  const deletedEnd = droppedEnd(template.text, texts, offset + length);
   const suggestions: Linter.LintSuggestion[] = [];
-  const literal = replaceRendering(sourceText, texts, offset, deletedEnd, sourceText.slice(offset, deletedEnd));
+  const literal = editFix(template, [
+    { offset, length: deletedEnd - offset, text: [template.text.slice(offset, deletedEnd)] },
+  ]);
   if (literal) suggestions.push({ desc: 'Write it literally, the output then has it', fix: literal });
-  const deleted = replaceRendering(sourceText, texts, offset, deletedEnd, '');
+  const deleted = editFix(template, [{ offset, length: deletedEnd - offset }]);
   if (deleted) suggestions.push({ desc: 'Delete it, the output unchanged', fix: deleted });
   return suggestions;
 }
@@ -1416,9 +1391,9 @@ function strayCloseDelimiterSuggestions(
 function answerDiagnosticRequests(
   requests: (Linter.LintMessage | Linter.SuppressedLintMessage)[],
   diagnostics: EjsDiagnostic[],
-  sourceText: string,
-  texts: EjsText[],
+  template: EjsTemplate,
 ): Linter.LintMessage[] {
+  const sourceText = template.text;
   return requests.flatMap((request) => {
     const { ruleId, severity } = request;
     if (!isDiagnosticRuleId(ruleId)) return [];
@@ -1440,7 +1415,7 @@ function answerDiagnosticRequests(
           endColumn: (lines.length === 1 ? diagnostic.column + 1 : 1) + lastLine.length,
         };
         if (code === 'stray-close-delimiter') {
-          message.suggestions = strayCloseDelimiterSuggestions(diagnostic, sourceText, texts);
+          message.suggestions = strayCloseDelimiterSuggestions(diagnostic, template);
         }
         return message;
       });
@@ -1576,8 +1551,7 @@ function findMatchingEnableDirective(
 function translateUnusedDirectiveFix(
   msg: Linter.LintMessage,
   block: TagBlock,
-  sourceText: string,
-  texts: EjsText[],
+  template: EjsTemplate,
   blocks?: TagBlock[],
   blockIndex?: number,
 ): {
@@ -1598,7 +1572,7 @@ function translateUnusedDirectiveFix(
   const ruleListText = ruleListRaw.trim();
   if (ruleListText.length === 0) {
     // `eslint-disable` with no explicit rule list: drop the whole directive tag.
-    return { disableFix: removeTag(block, sourceText, texts) ?? undefined };
+    return { disableFix: removeTag(block, template) ?? undefined };
   }
 
   const currentRuleIds = ruleListText
@@ -1618,7 +1592,7 @@ function translateUnusedDirectiveFix(
   let disableFix: { range: [number, number]; text: string } | undefined;
 
   if (remainingRuleIds.length === 0) {
-    disableFix = removeTag(block, sourceText, texts) ?? undefined;
+    disableFix = removeTag(block, template) ?? undefined;
   } else {
     disableFix = {
       range: [block.tagOffset, block.tagOffset + block.tagLength],
@@ -1648,7 +1622,7 @@ function translateUnusedDirectiveFix(
           // Update enable directive to match the remaining rules
           result.enableBlock = matchingEnable.block;
           if (remainingRuleIds.length === 0) {
-            const enableFix = removeTag(matchingEnable.block, sourceText, texts);
+            const enableFix = removeTag(matchingEnable.block, template);
             // Both removed, or neither: an `eslint-enable` left alone would enable rules nothing disables.
             if (!enableFix) return { enableBlock: undefined };
             result.enableFix = enableFix;
@@ -1996,8 +1970,7 @@ export const processor: Linter.Processor = {
       const answeredMessages = answerDiagnosticRequests(
         (messages[0] ?? []).filter((msg) => isDiagnosticRuleId(msg.ruleId)),
         processedFile.diagnostics,
-        sourceText,
-        processedFile.template.nodes.filter((node) => node.kind === 'text'),
+        processedFile.template,
       );
 
       if (segments.length === 0) {
@@ -2080,8 +2053,7 @@ export const processor: Linter.Processor = {
             const unusedDirectiveFixResult = translateUnusedDirectiveFix(
               mapped,
               segment.block,
-              sourceText,
-              processedFile.template.nodes.filter((node) => node.kind === 'text'),
+              processedFile.template,
               blocks,
               segmentIndex,
             );
