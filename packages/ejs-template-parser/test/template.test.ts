@@ -133,7 +133,9 @@ describe('buildTemplate', () => {
   test('a switch, its cases tags inside its block', () => {
     expect(treeOf('<% switch (k) { %><% case 1: %>one<% break; %><% } %>')).toEqual([
       {
-        branches: [{ open: 'switch (k) {', statement: undefined, children: ['<% case 1: %>', 'one', '<% break; %>'] }],
+        branches: [
+          { open: 'switch (k) {', statement: 'switch_statement', children: ['<% case 1: %>', 'one', '<% break; %>'] },
+        ],
         close: '}',
       },
     ]);

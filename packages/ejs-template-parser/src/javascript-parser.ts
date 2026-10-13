@@ -6,7 +6,7 @@
 //
 //     http://www.apache.org/licenses/LICENSE-2.0
 
-import { parseJavaScript, type SyntaxNode } from './ts-parser.js';
+import { parseJavaScript, type SyntaxNode, type Tree } from './ts-parser.js';
 
 export type RelativeJavascriptNode = {
   /**
@@ -50,6 +50,14 @@ type SplitStatementType = 'open' | 'close' | 'balanced' | 'text';
 type SplitStatement = {
   text: string;
   type: SplitStatementType;
+};
+
+/** Whether a node is in one of some types of node which end by `end`. */
+const closedWithin = (node: SyntaxNode, types: string[], end: number): boolean => {
+  for (let ancestor: SyntaxNode | null = node; ancestor; ancestor = ancestor.parent) {
+    if (types.includes(ancestor.type) && ancestor.endIndex <= end) return true;
+  }
+  return false;
 };
 
 const collectParentTypes = (node: SyntaxNode): string[] => {
@@ -120,44 +128,79 @@ const countBraces = (root: SyntaxNode, text: string): { open: number; close: num
   return { open, close };
 };
 
+/** A tree some code is read in, and the offset the code starts at in it. */
+type CodeInTree = { start: number; nodes: () => SyntaxNode[] };
+
+/** Code read in a tree of its own, or of more code where it starts at `start`: the nodes starting in it. */
+const codeInTree = (root: SyntaxNode, start: number, length: number): CodeInTree => ({
+  start,
+  nodes: () => collectNodesStartingInRange(root, start, start + length),
+});
+
 /**
- * Tries to generate a approximate node for a Javascript partial code.
+ * The nodes of a tree starting in each of some ranges, sorted and apart, in one walk going down only to the nodes
+ * across a range: the nodes of each range by its start.
  */
-export function parseJavaScriptPartial(text: string, incrementalCode = ''): RelativeJavascriptNode {
-  const contentTree = parseJavaScript(text);
+export function collectNodesInRanges(
+  root: SyntaxNode,
+  ranges: { start: number; end: number }[],
+): Map<number, SyntaxNode[]> {
+  const nodes = new Map<number, SyntaxNode[]>(ranges.map(({ start }) => [start, []]));
+  /** The first range ending after an offset. */
+  const rangeAfter = (offset: number) => {
+    let low = 0;
+    let high = ranges.length;
+    while (low < high) {
+      const middle = (low + high) >> 1;
+      if (ranges[middle].end <= offset) low = middle + 1;
+      else high = middle;
+    }
+    return ranges.at(low);
+  };
+  const visit = (node: SyntaxNode): void => {
+    const range = rangeAfter(node.startIndex);
+    if (range && range.start <= node.startIndex) nodes.get(range.start)?.push(node);
+    for (const child of node.children) {
+      // A node starting in a range is in the children across it.
+      const next = rangeAfter(child.startIndex);
+      if (next && next.start <= child.endIndex) visit(child);
+    }
+  };
+  visit(root);
+  return nodes;
+}
+
+/**
+ * Some code parsed alone (`contentTree`), its braces counted from its tokens, and its nodes read in `codeIn()`: its own
+ * tree, or a tree it is part of, in which the braces it leaves open or closes are closed or opened.
+ */
+function relativeJavascriptNode(
+  text: string,
+  contentTree: Tree,
+  codeIn: () => CodeInTree,
+  release: () => void,
+): RelativeJavascriptNode {
   // A balanced snippet has no brace to count; the others are counted by their tokens, not by the errors tree-sitter
   // recovers with, whose text ends with the last statement of the snippet rather than with the `{` it opened.
   const braces = contentTree.rootNode.hasError ? countBraces(contentTree.rootNode, text) : { open: 0, close: 0 };
   const missingCloseBracesCount = braces.open;
   const missingOpenBracesCount = braces.close;
-  let wrapperPrefix = '';
-  let contentTreeBestGuess: ReturnType<typeof parseJavaScript> | undefined = undefined;
-  if (contentTree.rootNode.hasError) {
-    const ejsBaseWrapperPrefix = 'function __ejs_brace_probe__() {\n';
-    const ejsBaseWrapperSuffix = '\n  foo(); \n}\n';
-    wrapperPrefix = ejsBaseWrapperPrefix + incrementalCode;
-    const wrapperSuffix = ejsBaseWrapperSuffix + '}\n'.repeat(missingCloseBracesCount);
-    contentTreeBestGuess = parseJavaScript(`${wrapperPrefix}${text}${wrapperSuffix}`);
-  }
-
-  const contentStart = wrapperPrefix.length;
-  const contentEnd = wrapperPrefix.length + text.length;
   const bracesDelta = missingCloseBracesCount - missingOpenBracesCount;
   // The nodes are collected when read: walking a tree marshals each of its nodes out of WASM, and most tags never need
   // them.
   let collected: SyntaxNode[] | undefined;
-  const nodesOf = (): SyntaxNode[] =>
-    (collected ??= collectNodesStartingInRange(
-      (contentTreeBestGuess ?? contentTree).rootNode,
-      contentStart,
-      contentEnd,
-    ));
+  const nodesOf = (): SyntaxNode[] => {
+    if (collected) return collected;
+    return (collected = codeIn().nodes());
+  };
   return {
     get nodes() {
       return nodesOf();
     },
     contentNode: contentTree.rootNode,
-    start: contentStart,
+    get start() {
+      return codeIn().start;
+    },
     multilineOriginal: text.includes('\n'),
     multilineTrimmed: text.trim().includes('\n'),
     missingCloseBracesCount,
@@ -169,10 +212,11 @@ export function parseJavaScriptPartial(text: string, incrementalCode = ''): Rela
       );
     },
     cleanup: () => {
-      contentTreeBestGuess?.delete();
+      release();
       contentTree.delete();
     },
     splitStatements: () => {
+      const contentStart = codeIn().start;
       const createStatement = (statementText: string, type: SplitStatementType): SplitStatement | null => {
         if (statementText.length === 0) {
           return null;
@@ -205,7 +249,8 @@ export function parseJavaScriptPartial(text: string, incrementalCode = ''): Rela
           pushStatement(text.slice(lastCursor, cursor), 'text');
         } else if ((n.type === '{' || n.type === '}') && n.parent?.type == 'statement_block') {
           const parentTypes = collectParentTypes(n.parent);
-          if (parentTypes.includes('call_expression') || parentTypes.includes('try_statement')) {
+          // The braces of a callback, or of a try, which the code closes itself, are left in their statement.
+          if (closedWithin(n.parent, ['call_expression', 'try_statement'], contentStart + text.length)) {
             continue;
           }
 
@@ -287,4 +332,43 @@ export function parseJavaScriptPartial(text: string, incrementalCode = ''): Rela
       return statements.map((s) => s.text.trimStart()).filter((s) => s.trim().length > 0);
     },
   };
+}
+
+/**
+ * Tries to generate a approximate node for a Javascript partial code: parsed alone, and, when its braces do not
+ * balance, again after `incrementalCode` (the code of the blocks open before it) in a function closing what it leaves
+ * open, which its nodes are read in.
+ */
+export function parseJavaScriptPartial(text: string, incrementalCode = ''): RelativeJavascriptNode {
+  const contentTree = parseJavaScript(text);
+  if (!contentTree.rootNode.hasError) {
+    return relativeJavascriptNode(
+      text,
+      contentTree,
+      () => codeInTree(contentTree.rootNode, 0, text.length),
+      () => undefined,
+    );
+  }
+  const wrapperPrefix = `function __ejs_brace_probe__() {\n${incrementalCode}`;
+  const { open } = countBraces(contentTree.rootNode, text);
+  const bestGuess = parseJavaScript(`${wrapperPrefix}${text}\n  foo(); \n}\n${'}\n'.repeat(open)}`);
+  return relativeJavascriptNode(
+    text,
+    contentTree,
+    () => codeInTree(bestGuess.rootNode, wrapperPrefix.length, text.length),
+    () => {
+      bestGuess.delete();
+    },
+  );
+}
+
+/**
+ * The code of a tag parsed alone: balanced, its nodes are read in its own tree; otherwise in `program()`, the
+ * program of its template, which closes and opens the blocks of its tags, where it starts at `start`. `release()`
+ * is called when it is freed, for the program to be freed with its last tag.
+ */
+export function parseTagCode(text: string, program: () => CodeInTree, release: () => void): RelativeJavascriptNode {
+  const contentTree = parseJavaScript(text);
+  const ownTree = () => codeInTree(contentTree.rootNode, 0, text.length);
+  return relativeJavascriptNode(text, contentTree, contentTree.rootNode.hasError ? program : ownTree, release);
 }

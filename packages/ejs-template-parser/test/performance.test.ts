@@ -11,10 +11,10 @@ import { describe, test, expect, vi } from 'vitest';
 /**
  * Total characters handed to the JavaScript parser, accumulated by the mock below.
  *
- * `getEjsTags` prepends the enclosing brace context to every tag it parses, so the
- * amount of text reaching the parser is what decides whether extraction is linear. If that
- * context is ever allowed to grow with the length of the template rather than with nesting
- * depth, tag N re-parses everything before it and the total goes quadratic — which is the
+ * Building a template parses the code of each tag alone, then the program of the template
+ * once (`EjsProgram`), so the amount of text reaching the parser grows with the template. A
+ * tag parsed again with the code of the tags before it, as the parser did until it built the
+ * program, re-parses everything before it and the total goes quadratic — which is the
  * regression these tests exist to catch.
  *
  * Counting characters rather than timing the run keeps the assertion deterministic; a
@@ -33,11 +33,11 @@ vi.mock('../src/ts-parser.js', async (importOriginal) => {
   };
 });
 
-const { getEjsNodes } = await import('../src/ejs-parser.js');
-const { getEjsTags } = await import('../src/tags.js');
+const { buildTemplate, cleanupTemplate, validateTemplate } = await import('../src/template.js');
 
 /**
- * Characters fed to the JavaScript parser while reading every tag in `template`.
+ * Characters fed to the JavaScript parser while building `template` and diagnosing it, which reads
+ * its program.
  *
  * The parse trees are freed afterwards: they live in WASM memory that the garbage
  * collector does not manage, and leaking them across many templates exhausts the heap
@@ -45,13 +45,12 @@ const { getEjsTags } = await import('../src/tags.js');
  */
 function parsedCharsFor(template: string): number {
   parsed.chars = 0;
-  const nodes = getEjsNodes(template);
-  const tags = getEjsTags(nodes);
+  const built = buildTemplate(template);
   try {
+    validateTemplate(built);
     return parsed.chars;
   } finally {
-    for (const tag of tags) if (tag.type !== 'comment') tag.javascript.cleanup();
-    nodes[0]?.tree.delete();
+    cleanupTemplate(built);
   }
 }
 
@@ -62,8 +61,8 @@ const siblingBlocks = (n: number): string =>
 /**
  * A single `if` / `else if` ladder of `n` branches.
  *
- * Every branch sits at the same depth and closes nothing on its own, so a ladder only
- * stays linear if same-depth continuations supersede one another instead of stacking.
+ * Every branch sits at the same depth and closes nothing on its own: a ladder the context of
+ * the tags before each tag made quadratic, unless each continuation superseded the one before.
  */
 const elseLadder = (n: number): string => {
   let out = '<% if (c0) { %>\n  <%= v %>\n';
@@ -90,7 +89,7 @@ const nestedCallbacks = (n: number): string =>
  */
 const MAX_GROWTH_FACTOR = 2.5;
 
-describe('getEjsTags scaling', () => {
+describe('buildTemplate scaling', () => {
   test.each([
     { shape: 'sibling blocks', build: siblingBlocks },
     { shape: 'else ladder', build: elseLadder },
@@ -104,7 +103,7 @@ describe('getEjsTags scaling', () => {
       growth,
       `doubling the template multiplied parser input by ${growth.toFixed(2)} ` +
         `(${String(smallChars)} -> ${String(largeChars)} chars); ` +
-        `a factor near 4 means the brace context is growing with template length instead of nesting depth`,
+        `a factor near 4 means the code of a tag is parsed again with the code of the tags before it`,
     ).toBeLessThan(MAX_GROWTH_FACTOR);
   });
 });

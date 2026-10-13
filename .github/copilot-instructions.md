@@ -364,20 +364,24 @@ signature mismatch") rather than failing cleanly, which is easy to misread as a 
 whatever you were investigating. In tests, free them in a `finally` block; see the parser's
 `test/parse-javascript-partial.test.ts`.
 
-### Performance invariant: brace context must stay bounded by nesting depth
+### Performance invariant: one parse of the program, linear walks
 
-The parser's `getEjsTags()` prepends the enclosing brace context to every tag it parses, so that
-a `<% } %>` tag parses as a close rather than an error. That context must grow with **nesting
-depth**, never with template length. If a closed block is left in it, tag N re-parses every
-preceding tag and extraction becomes O(n²) — a 32KB template took ~3.9s before this was fixed.
+The parser reads the JavaScript of a template once as a whole: `getEjsTags()` parses the code of
+each tag alone, which tells the braces it opens and closes, then builds the program of the template
+as EJS compiles it (`EjsProgram`: a function, a statement for each text and code tag, the blocks its
+tags close without opening opened before them, and the ones they leave open closed after them),
+which it parses once, when it is first read. An unbalanced tag (a `<% } %>`, an `if (a) {`) reads its
+nodes there, inside its blocks; `validateTemplate()` finds the errors and the comments across tags
+there. The program is freed with the last tag freed (`javascript.cleanup()`).
 
-Two things keep it bounded, both in `getEjsTags()`: entries are dropped once their block closes,
-and same-depth continuations (`} else if (c) {`) supersede one another rather than stacking. The
-parser's `test/performance.test.ts` guards this by counting characters fed to the parser and
-asserting that doubling a template does not much more than double them; it deliberately does
-not assert wall-clock time, which flakes in CI. The plugin's `extractTagBlocks()` reads each tag
-of `getEjsTags()` once: re-parsing there the code of the tags before the current one brings the
-quadratic case back.
+Everything stays linear in the length of the template, which the parser's
+`test/performance.test.ts` guards by counting characters fed to the parser: doubling a template must
+not much more than double them (it deliberately does not assert wall-clock time, which flakes in CI).
+Two things would break it. Parsing a tag again with the code of the tags before it, as the parser did
+until it built the program: a 32KB template took ~3.9s when that context grew with the template. And
+walking the program once for each tag: its nodes are collected in one walk for all the unbalanced
+tags (`collectNodesInRanges()`), which goes down only to the nodes across their code. The plugin's
+`extractTagBlocks()` reads each tag of `getEjsTags()` once, for the same reason.
 
 ### The conventions of the tags, shared
 

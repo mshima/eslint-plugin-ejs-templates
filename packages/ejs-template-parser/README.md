@@ -4,8 +4,9 @@ A parser of [EJS](https://ejs.co/) (Embedded JavaScript) templates: the tags of 
 their delimiters, their code and its JavaScript parse, and the blocks the tags open and close —
 an `if` and its `else` branches, a loop, a callback, a `try` and its `catch`.
 
-Templates are parsed by [tree-sitter-embedded-template] via [web-tree-sitter], and the code of each
-tag by [tree-sitter-javascript], inside the blocks the tags before it left open. It is the parser of
+Templates are parsed by [tree-sitter-embedded-template] via [web-tree-sitter], and their code by
+[tree-sitter-javascript]: the code of each tag alone, and the whole program of the template once, as
+EJS compiles it, where each tag is inside the blocks the tags before it left open. It is the parser of
 [eslint-plugin-ejs-templates].
 
 ## Installation
@@ -123,8 +124,9 @@ A node of the tree is one of:
   - `depthBefore`, `depthAfter` — the braces left open before and after the tag; negative in a
     partial template, whose tags close blocks another template opens.
   - A code or output tag also has `parsedCode` — `code` without the line break or the blank
-    separating it from the closing delimiter — and `javascript`, the best-guess parse of
-    `parsedCode` (see `parseJavaScriptPartial`); `shape`, how it renders the blanks around it, as
+    separating it from the closing delimiter — and `javascript`, `parsedCode` parsed alone, its
+    braces, and its nodes, read in the program of the template when its braces do not balance
+    (see `parseJavaScriptPartial`); `shape`, how it renders the blanks around it, as
     eslint-plugin-ejs-templates classifies it (`slurp` for `<%_` or `_%>`, `code-slurpable` for a
     `<% %>` opening no block, `code`, or the type of an output tag); and `expectedIndent`, the
     indentation of a slurp tag on a line of its own, two blanks for each block it is in.
@@ -299,8 +301,9 @@ escaped alone, and the errors tell what EJS would not render.
 
 - `getEjsNodes(text)` — the top-level tree-sitter nodes of a template, each with its `linePrefix`;
   throws the `EjsSyntaxError` of a template that does not parse.
-- `getEjsTags(nodes)` — the tags of those nodes, each code tag parsed inside the blocks the tags
-  before it left open.
+- `getEjsTags(nodes)` — the tags of those nodes, each code tag parsed alone, and read in the
+  program of the template, inside the blocks the tags before it left open, when its braces do not
+  balance.
 - `parseJavaScriptPartial(code, context)` — a best-guess parse of a snippet of JavaScript with
   unbalanced braces: the braces it leaves open (`missingCloseBracesCount`) and the ones it closes
   (`missingOpenBracesCount`), its nodes, and `splitStatements()`.

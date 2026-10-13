@@ -6,8 +6,8 @@
 //
 //     http://www.apache.org/licenses/LICENSE-2.0
 
-import type { EjsCodeTag, EjsTag } from './tags.js';
-import { parseJavaScript, type SyntaxNode } from './ts-parser.js';
+import { type EjsCodeTag, type EjsTag, programOf } from './tags.js';
+import type { SyntaxNode } from './ts-parser.js';
 
 /**
  * What a diagnostic tells. Errors, what EJS fails on or renders otherwise than written:
@@ -201,30 +201,17 @@ export function diagnose(
     diagnostics.push(...(node.kind === 'text' ? strayCloseDelimiters(template, node) : conventionsOf(template, node)));
   }
 
-  let source = `function __ejs_template__() {\n${'{\n'.repeat(unopened.length)}`;
-  const ranges: { tag: EjsTag; start: number; end: number }[] = [];
-  for (const node of nodes) {
-    if (node.kind === 'text') {
-      source += ';__append(0)\n';
-      continue;
-    }
-    if (node.type === 'comment') continue;
-    // A line comment ending the code ends with a line break, as EJS adds it, before an output tag appends its value.
-    let code = node.code.lastIndexOf('//') > node.code.lastIndexOf('\n') ? `${node.code}\n` : node.code;
-    // An output tag without the semicolon it ends with, as EJS strips it.
-    if (node.type !== 'code') code = `__append(${code.replace(/;(\s*$)/, '$1')})`;
-    source += ';';
-    ranges.push({ tag: node, start: source.length, end: source.length + code.length });
-    source += `${code}\n`;
-  }
-  source += `${'}\n'.repeat(unclosed.length)}}\n`;
-  if (ranges.length === 0) return diagnostics;
+  // The program of the template, which getEjsTags built, parsed once for every use of its tags.
+  const firstCode = nodes.find((node): node is EjsCodeTag => node.kind === 'tag' && node.type !== 'comment');
+  const program = firstCode && programOf(firstCode);
+  if (!program) return diagnostics;
+  const { ranges } = program;
   /** The range of the tag a place of the compiled JavaScript is in, or of the one before it; the first one before it. */
   const rangeAt = (index: number) => ranges.findLast(({ start }) => start <= index) ?? ranges[0];
-  const tree = parseJavaScript(source);
-  try {
+  const root = program.root;
+  {
     const reported = new Set<EjsTag>();
-    for (const node of errorNodes(tree.rootNode)) {
+    for (const node of errorNodes(root)) {
       const { tag } = rangeAt(node.startIndex);
       if (reported.has(tag)) continue;
       reported.add(tag);
@@ -239,7 +226,7 @@ export function diagnose(
         ),
       );
     }
-    for (const comment of commentNodes(tree.rootNode)) {
+    for (const comment of commentNodes(root)) {
       const range = rangeAt(comment.startIndex);
       if (range.start <= comment.startIndex && comment.endIndex > range.end) {
         diagnostics.push(
@@ -253,8 +240,6 @@ export function diagnose(
         );
       }
     }
-  } finally {
-    tree.delete();
   }
   return diagnostics.sort((a, b) => a.offset - b.offset);
 }

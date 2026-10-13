@@ -15,7 +15,8 @@ import {
   getCommentCloseDelimiter,
   hasAbsorbedSlurpClose,
 } from './ejs-parser.js';
-import { parseJavaScriptPartial, type RelativeJavascriptNode } from './javascript-parser.js';
+import { collectNodesInRanges, parseTagCode, type RelativeJavascriptNode } from './javascript-parser.js';
+import { parseJavaScript, type SyntaxNode, type Tree } from './ts-parser.js';
 
 /** What an EJS tag is, by its opening delimiter: `<%#`, `<%=`, `<%-`, or any other (`<%`, `<%_`). */
 export type EjsTagType = 'comment' | 'escaped-output' | 'raw-output' | 'code';
@@ -121,32 +122,64 @@ function normalizeParsedCode(code: string): string {
 }
 
 /**
- * The tags of a template, from the nodes {@link getEjsNodes} gives, each code tag parsed as JavaScript
- * in the context of the blocks still open before it, so that a `<% } %>` parses as a close rather than an
- * error. Free the trees of the code tags with `tag.javascript.cleanup()`.
+ * The JavaScript of a template as EJS compiles it into a function, a statement for each text and code tag in order,
+ * the blocks its tags leave unopened opened before them and the ones they leave open closed after them: one parse of
+ * the whole template, where the code of an unbalanced tag is read in its blocks, and validateTemplate finds its errors
+ * and its comments.
+ */
+export type EjsProgram = {
+  /** The source parsed: `function __ejs_template__() {`, then the statements. */
+  source: string;
+  /** The range of each code tag in `source`: its code, an output tag's in its `__append(…)`. */
+  ranges: { tag: EjsCodeTag; start: number; end: number }[];
+  /** The root of its tree, parsed when read; freed with the last tag freed. */
+  readonly root: SyntaxNode;
+};
+
+/** The program of the template of each code tag. */
+const programs = new WeakMap<EjsCodeTag, EjsProgram>();
+
+/** The program of the template of a code tag of {@link getEjsTags}. */
+export const programOf = (tag: EjsCodeTag): EjsProgram | undefined => programs.get(tag);
+
+/**
+ * The tags of a template, from the nodes {@link getEjsNodes} gives, each code tag parsed as JavaScript alone, and its
+ * nodes, when its braces do not balance, read in the program of the template ({@link EjsProgram}), where the blocks
+ * it opens and closes are: a `<% } %>` closes the block of an `if` there rather than being an error. Free the trees of
+ * the code tags with `tag.javascript.cleanup()`; the program is freed with the last of them.
  */
 export function getEjsTags(nodes: readonly EjsSyntaxNode[]): EjsTag[] {
   const tags: EjsTag[] = [];
 
   let braceDepth = 0;
-  /**
-   * Still-open brace context preceding the current tag, as a stack rather than a
-   * flat accumulating string.
-   *
-   * Only unbalanced (error) content is recorded here, so every entry exists purely
-   * to give tree-sitter the enclosing block structure a later tag needs — e.g. the
-   * `if (a) {` that makes a subsequent `<% } %>` parse as a close rather than an
-   * error. Once a block closes, its context can no longer affect any following tag,
-   * so the entry is dropped.
-   *
-   * Each entry remembers the brace depth it was pushed at; a tag that nets a close
-   * prunes every entry at or above the new depth. Keeping this pruned bounds the
-   * context by nesting depth instead of template length, which is what keeps
-   * `getEjsTags` linear — an ever-growing string made tag N re-parse all
-   * preceding tags, giving O(n²) bytes through the parser.
-   */
-  const openContext: { depth: number; code: string; isContinuation: boolean }[] = [];
-  let incrementalCode = '';
+  /** The lowest depth the tags reach: the blocks they close without opening, below 0. */
+  let lowestDepth = 0;
+  // The program of the template, built once every tag is read, parsed when read, freed with the last tag freed.
+  let source = '';
+  /** Where the code of each code tag starts in the program, once it is built. */
+  const codeStarts = new Map<EjsCodeTag, { start: number }>();
+  let tree: Tree | undefined;
+  const program: EjsProgram = {
+    get source() {
+      return source;
+    },
+    ranges: [],
+    get root() {
+      tree ??= parseJavaScript(source);
+      return tree.rootNode;
+    },
+  };
+  /** The ranges of the code of the unbalanced tags in the program, which read their nodes there. */
+  const unbalanced: { start: number; end: number }[] = [];
+  let unbalancedNodes: Map<number, SyntaxNode[]> | undefined;
+  const nodesAt = (start: number): SyntaxNode[] =>
+    (unbalancedNodes ??= collectNodesInRanges(program.root, unbalanced)).get(start) ?? [];
+  let live = 0;
+  const release = (): void => {
+    if (--live > 0) return;
+    tree?.delete();
+    tree = undefined;
+  };
 
   for (const node of nodes) {
     // Skip content nodes.
@@ -199,7 +232,13 @@ export function getEjsTags(nodes: readonly EjsSyntaxNode[]): EjsTag[] {
     const closeDelim: EjsClosingDelimiter = absorbedSlurpClose ? '_%>' : parsedCloseDelim;
     const code: string = absorbedSlurpClose ? parsedCodeContent.slice(0, -1) : parsedCodeContent;
     const parsedCode = normalizeParsedCode(code);
-    const javascript = parseJavaScriptPartial(parsedCode, incrementalCode);
+    const codeStart = { start: 0 };
+    live++;
+    const javascript = parseTagCode(
+      parsedCode,
+      () => ({ start: codeStart.start, nodes: () => nodesAt(codeStart.start) }),
+      release,
+    );
     const { contentNode } = javascript;
 
     // ── Brace-depth tracking ──────────────────────────────────────────────
@@ -208,46 +247,15 @@ export function getEjsTags(nodes: readonly EjsSyntaxNode[]): EjsTag[] {
     const depthBefore = braceDepth;
     // If contentNode doesn't have errors, its a balanced snippet we can just use current depth.
     if (contentNode.hasError) {
+      lowestDepth = Math.min(lowestDepth, depthBefore - javascript.missingOpenBracesCount);
       braceDepth += javascript.bracesDelta;
-      const { missingOpenBracesCount, missingCloseBracesCount, bracesDelta } = javascript;
-      // A continuation both closes the previous branch and opens the next one
-      // (`<% } else if (c) { %>`, `<% } catch (e) { %>`, `<% } finally { %>`), so it is
-      // self-balancing: the branch it opens is closed by the next continuation at the
-      // same depth. That makes the earlier continuation droppable — the survivor's `}`
-      // still pairs with the chain head's `{`, so the context stays textually coherent
-      // and the enclosing structure a later tag parses inside is unchanged. Without
-      // this, a long `else if` ladder never prunes (its delta is 0) and the context
-      // grows with the chain, which is the remaining quadratic case.
-      const isContinuation = bracesDelta === 0 && missingOpenBracesCount > 0 && missingCloseBracesCount > 0;
-      if (isContinuation) {
-        const superseded = openContext.findIndex((entry) => entry.depth === depthBefore && entry.isContinuation);
-        if (superseded !== -1) {
-          openContext.splice(superseded, 1);
-        }
-      }
-      openContext.push({ depth: depthBefore, code: parsedCode, isContinuation });
-      if (bracesDelta < 0) {
-        // This tag closed one or more blocks. Their context is now unreachable for
-        // any following tag, so drop it — including this tag's own entry when it
-        // sits at or above the depth we just returned to. A tag that opens or merely
-        // continues a block (`<% } else { %>`, delta 0) keeps its context, since the
-        // next tag still parses inside it.
-        const keepBelow = Math.max(braceDepth, 0);
-        let keep = openContext.length;
-        while (keep > 0 && openContext[keep - 1].depth >= keepBelow) {
-          keep--;
-        }
-        openContext.length = keep;
-      }
-      incrementalCode = openContext.map((entry) => entry.code).join('\n');
-      if (incrementalCode) incrementalCode += '\n';
     }
 
     const shape = shapeOf(openDelim, closeDelim, !contentNode.hasError);
     // The depth of the line of the tag: the lowest one, before or after it, the blocks it closes closed.
     const lowerDepth = Math.max(0, Math.min(depthBefore - javascript.missingOpenBracesCount, braceDepth));
     const lineIndent = base.isStandalone ? linePrefix : '';
-    tags.push({
+    const codeTag: EjsCodeTag = {
       ...base,
       type: OUTPUT_TAG_TYPES[openDelim] ?? 'code',
       shape,
@@ -262,8 +270,41 @@ export function getEjsTags(nodes: readonly EjsSyntaxNode[]): EjsTag[] {
       javascript,
       depthBefore,
       depthAfter: braceDepth,
-    });
+    };
+    codeStarts.set(codeTag, codeStart);
+    tags.push(codeTag);
   }
+
+  // The program: what EJS compiles, its texts appending a value, the blocks unopened opened before and the ones left
+  // open closed after.
+  const unopened = -lowestDepth;
+  source = `function __ejs_template__() {\n${'{\n'.repeat(unopened)}`;
+  let tagIndex = 0;
+  for (const node of nodes) {
+    if (!isTagNode(node)) {
+      source += ';__append(0)\n';
+      continue;
+    }
+    const tag = tags[tagIndex++];
+    if (tag.type === 'comment') continue;
+    // A line comment ending the code ends with a line break, as EJS adds it, before an output tag appends its value.
+    let code = tag.code.lastIndexOf('//') > tag.code.lastIndexOf('\n') ? `${tag.code}\n` : tag.code;
+    // An output tag without the semicolon it ends with, as EJS strips it.
+    const output = tag.type !== 'code';
+    if (output) code = `__append(${code.replace(/;(\s*$)/, '$1')})`;
+    source += ';';
+    program.ranges.push({ tag, start: source.length, end: source.length + code.length });
+    const codeStart = codeStarts.get(tag);
+    if (codeStart) {
+      codeStart.start = source.length + (output ? '__append('.length : 0);
+      if (tag.javascript.contentNode.hasError) {
+        unbalanced.push({ start: codeStart.start, end: codeStart.start + tag.parsedCode.length });
+      }
+    }
+    programs.set(tag, program);
+    source += `${code}\n`;
+  }
+  source += `${'}\n'.repeat(Math.max(0, unopened + braceDepth))}}\n`;
 
   return tags;
 }
