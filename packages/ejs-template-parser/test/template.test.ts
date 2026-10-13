@@ -8,7 +8,7 @@
 
 import { describe, test, expect } from 'vitest';
 import type { EjsTag } from '../src/tags.js';
-import { type EjsTemplate, type EjsTemplateNode, parseTemplate } from '../src/template.js';
+import { type EjsTemplate, type EjsTemplateNode, buildTemplate, cleanupTemplate } from '../src/template.js';
 
 type Summary =
   string | { branches: { open: string; statement?: string; children: Summary[] }[]; close?: string | undefined };
@@ -32,11 +32,11 @@ function summarize(text: string, nodes: EjsTemplateNode[]): Summary[] {
 
 /** The template tree of `text`, summarized, its trees freed. */
 function treeOf(text: string): Summary[] {
-  const template = parseTemplate(text);
+  const template = buildTemplate(text);
   try {
     return summarize(text, template.children);
   } finally {
-    template.delete();
+    cleanupTemplate(template);
   }
 }
 
@@ -66,7 +66,7 @@ function writeBack(text: string, template: EjsTemplate): string {
   return parts.join('');
 }
 
-describe('parseTemplate', () => {
+describe('buildTemplate', () => {
   test('an if with its else if and else branches', () => {
     expect(
       treeOf('A\n<%_ if (x) { _%>\nB <%= y %>\n<%_ } else if (z) { _%>\nC\n<%_ } else { _%>\nD\n<%_ } _%>\nE\n'),
@@ -188,7 +188,7 @@ describe('parseTemplate', () => {
   test('covers the whole template, every tag once', () => {
     const text =
       '<%# a comment -%>\nA <%%= literal %%>\n<%_ if (a) { _%>\n  <%_ items.forEach(item => { _%>\n<%- item %>\n  <%_ }); _%>\n<%_ } else if (b) { if (c) { _%>\nC\n<%_ } } else { _%>\nD\n<%_ } _%>\n';
-    const template = parseTemplate(text);
+    const template = buildTemplate(text);
     try {
       expect(writeBack(text, template)).toBe(text);
       expect(template.tags.map((tag) => text.slice(tag.offset, tag.offset + tag.length))).toEqual([
@@ -202,13 +202,13 @@ describe('parseTemplate', () => {
         '<%_ } _%>',
       ]);
     } finally {
-      template.delete();
+      cleanupTemplate(template);
     }
   });
 
   test('keeps the fields of its tags once freed', () => {
-    const template = parseTemplate('<%= a %>');
-    template.delete();
+    const template = buildTemplate('<%= a %>');
+    cleanupTemplate(template);
     expect(template.tags.map((tag) => [tag.type, tag.code])).toEqual([['escaped-output', ' a ']]);
   });
 });

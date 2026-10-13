@@ -25,7 +25,7 @@ describe('the built package', () => {
       [
         '--input-type=module',
         '--eval',
-        "const { parseTemplate } = await import('./dist/index.js'); const template = parseTemplate('<%= a %>'); console.log(template.tags.length); template.delete();",
+        "const { buildTemplate, cleanupTemplate } = await import('./dist/index.js'); const template = buildTemplate('<%= a %>'); console.log(template.tags.length); cleanupTemplate(template);",
       ],
       { cwd: root, encoding: 'utf8' },
     );

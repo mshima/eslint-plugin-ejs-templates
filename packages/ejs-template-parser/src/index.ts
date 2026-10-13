@@ -28,11 +28,14 @@ export {
   getEjsTags,
   isTagNode,
 } from './tags.js';
+export { type EjsDiagnostic, type EjsDiagnosticCode } from './diagnostics.js';
 export {
   type EjsBlock,
   type EjsBranch,
   type EjsTemplate,
   type EjsTemplateNode,
   type EjsText,
-  parseTemplate,
+  buildTemplate,
+  cleanupTemplate,
+  validateTemplate,
 } from './template.js';

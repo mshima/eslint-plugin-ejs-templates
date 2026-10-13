@@ -6,6 +6,7 @@
 //
 //     http://www.apache.org/licenses/LICENSE-2.0
 
+import { type EjsDiagnostic, diagnose, diagnosticOf } from './diagnostics.js';
 import { type EjsSyntaxNode, parseEjsNodes } from './ejs-parser.js';
 import { type EjsCodeTag, type EjsTag, getEjsTags, isTagNode } from './tags.js';
 import type { SyntaxNode } from './ts-parser.js';
@@ -54,18 +55,42 @@ export type EjsBlock = {
 export type EjsTemplateNode = EjsText | EjsTag | EjsBlock;
 
 export type EjsTemplate = {
+  /** The template parsed. */
+  text: string;
   /** The texts, tags and blocks of the template, in order: together they cover the whole template. */
   children: EjsTemplateNode[];
+  /** The texts and the tags of the template, in order, each tag once: the template written back, joined. */
+  nodes: (EjsText | EjsTag)[];
   /** Every tag of the template, in order. */
   tags: EjsTag[];
   /**
-   * Frees the trees of the template and of the code of its tags, which live in WASM memory the garbage
-   * collector does not manage; the nodes of the tags are invalid afterwards, their other fields remain.
+   * Frees the trees of the template, once, what cleanupTemplate runs: `using template = buildTemplate(text)` frees it
+   * at the end of the block.
    */
-  delete: () => void;
+  [Symbol.dispose]: () => void;
 };
 
 const CONTINUATION_KEYWORDS = ['else', 'catch', 'finally'];
+
+/** What validateTemplate reads of a template buildTemplate built: its blocks without a pair, and whether it is freed. */
+const builtTemplates = new WeakMap<EjsTemplate, { unclosed: EjsCodeTag[]; unopened: EjsCodeTag[]; freed: boolean }>();
+
+/** The error of a template that does not parse, its `syntax-error` diagnostic with it. */
+const syntaxError = (error: unknown, text: string): unknown => {
+  if (!(error instanceof Error)) return error;
+  // The 1-based line and column getEjsNodes gives its error.
+  const [line, column] =
+    'line' in error && 'column' in error && typeof error.line === 'number' && typeof error.column === 'number'
+      ? [error.line, error.column]
+      : [1, 1];
+  const lineStart = text
+    .split('\n')
+    .slice(0, line - 1)
+    .reduce((offset, lineText) => offset + lineText.length + 1, 0);
+  return Object.assign(error, {
+    diagnostic: diagnosticOf(text, 'syntax-error', error.message, Math.min(text.length, lineStart + column - 1), 0),
+  });
+};
 
 /** The nodes the code of a tag leaves open: each one the `{` of a block its `}` is not in the tag. */
 const openedNodes = (tag: EjsCodeTag): SyntaxNode[] => {
@@ -81,17 +106,31 @@ const textOf = (node: EjsSyntaxNode): EjsText => ({
 });
 
 /**
- * Parse an EJS template into a tree of its texts, its tags and the blocks its tags open and close, from the
- * braces each tag leaves open or closes. Free it with `delete()`.
+ * Builds the tree of an EJS template: its texts, its tags and the blocks its tags open and close, from the braces
+ * each tag leaves open or closes. Its trees live in WASM memory, which the garbage collector does not manage:
+ * - declared with `const`, as on Node 22, which has no `using`, the template is freed by cleanupTemplate, called once
+ *   done with it, in a `finally`;
+ * - declared with `using`, on Node 24 or in code compiled for an older Node, it is freed at the end of its block,
+ *   without cleanupTemplate.
  *
- * @throws Error if the EJS template has syntax errors
+ * @throws Error if the EJS template has syntax errors, a tag left open: with its `line`, its `column` and its
+ * `syntax-error` diagnostic (`diagnostic`)
  */
-export function parseTemplate(text: string): EjsTemplate {
-  const { tree, nodes } = parseEjsNodes(text);
+export function buildTemplate(text: string): EjsTemplate {
+  let parsed: ReturnType<typeof parseEjsNodes>;
+  try {
+    parsed = parseEjsNodes(text);
+  } catch (error) {
+    throw syntaxError(error, text);
+  }
+  const { tree, nodes } = parsed;
   const tags = getEjsTags(nodes);
   // The tags are the tag nodes, in the same order.
   let tagIndex = 0;
   const children: EjsTemplateNode[] = [];
+  const ordered: (EjsText | EjsTag)[] = [];
+  /** The tags closing a block no tag before them opens. */
+  const unopened: EjsCodeTag[] = [];
   const open: { block: EjsBlock; branch: EjsBranch }[] = [];
   const current = (): EjsTemplateNode[] => open.at(-1)?.branch.children ?? children;
   const openBlock = (tag: EjsCodeTag, statement?: string): void => {
@@ -103,10 +142,13 @@ export function parseTemplate(text: string): EjsTemplate {
 
   for (const node of nodes) {
     if (!isTagNode(node)) {
-      current().push(textOf(node));
+      const text = textOf(node);
+      current().push(text);
+      ordered.push(text);
       continue;
     }
     const tag = tags[tagIndex++];
+    ordered.push(tag);
     if (tag.type === 'comment' || !tag.javascript.contentNode.hasError) {
       current().push(tag);
       continue;
@@ -127,6 +169,8 @@ export function parseTemplate(text: string): EjsTemplate {
       if (block) {
         block.close = tag;
         placed = true;
+      } else {
+        unopened.push(tag);
       }
     }
     let opened = 0;
@@ -137,6 +181,7 @@ export function parseTemplate(text: string): EjsTemplate {
         top.block.branches.push(top.branch);
       } else {
         // The block began in another template.
+        unopened.push(tag);
         openBlock(tag, statements[0]);
       }
       opened = 1;
@@ -150,14 +195,44 @@ export function parseTemplate(text: string): EjsTemplate {
     if (!placed) current().push(tag);
   }
 
-  return {
+  const built = { unclosed: open.map(({ block }) => block.branches[0].open), unopened, freed: false };
+  const template: EjsTemplate = {
+    text,
     children,
+    nodes: ordered,
     tags,
-    delete: () => {
+    // Its trees deleted, once: the ones of the code of its tags, and its own.
+    [Symbol.dispose]: () => {
+      if (built.freed) return;
+      built.freed = true;
       for (const tag of tags) {
         if (tag.type !== 'comment') tag.javascript.cleanup();
       }
       tree.delete();
     },
   };
+  builtTemplates.set(template, built);
+  return template;
+}
+
+/**
+ * Frees the trees of a template buildTemplate built, which live in WASM memory the garbage collector does not manage:
+ * left behind, a few hundred templates exhaust it and abort the process. The nodes of its tags are invalid afterwards,
+ * their other fields remain. Once: called again, it does nothing.
+ */
+export function cleanupTemplate(template: EjsTemplate): void {
+  template[Symbol.dispose]();
+}
+
+/**
+ * The diagnostics of a template buildTemplate built, before cleanupTemplate frees it (they read the JavaScript of its
+ * tags): what EJS fails on or renders otherwise than written (errors), and what is out of the conventions of
+ * eslint-plugin-ejs-templates (warnings), in order (see EjsDiagnosticCode). A template that does not parse has its
+ * `syntax-error` diagnostic on the error buildTemplate throws.
+ */
+export function validateTemplate(template: EjsTemplate): EjsDiagnostic[] {
+  const built = builtTemplates.get(template);
+  if (!built) throw new Error('validateTemplate validates a template buildTemplate built');
+  if (built.freed) throw new Error('validateTemplate validates a template before cleanupTemplate frees it');
+  return diagnose(template.text, template.nodes, built.unclosed, built.unopened);
 }
