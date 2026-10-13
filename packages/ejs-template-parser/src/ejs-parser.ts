@@ -6,6 +6,7 @@
 //
 //     http://www.apache.org/licenses/LICENSE-2.0
 
+import { type EjsDiagnostic, diagnosticOf } from './diagnostics.js';
 import { findErrorNode, parseEjs, type SyntaxNode, type Tree } from './ts-parser.js';
 
 export type EjsSyntaxNode = SyntaxNode & { linePrefix: string };
@@ -55,8 +56,36 @@ export function getCommentCloseDelimiter(commentText: string): EjsClosingDelimit
 }
 
 /**
+ * The error of a template that does not parse, a tag left open, which buildTemplate, getEjsNodes and parseEjsNodes
+ * throw.
+ */
+export class EjsSyntaxError extends Error {
+  /** 1-based line of the error. */
+  readonly line: number;
+  /** 1-based column of the error. */
+  readonly column: number;
+  /** The line, as ESLint reads it on an error a processor throws: its message then has the line of the error. */
+  readonly lineNumber: number;
+  /** The `syntax-error` diagnostic of the template, at the offset of the error. */
+  readonly diagnostic: EjsDiagnostic;
+
+  constructor(text: string, offset: number, line: number, column: number, token: string) {
+    super(
+      `Failed to parse EJS template at line ${String(line)}, column ${String(column)}: unexpected token '${token}'`,
+    );
+    this.name = 'EjsSyntaxError';
+    this.line = line;
+    this.column = column;
+    this.lineNumber = line;
+    this.diagnostic = diagnosticOf(text, 'syntax-error', this.message, offset, 0);
+  }
+}
+
+/**
  * Parse an EJS template into its tree and the nodes of its top level, each one augmented with the
- * text before it on its line. The tree is freed and an error thrown when the template has syntax errors.
+ * text before it on its line. The tree is freed and an EjsSyntaxError thrown when the template has syntax errors.
+ *
+ * @throws EjsSyntaxError if the EJS template has syntax errors
  */
 export const parseEjsNodes = (text: string): { tree: Tree; nodes: EjsSyntaxNode[] } => {
   const tree = parseEjs(text);
@@ -66,11 +95,12 @@ export const parseEjsNodes = (text: string): { tree: Tree; nodes: EjsSyntaxNode[
       tree.delete();
       throw new Error('Unexpectedly did not find error node in tree with hasError=true');
     }
-    const error = Object.assign(
-      new Error(
-        `Failed to parse EJS template at line ${String(errorNode.startPosition.row + 1)}, column ${String(errorNode.startPosition.column + 1)}: unexpected token '${text.slice(errorNode.startIndex, errorNode.endIndex)}'`,
-      ),
-      { line: errorNode.startPosition.row + 1, column: errorNode.startPosition.column + 1 },
+    const error = new EjsSyntaxError(
+      text,
+      errorNode.startIndex,
+      errorNode.startPosition.row + 1,
+      errorNode.startPosition.column + 1,
+      text.slice(errorNode.startIndex, errorNode.endIndex),
     );
     tree.delete();
     throw error;
@@ -90,7 +120,7 @@ export const parseEjsNodes = (text: string): { tree: Tree; nodes: EjsSyntaxNode[
  * Parse an EJS template and extract syntax nodes for tag block extraction.
  *
  * Uses tree-sitter-embedded-template for accurate EJS parsing. If parsing fails,
- * throws a detailed error with line/column position and the offending token.
+ * throws an EjsSyntaxError with the line/column position, the offending token and its diagnostic.
  *
  * Each returned node is augmented with a `linePrefix` property containing the
  * whitespace/indentation before the node on its line. This is used during
@@ -99,6 +129,6 @@ export const parseEjsNodes = (text: string): { tree: Tree; nodes: EjsSyntaxNode[
  * The nodes keep their tree alive in WASM memory: free it with `nodes[0].tree.delete()`
  * once they are no longer used.
  *
- * @throws Error if the EJS template has syntax errors
+ * @throws EjsSyntaxError if the EJS template has syntax errors
  */
 export const getEjsNodes = (text: string): EjsSyntaxNode[] => parseEjsNodes(text).nodes;

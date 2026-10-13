@@ -13,6 +13,7 @@ export {
   EJS_OPENING_DELIMS,
   type EjsClosingDelimiter,
   type EjsOpeningDelimiter,
+  EjsSyntaxError,
   type EjsSyntaxNode,
   getCommentCloseDelimiter,
   getDirectiveCodeText,
@@ -38,5 +39,6 @@ export {
   type EjsText,
   buildTemplate,
   cleanupTemplate,
+  diagnoseTemplate,
   validateTemplate,
 } from './template.js';

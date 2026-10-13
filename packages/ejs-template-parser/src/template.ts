@@ -6,8 +6,8 @@
 //
 //     http://www.apache.org/licenses/LICENSE-2.0
 
-import { type EjsDiagnostic, diagnose, diagnosticOf } from './diagnostics.js';
-import { type EjsSyntaxNode, parseEjsNodes } from './ejs-parser.js';
+import { type EjsDiagnostic, diagnose } from './diagnostics.js';
+import { EjsSyntaxError, type EjsSyntaxNode, parseEjsNodes } from './ejs-parser.js';
 import { type EjsRenderedText, renderText } from './rendered.js';
 import { type EjsCodeTag, type EjsTag, getEjsTags, isTagNode } from './tags.js';
 import type { SyntaxNode } from './ts-parser.js';
@@ -76,23 +76,6 @@ const CONTINUATION_KEYWORDS = ['else', 'catch', 'finally'];
 /** What validateTemplate reads of a template buildTemplate built: its blocks without a pair, and whether it is freed. */
 const builtTemplates = new WeakMap<EjsTemplate, { unclosed: EjsCodeTag[]; unopened: EjsCodeTag[]; freed: boolean }>();
 
-/** The error of a template that does not parse, its `syntax-error` diagnostic with it. */
-const syntaxError = (error: unknown, text: string): unknown => {
-  if (!(error instanceof Error)) return error;
-  // The 1-based line and column getEjsNodes gives its error.
-  const [line, column] =
-    'line' in error && 'column' in error && typeof error.line === 'number' && typeof error.column === 'number'
-      ? [error.line, error.column]
-      : [1, 1];
-  const lineStart = text
-    .split('\n')
-    .slice(0, line - 1)
-    .reduce((offset, lineText) => offset + lineText.length + 1, 0);
-  return Object.assign(error, {
-    diagnostic: diagnosticOf(text, 'syntax-error', error.message, Math.min(text.length, lineStart + column - 1), 0),
-  });
-};
-
 /** The nodes the code of a tag leaves open: each one the `{` of a block its `}` is not in the tag. */
 const openedNodes = (tag: EjsCodeTag): SyntaxNode[] => {
   const end = tag.javascript.start + tag.parsedCode.length;
@@ -119,17 +102,11 @@ const textOf = (node: EjsSyntaxNode, before?: EjsTag, after?: EjsTag): EjsText =
  * - declared with `using`, on Node 24 or in code compiled for an older Node, it is freed at the end of its block,
  *   without cleanupTemplate.
  *
- * @throws Error if the EJS template has syntax errors, a tag left open: with its `line`, its `column` and its
- * `syntax-error` diagnostic (`diagnostic`)
+ * @throws EjsSyntaxError if the EJS template has syntax errors, a tag left open: with its `line`, its `column` and
+ * its `syntax-error` diagnostic (`diagnostic`)
  */
 export function buildTemplate(text: string): EjsTemplate {
-  let parsed: ReturnType<typeof parseEjsNodes>;
-  try {
-    parsed = parseEjsNodes(text);
-  } catch (error) {
-    throw syntaxError(error, text);
-  }
-  const { tree, nodes } = parsed;
+  const { tree, nodes } = parseEjsNodes(text);
   const tags = getEjsTags(nodes);
   // The tags are the tag nodes, in the same order.
   let tagIndex = 0;
@@ -236,11 +213,31 @@ export function cleanupTemplate(template: EjsTemplate): void {
  * The diagnostics of a template buildTemplate built, before cleanupTemplate frees it (they read the JavaScript of its
  * tags): what EJS fails on or renders otherwise than written (errors), and what is out of the conventions of
  * eslint-plugin-ejs-templates (warnings), in order (see EjsDiagnosticCode). A template that does not parse has its
- * `syntax-error` diagnostic on the error buildTemplate throws.
+ * `syntax-error` diagnostic on the EjsSyntaxError buildTemplate throws; diagnoseTemplate gives it instead.
  */
 export function validateTemplate(template: EjsTemplate): EjsDiagnostic[] {
   const built = builtTemplates.get(template);
   if (!built) throw new Error('validateTemplate validates a template buildTemplate built');
   if (built.freed) throw new Error('validateTemplate validates a template before cleanupTemplate frees it');
   return diagnose(template.text, template.nodes, built.unclosed, built.unopened);
+}
+
+/**
+ * The diagnostics of a template text, in one call: builds the template, validates it (see validateTemplate) and frees
+ * it. A template that does not parse has its `syntax-error` diagnostic alone, instead of the EjsSyntaxError
+ * buildTemplate throws.
+ */
+export function diagnoseTemplate(text: string): EjsDiagnostic[] {
+  let template: EjsTemplate;
+  try {
+    template = buildTemplate(text);
+  } catch (error) {
+    if (error instanceof EjsSyntaxError) return [error.diagnostic];
+    throw error;
+  }
+  try {
+    return validateTemplate(template);
+  } finally {
+    cleanupTemplate(template);
+  }
 }

@@ -42,8 +42,10 @@ try {
 
 ### `buildTemplate(text)`
 
-Builds the tree of a template. Throws, with the `line` and `column` of the error and its
-`syntax-error` diagnostic (`diagnostic`), when the template has a syntax error (a tag left open).
+Builds the tree of a template. Throws an `EjsSyntaxError` when the template has a syntax error (a
+tag left open): an `Error` with the 1-based `line` and `column` of the error, `lineNumber` (the
+line, which ESLint reads on an error a processor throws) and its `syntax-error` diagnostic
+(`diagnostic`).
 
 Its trees live in WebAssembly memory, which the garbage collector does not manage (see
 [Memory](#memory)):
@@ -143,28 +145,44 @@ the first and opens the second; `else`, `catch` and `finally` make a branch of t
 `validateTemplate(template)` gives the diagnostics of a template `buildTemplate` built, before
 `cleanupTemplate` frees it (they read the JavaScript of its tags): `{ code, severity, message,
 offset, length, line, column }` each, in order. A template that does not parse has its diagnostic on
-the error `buildTemplate` throws.
+the `EjsSyntaxError` `buildTemplate` throws.
+
+`diagnoseTemplate(text)` gives them in one call: it builds the template, validates it and frees it,
+and gives the `syntax-error` diagnostic alone of a template that does not parse, instead of throwing.
 
 ```js
-let template;
-try {
-  template = buildTemplate(text);
-} catch (error) {
-  console.log(error.diagnostic); // { code: 'syntax-error', ... }
+import { diagnoseTemplate } from 'ejs-template-parser';
+
+for (const { severity, code, line, message } of diagnoseTemplate(text)) {
+  console.log(`${line}: ${severity} ${code}: ${message}`);
 }
-try {
-  for (const { severity, code, line, message } of validateTemplate(template)) {
-    console.log(`${line}: ${severity} ${code}: ${message}`);
+```
+
+Or, with the template to read further:
+
+```js
+import { buildTemplate, cleanupTemplate, EjsSyntaxError, validateTemplate } from 'ejs-template-parser';
+
+const diagnosticsOf = (text) => {
+  let template;
+  try {
+    template = buildTemplate(text);
+  } catch (error) {
+    if (error instanceof EjsSyntaxError) return [error.diagnostic]; // { code: 'syntax-error', ... }
+    throw error;
   }
-} finally {
-  cleanupTemplate(template);
-}
+  try {
+    return validateTemplate(template);
+  } finally {
+    cleanupTemplate(template);
+  }
+};
 ```
 
 Errors, what EJS fails on or renders otherwise than written:
 
-- `syntax-error` — the template does not parse, a tag left open (on the error `buildTemplate`
-  throws).
+- `syntax-error` — the template does not parse, a tag left open (on the `EjsSyntaxError`
+  `buildTemplate` throws, given by `diagnoseTemplate`).
 - `javascript-error` — the JavaScript EJS compiles the template to does not parse, at this tag. The
   template is compiled as EJS compiles it: its code tags in line, its texts and output tags appended.
 - `comment-across-tags` — a block comment opened in a tag and closed in a later one: what is between
@@ -187,7 +205,8 @@ rule:
 
 ### Lower level
 
-- `getEjsNodes(text)` — the top-level tree-sitter nodes of a template, each with its `linePrefix`.
+- `getEjsNodes(text)` — the top-level tree-sitter nodes of a template, each with its `linePrefix`;
+  throws the `EjsSyntaxError` of a template that does not parse.
 - `getEjsTags(nodes)` — the tags of those nodes, each code tag parsed inside the blocks the tags
   before it left open.
 - `parseJavaScriptPartial(code, context)` — a best-guess parse of a snippet of JavaScript with
