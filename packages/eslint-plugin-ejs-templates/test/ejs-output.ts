@@ -97,6 +97,43 @@ function tokensOf(code: string): string[] {
   }
 }
 
+/** The character a JavaScript escape sequence writes: `\n`, `\t`, `\x41`, `\u0041`, `\'`. */
+function unescape(sequence: string): string {
+  const char = sequence[1];
+  if (char === 'x' || char === 'u')
+    return String.fromCodePoint(Number.parseInt(sequence.slice(2).replace(/[{}]/gu, ''), 16));
+  const control: Record<string, string> = { n: '\n', t: '\t', r: '\r', b: '\b', f: '\f', v: '\v', '0': '\0' };
+  return control[char] ?? char;
+}
+
+/**
+ * The value of an output tag whose code is a string literal alone, which it renders as a text would: what
+ * `escapeText()` of the parser writes the blanks a delimiter would slurp with (`<%- '  ' %>`).
+ */
+function literalOf(code: string): string | undefined {
+  const tree = parseJavaScript(code);
+  try {
+    const { rootNode } = tree;
+    if (rootNode.hasError || rootNode.namedChildCount !== 1) return undefined;
+    const [statement] = rootNode.namedChildren;
+    if (statement.type !== 'expression_statement' || statement.namedChildCount !== 1) return undefined;
+    const [literal] = statement.namedChildren;
+    if (literal.type !== 'string') return undefined;
+    return literal.namedChildren
+      .map((part) => (part.type === 'escape_sequence' ? unescape(part.text) : part.text))
+      .join('');
+  } finally {
+    tree.delete();
+  }
+}
+
+/** A text as `<%=` writes it, escaped as `escapeXML` of EJS escapes it. */
+const escapeXML = (value: string): string =>
+  value.replace(
+    /[&<>'"]/gu,
+    (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&#34;', "'": '&#39;' })[char] ?? char,
+  );
+
 /** Whether EJS compiles a template into a function, the JavaScript of its tags included. */
 function compiles(text: string): boolean {
   try {
@@ -126,8 +163,16 @@ export function ejsOutput(text: string, level: OutputLevel): string {
     code = undefined;
   };
   for (const chunk of chunks) {
+    // A text, or an output of a string literal alone, which renders it as a text would.
+    let value: string | undefined;
     if (chunk.kind === 'text') {
-      const value = level === 'whitespace' ? chunk.value.replace(/\s+/gu, '') : chunk.value;
+      value = chunk.value;
+    } else if (chunk.kind !== 'eval') {
+      const literal = literalOf(chunk.code);
+      value = literal !== undefined && chunk.kind === 'escaped' && level !== 'escaping' ? escapeXML(literal) : literal;
+    }
+    if (value !== undefined) {
+      if (level === 'whitespace') value = value.replace(/\s+/gu, '');
       if (value === '') continue;
       if (code) flush();
       texts += value;
@@ -136,7 +181,7 @@ export function ejsOutput(text: string, level: OutputLevel): string {
       if (texts !== '') flush();
       code ??= [];
       code.push(...(level === 'texts' ? [] : tokensOf(chunk.code)));
-    } else {
+    } else if (chunk.kind !== 'text') {
       flush();
       const kind = level === 'escaping' ? 'output' : chunk.kind;
       lines.push(level === 'texts' ? kind : `${kind} ${JSON.stringify(tokensOf(chunk.code))}`);

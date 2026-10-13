@@ -1309,14 +1309,89 @@ function logVirtualCodeOnFatal(
 }
 
 /**
- * The suggestions of a stray close delimiter, from what EJS renders of the text it is in (`rendered`,
- * `renderedOffsets`): deleted, the output unchanged, or written literally, the output then has what is deleted.
- *
- * What is deleted is the delimiter with what EJS drops along with it, up to the next character it renders (the blanks
- * after a `_%>`, the line break after a `-%>` or a `_%>`), never past another close delimiter. Deleting it would join
- * the blanks around it, which a `<%_` after or a `_%>` before could then slurp: the blanks and the delimiter are
- * written again, by `escapeText()`, with what EJS rendered of the blanks, and the delimiter as written for the literal
- * suggestion. A suggestion `escapeText()` cannot write (it throws a RangeError) is left out.
+ * Where what EJS drops after an offset of a template ends, in the text there: at the next character it renders
+ * (after the blanks a `_%>` slurps and the line break a `-%>` or a `_%>` drops), never past another close delimiter.
+ */
+function droppedEnd(sourceText: string, texts: EjsText[], offset: number): number {
+  const text = texts.find((t) => t.offset <= offset && offset < t.offset + t.length);
+  if (!text) return offset;
+  const nextRendered = text.renderedOffsets.find((renderedOffset) => renderedOffset >= offset) ?? offset;
+  const nextDelimiter = /[-_]?%>/g;
+  nextDelimiter.lastIndex = offset;
+  return Math.min(nextRendered, nextDelimiter.exec(sourceText)?.index ?? nextRendered, text.offset + text.length);
+}
+
+/**
+ * The fix replacing a part of a template that renders nothing of its own, from `start` to `end` (a tag, a delimiter of
+ * a text, with what EJS drops along with it), by a text rendered literally there, the rest of the template rendering as
+ * before. Deleting the part would join the blanks of the texts around it, which a `<%_` after or a `_%>` before could
+ * then slurp: the blanks and the part are written again, by `escapeText()`, with what EJS rendered of the blanks.
+ * Null when `escapeText()` cannot write it (it throws a RangeError).
+ */
+function replaceRendering(
+  sourceText: string,
+  texts: EjsText[],
+  start: number,
+  end: number,
+  written: string,
+): Rule.Fix | null {
+  const isBlank = (char: string | undefined) => char === ' ' || char === '\t';
+  const textBefore = texts.find((t) => t.offset < start && start <= t.offset + t.length);
+  const textAfter = texts.find((t) => t.offset <= end && end < t.offset + t.length);
+  let from = start;
+  while (textBefore && from > textBefore.offset && isBlank(sourceText[from - 1])) from--;
+  let to = end;
+  while (textAfter && to < textAfter.offset + textAfter.length && isBlank(sourceText[to])) to++;
+  const renderedIn = (rangeStart: number, rangeEnd: number) => {
+    let rendered = '';
+    for (const text of texts) {
+      for (let index = 0; index < text.rendered.length; index++) {
+        const renderedOffset = text.renderedOffsets[index];
+        if (rangeStart <= renderedOffset && renderedOffset < rangeEnd) rendered += text.rendered[index];
+      }
+    }
+    return rendered;
+  };
+  let replacement: string;
+  try {
+    replacement = escapeText(
+      sourceText.slice(0, from) + sourceText.slice(to),
+      from,
+      renderedIn(from, start) + written + renderedIn(end, to),
+    );
+  } catch (error) {
+    if (error instanceof RangeError) return null;
+    throw error;
+  }
+  // The fix without what it leaves as it is.
+  const original = sourceText.slice(from, to);
+  let prefix = 0;
+  while (prefix < replacement.length && prefix < original.length && replacement[prefix] === original[prefix]) {
+    prefix++;
+  }
+  let suffix = 0;
+  while (
+    suffix < replacement.length - prefix &&
+    suffix < original.length - prefix &&
+    replacement[replacement.length - 1 - suffix] === original[original.length - 1 - suffix]
+  ) {
+    suffix++;
+  }
+  return { range: [from + prefix, to - suffix], text: replacement.slice(prefix, replacement.length - suffix) };
+}
+
+/**
+ * The fix removing a tag with what EJS drops after it, the rest of the template rendering as before; null when it
+ * cannot be written so.
+ */
+function removeTag(block: TagBlock, sourceText: string, texts: EjsText[]): Rule.Fix | null {
+  const tagEnd = block.tagOffset + block.tagLength;
+  return replaceRendering(sourceText, texts, block.tagOffset, droppedEnd(sourceText, texts, tagEnd), '');
+}
+
+/**
+ * The suggestions of a stray close delimiter, deleted with what EJS drops along with it, the output unchanged, or
+ * written literally, the output then has what is deleted (see `replaceRendering()`).
  */
 function strayCloseDelimiterSuggestions(
   diagnostic: EjsDiagnostic,
@@ -1324,62 +1399,12 @@ function strayCloseDelimiterSuggestions(
   texts: EjsText[],
 ): Linter.LintSuggestion[] {
   const { offset, length } = diagnostic;
-  const end = offset + length;
-  const text = texts.find((t) => t.offset <= offset && end <= t.offset + t.length);
-  if (!text) return [];
-  const textEnd = text.offset + text.length;
-  const nextRendered = text.renderedOffsets.find((renderedOffset) => renderedOffset >= end) ?? end;
-  const nextDelimiter = /[-_]?%>/g;
-  nextDelimiter.lastIndex = end;
-  const deletedEnd = Math.min(nextRendered, nextDelimiter.exec(sourceText)?.index ?? nextRendered, textEnd);
-
-  // The blanks of the text around what is deleted, and what EJS renders of them.
-  let from = offset;
-  while (from > text.offset && (sourceText[from - 1] === ' ' || sourceText[from - 1] === '\t')) from--;
-  let to = deletedEnd;
-  while (to < textEnd && (sourceText[to] === ' ' || sourceText[to] === '\t')) to++;
-  const renderedIn = (start: number, stop: number) => {
-    let rendered = '';
-    for (let index = 0; index < text.rendered.length; index++) {
-      if (start <= text.renderedOffsets[index] && text.renderedOffsets[index] < stop) rendered += text.rendered[index];
-    }
-    return rendered;
-  };
-  const rest = sourceText.slice(0, from) + sourceText.slice(to);
-  const original = sourceText.slice(from, to);
-
-  /** The fix writing a text in place of the blanks and the delimiter, without what it leaves as it is. */
-  const fixOf = (replacement: string): Rule.Fix => {
-    let prefix = 0;
-    while (prefix < replacement.length && prefix < original.length && replacement[prefix] === original[prefix]) {
-      prefix++;
-    }
-    let suffix = 0;
-    while (
-      suffix < replacement.length - prefix &&
-      suffix < original.length - prefix &&
-      replacement[replacement.length - 1 - suffix] === original[original.length - 1 - suffix]
-    ) {
-      suffix++;
-    }
-    return {
-      range: [from + prefix, to - suffix],
-      text: replacement.slice(prefix, replacement.length - suffix),
-    };
-  };
+  const deletedEnd = droppedEnd(sourceText, texts, offset + length);
   const suggestions: Linter.LintSuggestion[] = [];
-  const suggest = (desc: string, written: string) => {
-    try {
-      suggestions.push({
-        desc,
-        fix: fixOf(escapeText(rest, from, renderedIn(from, offset) + written + renderedIn(deletedEnd, to))),
-      });
-    } catch (error) {
-      if (!(error instanceof RangeError)) throw error;
-    }
-  };
-  suggest('Write it literally, the output then has it', sourceText.slice(offset, deletedEnd));
-  suggest('Delete it, the output unchanged', '');
+  const literal = replaceRendering(sourceText, texts, offset, deletedEnd, sourceText.slice(offset, deletedEnd));
+  if (literal) suggestions.push({ desc: 'Write it literally, the output then has it', fix: literal });
+  const deleted = replaceRendering(sourceText, texts, offset, deletedEnd, '');
+  if (deleted) suggestions.push({ desc: 'Delete it, the output unchanged', fix: deleted });
   return suggestions;
 }
 
@@ -1539,18 +1564,24 @@ function findMatchingEnableDirective(
  * 2. Whether to remove/update a matching enable directive
  *
  * Returns a fix object with:
- * - **disableFix**: Always returned; removes entire directive or updates rule list
+ * - **disableFix**: removes entire directive or updates rule list; absent when a removal cannot keep what the
+ *   template renders (see `removeTag()`), which drops the matching enable fix too
  * - **enableBlock/enableFix**: Optionally returned if a matching enable directive is found
+ *
+ * A directive removed goes with what EJS drops after its tag, the line break after a `-%>`: left behind, it would
+ * render.
  *
  * If no matching enable is found or blocks/blockIndex not provided, returns only disableFix.
  */
 function translateUnusedDirectiveFix(
   msg: Linter.LintMessage,
   block: TagBlock,
+  sourceText: string,
+  texts: EjsText[],
   blocks?: TagBlock[],
   blockIndex?: number,
 ): {
-  disableFix: { range: [number, number]; text: string };
+  disableFix?: { range: [number, number]; text: string };
   enableBlock?: TagBlock;
   enableFix?: { range: [number, number]; text: string };
 } | null {
@@ -1567,12 +1598,7 @@ function translateUnusedDirectiveFix(
   const ruleListText = ruleListRaw.trim();
   if (ruleListText.length === 0) {
     // `eslint-disable` with no explicit rule list: drop the whole directive tag.
-    return {
-      disableFix: {
-        range: [block.tagOffset, block.tagOffset + block.tagLength],
-        text: '',
-      },
-    };
+    return { disableFix: removeTag(block, sourceText, texts) ?? undefined };
   }
 
   const currentRuleIds = ruleListText
@@ -1589,13 +1615,10 @@ function translateUnusedDirectiveFix(
     return null;
   }
 
-  let disableFix: { range: [number, number]; text: string };
+  let disableFix: { range: [number, number]; text: string } | undefined;
 
   if (remainingRuleIds.length === 0) {
-    disableFix = {
-      range: [block.tagOffset, block.tagOffset + block.tagLength],
-      text: '',
-    };
+    disableFix = removeTag(block, sourceText, texts) ?? undefined;
   } else {
     disableFix = {
       range: [block.tagOffset, block.tagOffset + block.tagLength],
@@ -1605,14 +1628,14 @@ function translateUnusedDirectiveFix(
 
   // Look for matching eslint-enable directive if we have segments info
   const result: {
-    disableFix: { range: [number, number]; text: string };
+    disableFix?: { range: [number, number]; text: string };
     enableBlock?: TagBlock;
     enableFix?: { range: [number, number]; text: string };
   } = {
     disableFix,
   };
 
-  if (blocks && blockIndex !== undefined) {
+  if (disableFix && blocks && blockIndex !== undefined) {
     const matchingEnable = findMatchingEnableDirective(blocks, blockIndex);
     if (matchingEnable) {
       const enableRuleListMatch = /^eslint-enable(?:\s+(.*))?$/u.exec(matchingEnable.block.codeContent);
@@ -1625,10 +1648,10 @@ function translateUnusedDirectiveFix(
           // Update enable directive to match the remaining rules
           result.enableBlock = matchingEnable.block;
           if (remainingRuleIds.length === 0) {
-            result.enableFix = {
-              range: [matchingEnable.block.tagOffset, matchingEnable.block.tagOffset + matchingEnable.block.tagLength],
-              text: '',
-            };
+            const enableFix = removeTag(matchingEnable.block, sourceText, texts);
+            // Both removed, or neither: an `eslint-enable` left alone would enable rules nothing disables.
+            if (!enableFix) return { enableBlock: undefined };
+            result.enableFix = enableFix;
           } else {
             result.enableFix = {
               range: [matchingEnable.block.tagOffset, matchingEnable.block.tagOffset + matchingEnable.block.tagLength],
@@ -2054,10 +2077,25 @@ export const processor: Linter.Processor = {
 
           if (mapped.fix) {
             const blocks = segments.map((s) => s.block);
-            const unusedDirectiveFixResult = translateUnusedDirectiveFix(mapped, segment.block, blocks, segmentIndex);
+            const unusedDirectiveFixResult = translateUnusedDirectiveFix(
+              mapped,
+              segment.block,
+              sourceText,
+              processedFile.template.nodes.filter((node) => node.kind === 'text'),
+              blocks,
+              segmentIndex,
+            );
             if (unusedDirectiveFixResult) {
               const result: Linter.LintMessage[] = [];
-              result.push({ ...mapped, fix: unusedDirectiveFixResult.disableFix });
+              const { disableFix } = unusedDirectiveFixResult;
+              if (disableFix) {
+                result.push({ ...mapped, fix: disableFix });
+              } else {
+                // No removal keeps what the template renders: the directive is reported, not fixed.
+                const unfixed = { ...mapped };
+                delete unfixed.fix;
+                result.push(unfixed);
+              }
               // Handle enable directive fix in a separate message(s)
               if (unusedDirectiveFixResult.enableBlock && unusedDirectiveFixResult.enableFix) {
                 // Find the virtual block range for the enable directive to calculate correct position
