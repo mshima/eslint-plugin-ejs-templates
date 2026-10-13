@@ -40,6 +40,13 @@ The root `prepare` (run by `npm install`) builds every package once, in the orde
 `workspaces` of the root `package.json`: a package after the ones it depends on. The packages
 themselves have no `prepare`, which npm would run on install as well.
 
+release-please releases the packages listed in `release-please-config.json`, each from the
+Conventional Commits touching its folder, and the publish job of `release-please.yml` publishes
+them in dependency order. For now it lists ejs-template-parser alone: the plugin is in
+development, out of the releases, and depends on the parser at `*` so that its workspace stays
+linked whatever the parser's version. Releasing the plugin again means listing it there (its last
+release, 0.5.0, is in `.release-please-manifest.json`) and giving its dependency a real range.
+
 ## Commands
 
 ```sh
