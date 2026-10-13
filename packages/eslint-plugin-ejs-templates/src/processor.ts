@@ -13,6 +13,7 @@ import {
   cleanupTemplate,
   type EjsDiagnostic,
   type EjsDiagnosticCode,
+  type EjsTag,
   type EjsTemplate,
   type EjsText,
   escapeText,
@@ -662,6 +663,26 @@ const OUTPUT_TAG_TYPES = new Set<string>([
 /** Whether a tag renders a value, regardless of whether its content spans lines. */
 export const isOutputTagType = (tagType: string): boolean => OUTPUT_TAG_TYPES.has(tagType);
 
+/** The characters `<%=` escapes, as EJS escapes them (`escapeXML`). */
+const HTML_ESCAPED = /[&<>'"]/u;
+
+/**
+ * What EJS renders between two offsets of a template, from the `rendered` of its texts: null when a tag other than a
+ * comment is in between, which renders no text of its own.
+ */
+function renderedBetween(nodes: (EjsText | EjsTag)[], start: number, end: number): string | null {
+  let rendered = '';
+  for (const node of nodes) {
+    if (node.offset < start || node.offset + node.length > end) continue;
+    if (node.kind === 'text') {
+      rendered += node.rendered;
+    } else if (node.type !== 'comment') {
+      return null;
+    }
+  }
+  return rendered;
+}
+
 /** Rule id of the built-in ESLint rule this plugin supplies an autofix for. */
 const CORE_NO_NEGATED_CONDITION = 'no-negated-condition';
 
@@ -833,8 +854,12 @@ function buildNegatedConditionFix(
 function translateFix(
   fix: { range: [number, number]; text: string },
   block: TagBlock,
-  sourceText: string,
-  options: { applyIndentForSingleLineTags?: boolean; nextBlocks?: TagBlock[] },
+  options: {
+    applyIndentForSingleLineTags?: boolean;
+    nextBlocks?: TagBlock[];
+    /** The texts and tags of the template, for the fixes writing what EJS renders of its texts. */
+    templateNodes?: (EjsText | EjsTag)[];
+  },
 ): { range: [number, number]; text: string } | null {
   // no-comment-empty-line sentinel: handled before the javascriptPartialNode guard
   // because comment-empty-line blocks have no javascriptPartialNode.
@@ -962,7 +987,9 @@ function translateFix(
     // prefer-output: convert wrapper conditionals to output ternary:
     // `<% if (cond) { %>a<% } %>` => `<%= cond ? 'a' : '' %>`
     // `<% if (cond) { %>a<% } else { %>b<% } %>` => `<%= cond ? 'a' : 'b' %>`
-    if (block.tagType !== 'code' || !options.nextBlocks) {
+    // The strings are what EJS renders of the branches, not their source: `%%>` renders `%>`, and the
+    // delimiters of the tags slurp blanks and line breaks around them.
+    if (block.tagType !== 'code' || block.openDelim !== '<%' || !options.nextBlocks || !options.templateNodes) {
       return null;
     }
 
@@ -978,31 +1005,50 @@ function translateFix(
 
     const openStart = block.tagOffset;
     const openEnd = block.tagOffset + block.tagLength;
-    const truthyContent = sourceText.slice(openEnd, secondBlock.tagOffset);
-    let fixEnd = secondBlock.tagOffset + secondBlock.tagLength;
+    const truthyContent = renderedBetween(options.templateNodes, openEnd, secondBlock.tagOffset);
+    let lastBlock = secondBlock;
 
-    let falsyContent = '';
+    let falsyContent: string | null = '';
     const thirdBlock = options.nextBlocks.at(1);
     if (thirdBlock) {
-      falsyContent = sourceText.slice(fixEnd, thirdBlock.tagOffset);
-      fixEnd = thirdBlock.tagOffset + thirdBlock.tagLength;
+      falsyContent = renderedBetween(
+        options.templateNodes,
+        secondBlock.tagOffset + secondBlock.tagLength,
+        thirdBlock.tagOffset,
+      );
+      lastBlock = thirdBlock;
     }
 
     // Apply only when the full wrapper (tags + outputs) stays on one line.
-    if (truthyContent.includes('\n') || falsyContent.includes('\n')) {
+    if (
+      truthyContent === null ||
+      falsyContent === null ||
+      truthyContent.includes('\n') ||
+      falsyContent.includes('\n')
+    ) {
       return null;
     }
 
+    // A `<%` or a `%>` in the string would open or close a tag of its own: their `%` and `>` are written escaped.
     const escapeForSingleQuote = (content: string): string => {
-      return content.replace(/\\/gu, '\\\\').replace(/'/gu, "\\'").replace(/\r/gu, '\\r').replace(/\n/gu, '\\n');
+      return content
+        .replace(/\\/gu, '\\\\')
+        .replace(/'/gu, "\\'")
+        .replace(/\r/gu, '\\r')
+        .replace(/\n/gu, '\\n')
+        .replaceAll('<%', '<\\x25')
+        .replaceAll('%>', '%\\x3E');
     };
 
     const escapedTruthyContent = escapeForSingleQuote(truthyContent);
     const escapedFalsyContent = escapeForSingleQuote(falsyContent);
+    // `<%=` escapes the HTML of the value, which the text of a branch is not: raw when that would change it. The close
+    // delimiter of the last tag stays, with the line break or the blanks it drops after it.
+    const openDelim = HTML_ESCAPED.test(truthyContent + falsyContent) ? '<%-' : '<%=';
 
     return {
-      range: [openStart, fixEnd],
-      text: `<%= ${condition} ? '${escapedTruthyContent}' : '${escapedFalsyContent}' %>`,
+      range: [openStart, lastBlock.tagOffset + lastBlock.tagLength],
+      text: `${openDelim} ${condition} ? '${escapedTruthyContent}' : '${escapedFalsyContent}' ${lastBlock.closeDelim}`,
     };
   } else if (fix.text === SENTINEL_NO_MULTILINE_OUTPUT) {
     // no-multiline-output: `<%- cond ? 'a\nb' : '' %>` => a slurp conditional block.
@@ -2047,9 +2093,10 @@ export const processor: Linter.Processor = {
                 segmentIndex + 1 + (sentinel === SENTINEL_PREFER_OUTPUT_ELSE ? 2 : 1),
               );
             }
-            const translated = translateFix(mapped.fix, segment.block, sourceText, {
+            const translated = translateFix(mapped.fix, segment.block, {
               applyIndentForSingleLineTags: hasIndentMessages,
               nextBlocks,
+              templateNodes: processedFile.template.nodes,
             });
             if (translated) {
               return [{ ...mapped, fix: translated }];

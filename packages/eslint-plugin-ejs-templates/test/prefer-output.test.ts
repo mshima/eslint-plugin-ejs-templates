@@ -7,6 +7,7 @@
 //     http://www.apache.org/licenses/LICENSE-2.0
 
 import { describe, test, expect } from 'vitest';
+import ejs from 'ejs';
 import { applyFix, lint } from './helpers.js';
 
 // ---------------------------------------------------------------------------
@@ -207,5 +208,31 @@ describe('rule: ejs-templates/prefer-output (in code tags)', () => {
       },
     );
     expect(fixed).toContain("<%= (show) ? 'content' : '' %>");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Autofix: prefer-output renders as before
+// ---------------------------------------------------------------------------
+
+describe('autofix: prefer-output renders as before', () => {
+  const rules = { 'ejs-templates/prefer-output': 'error' } as const;
+
+  test.each([
+    ['plain text', '<% if (c) { %>a b<% } %>\n', "<%= (c) ? 'a b' : '' %>\n"],
+    ['markup, raw', '<% if (c) { %><b>x</b><% } %>\n', "<%- (c) ? '<b>x</b>' : '' %>\n"],
+    ['an entity, raw', '<% if (c) { %>a &amp; b<% } %>\n', "<%- (c) ? 'a &amp; b' : '' %>\n"],
+    ['quotes, raw', '<% if (c) { %>a<% } else { %>"q"<% } %>\n', "<%- (c) ? 'a' : '\"q\"' %>\n"],
+    ['a quote escaped', "<% if (c) { %>it's<% } %>\n", "<%- (c) ? 'it\\'s' : '' %>\n"],
+    ['a literal %%>', '<% if (c) { %>a %%> b<% } %>\n', "<%- (c) ? 'a %\\x3E b' : '' %>\n"],
+    ['a literal <%%', '<% if (c) { %>a <%% b<% } %>\n', "<%- (c) ? 'a <\\x25 b' : '' %>\n"],
+    ['a comment tag', '<% if (c) { %>a<%# note %>b<% } %>\n', "<%= (c) ? 'ab' : '' %>\n"],
+    ['the -%> of the closing tag', '<% if (c) { %>a<% } -%>\nb\n', "<%= (c) ? 'a' : '' -%>\nb\n"],
+  ])('%s', (_label, template, fixed) => {
+    const output = applyFix(template, rules);
+    expect(output).toBe(fixed);
+    expect([true, false].map((c) => ejs.render(output, { c }))).toEqual(
+      [true, false].map((c) => ejs.render(template, { c })),
+    );
   });
 });
