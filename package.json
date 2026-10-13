@@ -1,54 +1,25 @@
 {
-  "name": "eslint-plugin-ejs-templates",
-  "version": "0.5.0",
-  "description": "ESLint plugin for EJS (Embedded JavaScript) templates — processor and rules",
-  "keywords": [
-    "eslint",
-    "eslint-plugin",
-    "ejs",
-    "template",
-    "processor"
-  ],
-  "homepage": "https://github.com/mshima/eslint-plugin-ejs-templates#readme",
-  "bugs": {
-    "url": "https://github.com/mshima/eslint-plugin-ejs-templates/issues"
-  },
+  "name": "eslint-plugin-ejs-templates-monorepo",
+  "private": true,
+  "description": "eslint-plugin-ejs-templates and the packages it is built on",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/mshima/eslint-plugin-ejs-templates.git"
   },
   "license": "Apache-2.0",
-  "author": "",
   "type": "module",
-  "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "default": "./dist/index.js"
-    }
-  },
-  "types": "dist/index.d.ts",
-  "files": [
-    "web-tree-sitter.d.ts",
-    "dist",
-    "wasm",
-    "LICENSE",
-    "README.md"
+  "workspaces": [
+    "packages/eslint-plugin-ejs-templates"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
-    "dev": "tsc -p tsconfig.build.json --watch",
+    "build": "npm run build --workspaces",
     "fix": "prettier . --write && eslint . --fix",
     "lint": "eslint .",
-    "prepare": "husky && npm run build && cpy node_modules/tree-sitter-embedded-template/tree-sitter-embedded_template.wasm node_modules/tree-sitter-javascript/tree-sitter-javascript.wasm wasm --flat",
-    "prepublishOnly": "npm run prepare",
+    "prepare": "husky && npm run build",
     "pretest": "prettier . --check && eslint .",
     "test": "vitest run",
     "posttest": "npm run typecheck",
     "typecheck": "tsc --noEmit"
-  },
-  "dependencies": {
-    "debug": "^4.4.3",
-    "web-tree-sitter": "^0.26.13"
   },
   "devDependencies": {
     "@commitlint/cli": "^21.2.2",
@@ -58,20 +29,14 @@
     "@types/debug": "^4.1.13",
     "@types/emscripten": "^1.41.5",
     "@types/node": "^26.4.0",
-    "cpy-cli": "^7.0.0",
     "eslint": "^10.9.1",
     "eslint-config-prettier": "^10.1.8",
     "husky": "^9.1.7",
     "jiti": "^2.7.0",
     "prettier": "^3.9.6",
     "prettier-plugin-packagejson": "^3.0.2",
-    "tree-sitter-embedded-template": "0.25.0",
-    "tree-sitter-javascript": "0.25.0",
     "typescript": "^6.0.2",
     "typescript-eslint": "^8.68.0",
     "vitest": "^4.1.11"
-  },
-  "peerDependencies": {
-    "eslint": ">=9.0.0"
   }
 }

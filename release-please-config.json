@@ -4,6 +4,6 @@
   "bump-minor-pre-major": true,
   "include-component-in-tag": false,
   "packages": {
-    ".": {}
+    "packages/eslint-plugin-ejs-templates": {}
   }
 }

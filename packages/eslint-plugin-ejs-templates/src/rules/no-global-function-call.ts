@@ -23,7 +23,7 @@ export const noGlobalFunctionCall: Rule.RuleModule = {
     type: 'problem',
     docs: {
       description: 'Disallow direct function calls in EJS tags (except include by default)',
-      url: 'https://github.com/mshima/eslint-plugin-ejs-templates#no-global-function-call',
+      url: 'https://github.com/mshima/eslint-plugin-ejs-templates/blob/main/packages/eslint-plugin-ejs-templates/README.md#no-global-function-call',
     },
     messages: {
       noGlobalFunctionCall: 'Function calls are not allowed in EJS tags.',

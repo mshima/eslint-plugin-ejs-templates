@@ -31,7 +31,7 @@ export const preferOutput: Rule.RuleModule = {
     fixable: 'code',
     docs: {
       description: 'Suggest converting if statements that wrap output to ternary output expressions',
-      url: 'https://github.com/mshima/eslint-plugin-ejs-templates#prefer-output',
+      url: 'https://github.com/mshima/eslint-plugin-ejs-templates/blob/main/packages/eslint-plugin-ejs-templates/README.md#prefer-output',
     },
     messages: {
       preferOutput:

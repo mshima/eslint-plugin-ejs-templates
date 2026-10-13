@@ -43,7 +43,7 @@ export const preferSlurpMultiline: Rule.RuleModule = {
     fixable: 'code',
     docs: {
       description: 'Prefer `<%_ … _%>` over `<% … %>` for multiline code tags',
-      url: 'https://github.com/mshima/eslint-plugin-ejs-templates#experimental-prefer-slurp-multiline',
+      url: 'https://github.com/mshima/eslint-plugin-ejs-templates/blob/main/packages/eslint-plugin-ejs-templates/README.md#experimental-prefer-slurp-multiline',
     },
     messages: {
       preferSlurpMultiline: 'Multiline `<% … %>` tag should use whitespace-slurping `<%_ … _%>` delimiters.',

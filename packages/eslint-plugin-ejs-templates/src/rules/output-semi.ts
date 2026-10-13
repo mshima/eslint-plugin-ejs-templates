@@ -31,7 +31,7 @@ export const outputSemi: Rule.RuleModule = {
     fixable: 'code',
     docs: {
       description: 'Enforce or disallow trailing semicolons inside output tags (`<%= %>`, `<%- %>`)',
-      url: 'https://github.com/mshima/eslint-plugin-ejs-templates#output-semi',
+      url: 'https://github.com/mshima/eslint-plugin-ejs-templates/blob/main/packages/eslint-plugin-ejs-templates/README.md#output-semi',
     },
     messages: {
       missingSemi: 'Output tag content should end with a semicolon.',

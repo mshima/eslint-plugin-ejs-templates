@@ -1,0 +1,55 @@
+{
+  "name": "eslint-plugin-ejs-templates",
+  "version": "0.5.0",
+  "description": "ESLint plugin for EJS (Embedded JavaScript) templates — processor and rules",
+  "keywords": [
+    "eslint",
+    "eslint-plugin",
+    "ejs",
+    "template",
+    "processor"
+  ],
+  "homepage": "https://github.com/mshima/eslint-plugin-ejs-templates/tree/main/packages/eslint-plugin-ejs-templates#readme",
+  "bugs": {
+    "url": "https://github.com/mshima/eslint-plugin-ejs-templates/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mshima/eslint-plugin-ejs-templates.git",
+    "directory": "packages/eslint-plugin-ejs-templates"
+  },
+  "license": "Apache-2.0",
+  "author": "",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "types": "dist/index.d.ts",
+  "files": [
+    "web-tree-sitter.d.ts",
+    "dist",
+    "wasm",
+    "LICENSE",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json && cpy ../../node_modules/tree-sitter-embedded-template/tree-sitter-embedded_template.wasm ../../node_modules/tree-sitter-javascript/tree-sitter-javascript.wasm wasm --flat",
+    "dev": "tsc -p tsconfig.build.json --watch",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "debug": "^4.4.3",
+    "web-tree-sitter": "^0.26.13"
+  },
+  "devDependencies": {
+    "cpy-cli": "^7.0.0",
+    "tree-sitter-embedded-template": "0.25.0",
+    "tree-sitter-javascript": "0.25.0"
+  },
+  "peerDependencies": {
+    "eslint": ">=9.0.0"
+  }
+}

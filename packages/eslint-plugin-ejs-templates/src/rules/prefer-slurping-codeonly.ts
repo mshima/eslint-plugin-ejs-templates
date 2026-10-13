@@ -24,7 +24,7 @@ export const preferSlurpingCodeonly: Rule.RuleModule = {
     fixable: 'code',
     docs: {
       description: 'Prefer `<%_ … _%>` (whitespace-slurping) over `<% … %>` for code-only tags where safe',
-      url: 'https://github.com/mshima/eslint-plugin-ejs-templates#prefer-slurping-codeonly',
+      url: 'https://github.com/mshima/eslint-plugin-ejs-templates/blob/main/packages/eslint-plugin-ejs-templates/README.md#prefer-slurping-codeonly',
     },
     messages: {
       preferSlurpingCodeonly: 'Prefer `<%_ … _%>` (whitespace-slurping) over `<% … %>` for code-only tags.',

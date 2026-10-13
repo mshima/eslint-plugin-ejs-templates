@@ -22,7 +22,7 @@ export const noFunctionBlock: Rule.RuleModule = {
     type: 'suggestion',
     docs: {
       description: 'Disallow function or arrow function statement blocks in EJS tags',
-      url: 'https://github.com/mshima/eslint-plugin-ejs-templates#no-function-block',
+      url: 'https://github.com/mshima/eslint-plugin-ejs-templates/blob/main/packages/eslint-plugin-ejs-templates/README.md#no-function-block',
     },
     messages: {
       noFunctionBlock:
