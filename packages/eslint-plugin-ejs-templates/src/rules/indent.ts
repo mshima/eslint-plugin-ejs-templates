@@ -7,7 +7,12 @@
 //     http://www.apache.org/licenses/LICENSE-2.0
 
 import type { Rule } from 'eslint';
-import { SENTINEL_INDENT, SENTINEL_INDENT_NORMALIZE, getVirtualCodeMetadata } from '../processor.js';
+import {
+  SENTINEL_INDENT,
+  SENTINEL_INDENT_NORMALIZE,
+  getDiagnosticBlocks,
+  getVirtualCodeMetadata,
+} from '../processor.js';
 import { getTagTypeComments } from '../utils.js';
 import { isRecord } from '../utils.js';
 
@@ -16,11 +21,13 @@ import { isRecord } from '../utils.js';
  * `<%_ … _%>` (whitespace-slurping) EJS tags.
  *
  * This ports the `ejsIndent` option from the original Prettier plugin.
- * The processor tracks brace depth across all EJS tags and marks any
+ * ejs-template-parser tracks brace depth across all EJS tags and reports any
  * standalone `<%_ _%>` tag whose actual line-prefix whitespace does not
- * match the expected `brace-depth × 2-space` indentation with the
- * `slurp-needs-indent` tag type.  This rule detects that type and offers
- * an autofix.
+ * match the expected `brace-depth × 2-space` indentation with its `indent`
+ * diagnostic (`validateTemplate()`); the processor marks those tags with the
+ * `slurp-needs-indent` tag type, which picks the fix.  With `normalizeContent`
+ * (the default), the rule also reports the `<%_ _%>` tags spanning lines whose
+ * content needs re-indenting, which the parser does not report.
  *
  * Example:
  * ```ejs
@@ -64,20 +71,16 @@ export const indent: Rule.RuleModule = {
     return {
       Program() {
         const sourceCode = context.sourceCode;
-        const tagTypeComments = getTagTypeComments(sourceCode.text);
-        const metadata = normalizeContent ? getVirtualCodeMetadata(sourceCode.text) : undefined;
-        const needsNormalizeByTag = metadata?.needsNormalize;
+        const comments = getDiagnosticBlocks(context, 'indent').map(({ comment }) => comment);
+        if (normalizeContent) {
+          // Indexed as the marker comments: the i-th non-directive block.
+          const needsNormalizeByTag = getVirtualCodeMetadata(sourceCode.text)?.needsNormalize;
+          for (const [tagIndex, { comment, tagType }] of getTagTypeComments(sourceCode.text).entries()) {
+            if (tagType === 'slurp-multiline' && needsNormalizeByTag?.[tagIndex] === true) comments.push(comment);
+          }
+        }
 
-        for (const tagComment of tagTypeComments) {
-          const { comment, tagType } = tagComment;
-          const needsIndent = tagType.startsWith('slurp-needs-indent');
-          const tagIndex = needsIndent ? -1 : tagTypeComments.indexOf(tagComment);
-          const needsNormalize =
-            normalizeContent &&
-            tagType === 'slurp-multiline' &&
-            tagIndex !== -1 &&
-            needsNormalizeByTag?.[tagIndex] === true;
-          if (!needsIndent && !needsNormalize) continue;
+        for (const comment of comments) {
           const { range = [0, 0] } = comment;
           context.report({
             loc: comment.loc ?? { line: 0, column: 0 },

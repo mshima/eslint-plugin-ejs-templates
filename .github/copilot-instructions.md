@@ -163,7 +163,10 @@ starts with a marker comment, and all blocks are concatenated inside a function 
 ```
 
 Rules find their tags by scanning for these markers (`getTagTypeComments()` in `src/utils.ts`)
-and then look up the matching `TagBlock` via `getFileBlocks(context.filename)`.
+and then look up the matching `TagBlock` via `getFileBlocks(context.filename)`. The rules of the
+conventions the parser diagnoses (see "The conventions of the tags, shared") take their tags from
+its diagnostics instead: `getDiagnosticBlocks(context, code)` gives the block of each tag with a
+diagnostic of that code, and the marker comment the rule reports on.
 
 `postprocess()` maps messages from virtual-file positions back to EJS source positions and
 translates fixes (below).
@@ -364,11 +367,17 @@ quadratic case back.
 
 The parser classifies each code tag as eslint-plugin-ejs-templates does (`shape`: `slurp`,
 `code-slurpable`, `code`, or an output tag's) and gives the indentation of a slurp tag at its depth
-of blocks (`expectedIndent`); the plugin's `extractTagBlocks()` builds its tag types on them. The
-parser's warnings (`prefer-slurping-codeonly`, `slurp-newline`, `indent`, `prefer-single-line-tags`,
-`no-comment-empty-line`) report what these rules of the plugin report, with the same conditions: a
-change to one of these rules changes `conventionsOf()` in the parser's `src/diagnostics.ts` too,
-and both are checked against the templates of generator-jhipster, which lint clean.
+of blocks (`expectedIndent`); the plugin's `extractTagBlocks()` builds its tag types on them.
+
+The parser's warnings `prefer-slurping-codeonly`, `slurp-newline`, `indent`,
+`prefer-single-line-tags` and `no-comment-empty-line` are what the plugin's rules of the same
+names report: each rule reports the tags of its diagnostic (`getDiagnosticBlocks()`), on the
+marker of their block, with its sentinel fix. Their conditions live in `conventionsOf()` of the
+parser's `src/diagnostics.ts` alone, so a change to when one of these rules reports is made there,
+and it is a change of the parser. What stays in the plugin is how they fix, chosen by the tag
+types, and the `normalizeContent` part of `indent` (a `<%_ _%>` tag spanning lines whose content
+needs re-indenting), which the parser does not diagnose. Compare the messages and fixes of the
+plugin on the templates of generator-jhipster, before and after, for any change there.
 
 ### The parsed code of a tag
 

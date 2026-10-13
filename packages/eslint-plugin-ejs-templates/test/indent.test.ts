@@ -27,6 +27,14 @@ describe('rule: ejs-templates/indent', () => {
     expect(msgs.filter((m) => m.ruleId === 'ejs-templates/indent').length).toBeGreaterThan(0);
   });
 
+  // The `eslint-enable` an `eslint-disable-next-line` synthesizes carries the position of the tag after
+  // it: that tag is reported once, on its own block.
+  test('flags a tag after an eslint-disable-next-line comment once', () => {
+    const input = '<%# eslint-disable-next-line no-var %>\n    <%_ var a = 1; _%>\n';
+    const msgs = lint(input, { 'ejs-templates/indent': 'error', 'no-var': 'error' });
+    expect(msgs.map(({ ruleId, line, column }) => [ruleId, line, column])).toEqual([['ejs-templates/indent', 2, 4]]);
+  });
+
   test('does not flag tags with correct brace-depth indentation', () => {
     const input = '<%_ if (x) { _%>\n  <%_ doWork(); _%>\n<%_ } _%>';
     const msgs = lint(input, { 'ejs-templates/indent': 'error' });

@@ -26,6 +26,7 @@ import {
   validateTemplate,
 } from 'ejs-template-parser';
 import { EJS_MARKER_PREFIX, extractTagBlocks, type TagBlock } from './ejs-parser.js';
+import type { VirtualMarkerComment } from './utils.js';
 
 type VitualJavascriptCode = {
   virtualCode: string;
@@ -1228,6 +1229,36 @@ export function requestDiagnostics(context: Rule.RuleContext, ruleId: Diagnostic
  * Lifecycle: set in preprocess(), deleted in postprocess().
  */
 const virtualCodeMetadataMap = new Map<string, VirtualCodeMetadata>();
+
+/**
+ * The blocks of the tags with a diagnostic of a code of ejs-template-parser, each one with the marker comment its
+ * virtual code starts with: the conventions the parser shares with the plugin (`conventionsOf()` of its diagnostics),
+ * which a rule reports on the marker of the block, with its sentinel fix. None in a pass without the metadata of the
+ * template, the raw one. The directive blocks are left out: the `eslint-enable` an `eslint-disable-next-line`
+ * synthesizes carries the position of the tag after it.
+ */
+export function getDiagnosticBlocks(
+  context: Rule.RuleContext,
+  code: EjsDiagnosticCode,
+): { block: TagBlock; comment: VirtualMarkerComment }[] {
+  const diagnostics = getVirtualCodeMetadata(context.sourceCode.text)?.diagnostics ?? [];
+  const offsets = new Set(diagnostics.filter((diagnostic) => diagnostic.code === code).map(({ offset }) => offset));
+  if (offsets.size === 0) return [];
+  return (getFileBlocks(context.filename)?.segments ?? [])
+    .filter(({ block }) => block.tagType !== 'directive-comment' && offsets.has(block.tagOffset))
+    .map(({ block, startLine, startOffset }) => {
+      const [marker] = block.virtualCode.split('\n', 1);
+      return {
+        block,
+        comment: {
+          type: 'Line',
+          value: marker.slice(2),
+          range: [startOffset, startOffset + marker.length],
+          loc: { start: { line: startLine, column: 0 }, end: { line: startLine, column: marker.length } },
+        },
+      };
+    });
+}
 
 /**
  * Retrieve unified metadata for a virtual code block.

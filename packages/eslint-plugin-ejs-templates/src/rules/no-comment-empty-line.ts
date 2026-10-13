@@ -7,7 +7,7 @@
 //     http://www.apache.org/licenses/LICENSE-2.0
 
 import type { Rule } from 'eslint';
-import { SENTINEL_COMMENT_EMPTY_LINE } from '../processor.js';
+import { getDiagnosticBlocks, SENTINEL_COMMENT_EMPTY_LINE } from '../processor.js';
 
 /**
  * ESLint rule: require EJS comment tags to use `-%>` (trim-newline close).
@@ -16,8 +16,9 @@ import { SENTINEL_COMMENT_EMPTY_LINE } from '../processor.js';
  * Using `<%# comment -%>` suppresses the trailing newline. This rule enforces
  * the `-%>` close delimiter on all standalone comment tags.
  *
- * The rule detects `//@ejs-comment-empty-line` marker comments that the EJS
- * processor inserts for standalone comment tags that do not end with `-%>`.
+ * The tags are the ones ejs-template-parser reports with its `no-comment-empty-line`
+ * diagnostic (`validateTemplate()`): standalone comment tags that do not end with `-%>`,
+ * for which the processor inserts a `//@ejs-comment-empty-line` marker comment.
  */
 export const noCommentEmptyLine: Rule.RuleModule = {
   meta: {
@@ -37,19 +38,15 @@ export const noCommentEmptyLine: Rule.RuleModule = {
   create(context) {
     return {
       Program() {
-        const sourceCode = context.sourceCode;
-        const comments = sourceCode.getAllComments();
-        for (const comment of comments) {
-          if (comment.type === 'Line' && comment.value.trim() === '@ejs-comment-empty-line') {
-            const { range = [0, 0] } = comment;
-            context.report({
-              loc: comment.loc ?? { line: 0, column: 0 },
-              messageId: 'noCommentEmptyLine',
-              fix(fixer) {
-                return fixer.replaceTextRange([range[0], range[1]], SENTINEL_COMMENT_EMPTY_LINE);
-              },
-            });
-          }
+        for (const { comment } of getDiagnosticBlocks(context, 'no-comment-empty-line')) {
+          const { range = [0, 0] } = comment;
+          context.report({
+            loc: comment.loc ?? { line: 0, column: 0 },
+            messageId: 'noCommentEmptyLine',
+            fix(fixer) {
+              return fixer.replaceTextRange([range[0], range[1]], SENTINEL_COMMENT_EMPTY_LINE);
+            },
+          });
         }
       },
     };

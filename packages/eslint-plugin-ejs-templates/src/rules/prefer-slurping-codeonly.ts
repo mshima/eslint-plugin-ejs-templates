@@ -7,16 +7,16 @@
 //     http://www.apache.org/licenses/LICENSE-2.0
 
 import type { Rule } from 'eslint';
-import { getTagTypeComments } from '../utils.js';
+import { getDiagnosticBlocks } from '../processor.js';
 
 /**
  * ESLint rule: prefer `<%_ … _%>` (whitespace-slurping) over `<% … %>`
  * for **code-only** tags (not output tags) whose content has balanced braces
  * and does not open or close a brace block by itself.
  *
- * The rule detects `//@ejs-tag:code-slurpable` marker comments that the EJS
- * processor inserts at the start of every virtual block extracted from a
- * `<% … %>` tag that qualifies for promotion to `<%_ … _%>`.
+ * The tags are the ones ejs-template-parser reports with its `prefer-slurping-codeonly`
+ * diagnostic (`validateTemplate()`), whose `<% … %>` tag qualifies for promotion to
+ * `<%_ … _%>`; the rule reports them on the marker comment of their virtual block.
  */
 export const preferSlurpingCodeonly: Rule.RuleModule = {
   meta: {
@@ -35,22 +35,18 @@ export const preferSlurpingCodeonly: Rule.RuleModule = {
   create(context) {
     return {
       Program() {
-        const sourceCode = context.sourceCode;
-        const tagTypeComments = getTagTypeComments(sourceCode.text);
-        for (const { comment, tagType } of tagTypeComments) {
-          if (tagType === 'code-slurpable') {
-            const { range = [0, 0] } = comment;
-            context.report({
-              loc: comment.loc ?? { line: 0, column: 0 },
-              messageId: 'preferSlurpingCodeonly',
-              fix(fixer) {
-                // Provide a sentinel fix. The processor's postprocess replaces
-                // this with the correct range in the original EJS source
-                // (replacing the whole `<% … %>` tag with `<%_ … _%>`).
-                return fixer.replaceTextRange([range[0], range[1]], '');
-              },
-            });
-          }
+        for (const { comment } of getDiagnosticBlocks(context, 'prefer-slurping-codeonly')) {
+          const { range = [0, 0] } = comment;
+          context.report({
+            loc: comment.loc ?? { line: 0, column: 0 },
+            messageId: 'preferSlurpingCodeonly',
+            fix(fixer) {
+              // Provide a sentinel fix. The processor's postprocess replaces
+              // this with the correct range in the original EJS source
+              // (replacing the whole `<% … %>` tag with `<%_ … _%>`).
+              return fixer.replaceTextRange([range[0], range[1]], '');
+            },
+          });
         }
       },
     };

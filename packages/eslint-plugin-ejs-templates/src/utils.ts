@@ -5,7 +5,7 @@ type CommentWithTagType<C extends { type: string; value: string }> = {
   tagType: Exclude<ReturnType<typeof getTagTypeFromLine>, null>;
 };
 
-type VirtualMarkerComment = {
+export type VirtualMarkerComment = {
   type: 'Line';
   value: string;
   range?: [number, number];

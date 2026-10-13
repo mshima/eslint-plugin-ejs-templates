@@ -189,8 +189,8 @@ Errors, what EJS fails on or renders otherwise than written:
   them is commented out.
 - `stray-close-delimiter` — a `%>` (or `-%>`, `_%>`) in a text, which EJS drops; `%%>` writes one.
 
-Warnings, what is out of the conventions of [eslint-plugin-ejs-templates], each one named after its
-rule:
+Warnings, what is out of the conventions of [eslint-plugin-ejs-templates], each one named after the
+rule of the plugin that reports it (the plugin's rules take them from here):
 
 - `unclosed-block`, `unopened-close` — a block no tag closes, a tag closing a block no tag opens, as
   in a partial template.
