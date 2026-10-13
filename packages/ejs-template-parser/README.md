@@ -87,9 +87,29 @@ up at the end of its block.
 
 A node of the tree is one of:
 
-- **`EjsText`** — `{ kind: 'text', offset, length, text }`: a text between tags, as written. The
-  escaped delimiters `<%%` and `%%>` are still there, and so is the whitespace the delimiters
-  around the text slurp.
+- **`EjsText`** — `{ kind: 'text', offset, length, text, rendered, renderedOffsets }`: a text between
+  tags. `text` is as written: the escaped delimiters `<%%` and `%%>` are still there, and so is the
+  whitespace the delimiters around the text slurp.
+  - `rendered` — what EJS renders of the text, given the tags around it.
+  - `renderedOffsets` — the offset in the template of each character of `rendered`, then one more,
+    its end: where a text inserted renders after `rendered`, and drops nothing more. It is after the
+    last rendered character, and after the blanks a written `_%>` slurps and the line break dropped
+    after it, but before the blanks a `<%_` after the text slurps; when nothing
+    renders, after what the tag before the text slurps. A character written in place of an escape
+    maps to the one it is written from (the `<` and the first `%` of `<%%`, the `%` and the `>` of
+    `%%>`), the extra `%` to nothing.
+
+  `rendered` follows EJS 6:
+  - the blanks before a `<%_` and after a `_%>` are slurped; after a `-%>` or a `_%>`, the first line
+    break (`\r\n`, `\r` or `\n`) of the next text is dropped;
+  - `<%%` renders `<%` and `%%>` renders `%>`, each one entering a literal mode in which the next
+    close delimiter of the text is written, and ends that mode;
+  - a close delimiter in a text outside of that mode (`%>`, `-%>`, `_%>`) is dropped, a `-%>` or a
+    `_%>` dropping the line break after it, a `_%>` the blanks after it.
+
+  Joined, the `rendered` of the texts of a template is what EJS renders of it with its tags emptied
+  (`<%_ _%>`, `<% -%>`, an output tag an empty code tag with its delimiters).
+
 - **`EjsTag`** — `{ kind: 'tag', type, ... }`, where `type` is `'comment'` (`<%#`),
   `'escaped-output'` (`<%=`), `'raw-output'` (`<%-`) or `'code'` (`<%`, `<%_`):
   - `offset`, `length` — the whole tag, delimiters included.

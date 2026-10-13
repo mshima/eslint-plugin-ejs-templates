@@ -8,14 +8,15 @@
 
 import { type EjsDiagnostic, diagnose, diagnosticOf } from './diagnostics.js';
 import { type EjsSyntaxNode, parseEjsNodes } from './ejs-parser.js';
+import { type EjsRenderedText, renderText } from './rendered.js';
 import { type EjsCodeTag, type EjsTag, getEjsTags, isTagNode } from './tags.js';
 import type { SyntaxNode } from './ts-parser.js';
 
 /**
  * A text of the template between its tags, as written: `<%%` and `%%>` are still escaped, and the
- * whitespace slurped by the delimiters around it still there.
+ * whitespace slurped by the delimiters around it still there; and what EJS renders of it.
  */
-export type EjsText = {
+export type EjsText = EjsRenderedText & {
   kind: 'text';
   /** Character offset of the text in the template. */
   offset: number;
@@ -98,12 +99,17 @@ const openedNodes = (tag: EjsCodeTag): SyntaxNode[] => {
   return tag.javascript.nodes.filter((node) => node.endIndex > end && node.firstChild?.type === '{');
 };
 
-const textOf = (node: EjsSyntaxNode): EjsText => ({
-  kind: 'text',
-  offset: node.startIndex,
-  length: node.endIndex - node.startIndex,
-  text: node.text,
-});
+/** A text of the template, between the tags `before` and `after` (none at the start or the end of the template). */
+const textOf = (node: EjsSyntaxNode, before?: EjsTag, after?: EjsTag): EjsText => {
+  const text = { offset: node.startIndex, text: node.text };
+  return {
+    kind: 'text',
+    offset: text.offset,
+    length: node.endIndex - node.startIndex,
+    text: text.text,
+    ...renderText(text, before?.closeDelim, after?.openDelim),
+  };
+};
 
 /**
  * Builds the tree of an EJS template: its texts, its tags and the blocks its tags open and close, from the braces
@@ -140,9 +146,11 @@ export function buildTemplate(text: string): EjsTemplate {
     open.push({ block, branch });
   };
 
-  for (const node of nodes) {
+  for (const [index, node] of nodes.entries()) {
     if (!isTagNode(node)) {
-      const text = textOf(node);
+      const before = index > 0 && isTagNode(nodes[index - 1]) ? tags[tagIndex - 1] : undefined;
+      const after = index + 1 < nodes.length && isTagNode(nodes[index + 1]) ? tags[tagIndex] : undefined;
+      const text = textOf(node, before, after);
       current().push(text);
       ordered.push(text);
       continue;

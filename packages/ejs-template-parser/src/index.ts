@@ -29,6 +29,7 @@ export {
   isTagNode,
 } from './tags.js';
 export { type EjsDiagnostic, type EjsDiagnosticCode } from './diagnostics.js';
+export { type EjsRenderedText } from './rendered.js';
 export {
   type EjsBlock,
   type EjsBranch,
