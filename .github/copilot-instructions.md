@@ -534,12 +534,24 @@ before and after at the rule's level. Two runs apply rules together, since fixes
 tags across passes: the rules of the layout together at `whitespace`, and a whole configuration like
 generator-jhipster's at `compiles`. A snapshot counts the templates each run fixes, so that none stops
 being exercised. A new fixing rule gets a run there, at the strictest level it keeps, and a
-template of the list it fixes. The restructuring fixes, at `compiles` only, render their templates
-with `ejs.render` in their own tests (`test/prefer-output.test.ts`, `test/no-negated-condition.test.ts`).
-On a directory of templates, `compiles` misses a branch that renders differently once moved: render
-the part a fix rewrites before and after, its condition true then false, every other variable a
-`Proxy` standing for anything. EJS 7 copies the data it renders with into an object of its own, so
-that the `Proxy` is only seen with `unsafePrototypeLocals: true` among the options of `ejs.compile`.
+template of the list it fixes.
+
+`compiles` cannot tell a branch that renders differently once a restructuring fix rewrites it: a
+`-%>` left behind when its body moves, a line break a fix stops dropping. So each fix of
+`prefer-output`, `no-multiline-output` and `no-negated-condition` is also rendered, on the way, in
+every pass of `verifyAndFix()`, which lints each pass with `verify()` (`BranchLinter` overrides it):
+the part it rewrites, before and after, with the blanks before it and the blanks and the line break
+after it, which its delimiters slurp and drop; a fix in the code of a tag, the ternary of an output
+tag, with the whole tag. `conditionalParts()` writes its condition as one variable (negated before a
+fix of `no-negated-condition`, which swaps the branches), and `renderBranches()` renders the part
+with that variable true, then false, every other variable a `Proxy` standing for anything. The
+configuration like generator-jhipster's enables `no-negated-condition` too: some of its fixes only
+come after the fixes of other rules. EJS 7 copies the data it renders with into an object of its
+own, so that the `Proxy` is only seen with `unsafePrototypeLocals: true` among the options of
+`ejs.compile`. A part that does not render alone (an `include`) is left unchecked, as is a ternary
+in the code of a tag that outputs nothing; a second snapshot counts the fixes of the list rendered,
+so that none is. The restructuring fixes render their templates with `ejs.render` in their own tests
+as well (`test/prefer-output.test.ts`, `test/no-negated-condition.test.ts`).
 
 The same runs check any directory of templates, skipped otherwise. Run them on the templates of
 generator-jhipster, current and released ones (`git archive v8.11.0 generators`), for any change to a

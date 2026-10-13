@@ -20,7 +20,7 @@ import { parseJavaScript, type SyntaxNode } from 'ejs-template-parser';
  * - `texts`: the same texts, with code and outputs at the same places, whatever their code: a fix of a JavaScript
  *   rule, which changes the code of tags alone;
  * - `compiles`: nothing more: a fix restructuring tags and texts (`prefer-output`, `no-negated-condition`), whose
- *   output its own tests render.
+ *   branches `renderBranches()` renders, fix by fix (`conditionalParts()`).
  *
  * The semicolons are left aside, so a fix splitting a statement between two tags keeps the tokens: EJS separates the
  * code of its tags with semicolons, and only compiling tells `});` from `}` and `);` in tags of their own.
@@ -189,4 +189,129 @@ export function ejsOutput(text: string, level: OutputLevel): string {
   }
   flush();
   return lines.join('\n');
+}
+
+/** The variable the condition of a fix is written as in `conditionalParts()`, which `renderBranches()` sets. */
+const CONDITION = 'fixedCondition';
+
+/** A value standing for anything: callable, iterable and empty, its properties anything. */
+const anything: unknown = new Proxy(() => undefined, {
+  get: (_target, key) => {
+    if (key === Symbol.toPrimitive) return () => 'anything';
+    if (key === Symbol.iterator) return () => [][Symbol.iterator]();
+    return key === 'length' ? 0 : anything;
+  },
+  apply: () => anything,
+});
+
+/** The names of the function EJS compiles, which the data of a render must leave to it. */
+const FUNCTION_NAMES = new Set(['escapeFn', 'include', 'rethrow', 'locals']);
+
+/** The data of a render: the condition of `conditionalParts()`, every other variable anything. */
+function dataWith(condition: boolean): Record<string, unknown> {
+  return new Proxy<Record<string, unknown>>(
+    {},
+    {
+      // EJS reads the variables of a template in the data (`with`), but its own and the globals.
+      has: (_target, key) =>
+        typeof key === 'string' && !key.startsWith('__') && !FUNCTION_NAMES.has(key) && !(key in globalThis),
+      get: (target, key) => {
+        if (typeof key !== 'string') return undefined;
+        if (key === CONDITION) return condition;
+        return Object.hasOwn(target, key) ? target[key] : anything;
+      },
+    },
+  );
+}
+
+/**
+ * What a part of a template renders, its condition (`conditionalParts()`) true, then false, every other variable
+ * standing for anything: a line by value. Undefined when the part does not render alone: an `include`, a variable used
+ * as what anything cannot stand for.
+ *
+ * EJS 7 copies the data of a render into an object of its own, but with `unsafePrototypeLocals`, which keeps the
+ * `Proxy` standing for the variables.
+ */
+export function renderBranches(part: string): string | undefined {
+  try {
+    const render = ejs.compile(part, { compileDebug: false, unsafePrototypeLocals: true });
+    return [true, false]
+      .map((condition) => `${String(condition)}: ${JSON.stringify(render(dataWith(condition)))}`)
+      .join('\n');
+  } catch {
+    return undefined;
+  }
+}
+
+/** The first tag of a part, which starts with it: its open delimiter, and its code, after the delimiter. */
+function firstTag(part: string): { open: string; code: string } | undefined {
+  const open = /^<%[_=-]?(?![%#])/u.exec(part)?.[0];
+  if (open === undefined) return undefined;
+  const close = /[-_]?%>/u.exec(part.slice(open.length));
+  return close ? { open, code: part.slice(open.length, open.length + close.index) } : undefined;
+}
+
+/** The range in a part of the condition, its parentheses included, of the `if` (or the `} else if`) it opens with. */
+function ifCondition(part: string): [number, number] | undefined {
+  const tag = firstTag(part);
+  if (tag?.open !== '<%' && tag?.open !== '<%_') return undefined;
+  // A link parses after an `if` it continues, the block it opens closed.
+  const prefix = tag.code.trimStart().startsWith('}') ? 'if (x) {' : '';
+  const tree = parseJavaScript(`${prefix}${tag.code}}`);
+  try {
+    if (tree.rootNode.hasError) return undefined;
+    const statement = tree.rootNode.descendantsOfType('if_statement').find((node) => node.startIndex >= prefix.length);
+    const condition = statement?.childForFieldName('condition');
+    if (!condition) return undefined;
+    const offset = tag.open.length - prefix.length;
+    return [offset + condition.startIndex, offset + condition.endIndex];
+  } finally {
+    tree.delete();
+  }
+}
+
+/** The range in a part of the condition of the ternary the output tag it opens with renders, alone. */
+function ternaryCondition(part: string): [number, number] | undefined {
+  const tag = firstTag(part);
+  if (tag?.open !== '<%=' && tag?.open !== '<%-') return undefined;
+  const tree = parseJavaScript(tag.code);
+  try {
+    const { rootNode } = tree;
+    if (rootNode.hasError || rootNode.namedChildCount !== 1) return undefined;
+    const [statement] = rootNode.namedChildren;
+    const ternary =
+      statement.type === 'expression_statement' && statement.namedChildCount === 1 ? statement.namedChildren[0] : null;
+    const condition = ternary?.type === 'ternary_expression' ? ternary.childForFieldName('condition') : null;
+    return condition ? [tag.open.length + condition.startIndex, tag.open.length + condition.endIndex] : undefined;
+  } finally {
+    tree.delete();
+  }
+}
+
+/**
+ * The part of a template a fix of a condition rewrites, before and after it, its condition written `fixedCondition`
+ * for `renderBranches()` to set:
+ * - an `if` statement, an `} else if (…) {` link, or an output tag of a ternary, whose condition the fix negates,
+ *   swapping its branches (`no-negated-condition`): `!fixedCondition` before, `fixedCondition` after;
+ * - an `if` statement the fix writes as an output tag of a ternary (`prefer-output`), or the reverse
+ *   (`no-multiline-output`): `fixedCondition` on both sides.
+ *
+ * A link renders after an `if (false)` it continues. Undefined for another fix.
+ */
+export function conditionalParts(before: string, after: string): [string, string] | undefined {
+  const written = (part: string, [start, end]: [number, number], condition: string): string => {
+    const text = `${part.slice(0, start)}(${condition})${part.slice(end)}`;
+    return /^<%_?\s*\}/u.test(part) ? `<% if (false) { %>${text}` : text;
+  };
+  const beforeIf = ifCondition(before);
+  const afterIf = ifCondition(after);
+  const beforeCondition = beforeIf ?? ternaryCondition(before);
+  const afterCondition = afterIf ?? ternaryCondition(after);
+  if (!beforeCondition || !afterCondition) return undefined;
+  // An `if` and an output tag of a ternary: the same condition; two of a kind: the branches swapped.
+  const negated = (beforeIf === undefined) === (afterIf === undefined);
+  return [
+    written(before, beforeCondition, negated ? `!${CONDITION}` : CONDITION),
+    written(after, afterCondition, CONDITION),
+  ];
 }
