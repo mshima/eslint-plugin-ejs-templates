@@ -413,8 +413,8 @@ whitespace before the tag to be slurped once per generated tag rather than once.
 with whatever pairs with the closing delimiter (`<%_` for `_%>`, otherwise `<%`), keeping the
 seams inside the delimiter family the tag already uses.
 
-Verify any change here by rendering with `ejs` rather than by reading the output — whitespace
-slurping is easy to reason about wrongly in either direction.
+Verify any change here by rendering with `ejs` rather than by reading the output (see "Fixes keep
+what EJS renders") — whitespace slurping is easy to reason about wrongly in either direction.
 
 ### Generated characters must stay invisible to rules
 
@@ -498,10 +498,47 @@ carries `contentNode`, the `nodes` starting inside the original content, `braces
 - Tests that enable only one rule go in `test/<rule-name>.test.ts`.
 - Tests that enable no rule go in `test/core.test.ts`.
 - Tests that combine multiple rules or use fixture files go in `test/index.test.ts`.
+- Tests that a fix keeps what EJS renders go in `test/ejs-output.test.ts` (see below).
 
 **For a fixing rule, also assert that the fix converges:** re-applying it is a no-op, the fixed
 output no longer reports, and it introduces no fatal parse errors. See the closing test in
 `test/no-negated-condition.test.ts`.
+
+### Fixes keep what EJS renders
+
+A fix rewrites a template, not just its JavaScript. Whether it keeps what EJS renders cannot be read
+off the fixed text: the delimiters slurp blanks and drop line breaks, and a tag can move code
+between branches. `ejsOutput(text, level)` in `test/ejs-output.ts` answers it from EJS itself. It
+instruments `Template#generateSource()` of `ejs`, which appends the template function chunk by chunk
+(a text, the code of a code tag, an output), and gives whether EJS compiles the template, then one
+line by text, by run of code tags (their tokens, whitespace, comments and semicolons aside) and by
+output tag. Two templates EJS renders alike at a level give the same lines. The semicolons are left
+aside because EJS separates the code of its tags with them; compiling is what tells `});` from `}`
+and `);` split into tags of their own, which EJS joins with a `;`.
+
+| Level        | Kept                                            | Rules                                                                                                       |
+| ------------ | ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `exact`      | texts, code tokens, outputs                     | `format`, `indent`, `prefer-single-line-tags`, `output-semi`                                                |
+| `whitespace` | the same, whitespace of the texts aside         | `slurp-newline`, `prefer-slurping-codeonly`, `experimental-prefer-slurp-multiline`, `no-comment-empty-line` |
+| `escaping`   | the same, escaped and raw outputs alike         | `prefer-encoded`                                                                                            |
+| `texts`      | texts, with code and outputs at the same places | the JavaScript rules (core, `@stylistic`), whose fixes change the code of tags alone                        |
+| `compiles`   | EJS still compiles it                           | `prefer-output`, `no-multiline-output`, `no-negated-condition`, which restructure tags and texts            |
+
+`test/ejs-output.test.ts` fixes a list of templates with each rule alone and compares `ejsOutput`
+before and after at the rule's level. Two runs apply rules together, since fixes interact on the same
+tags across passes: the rules of the layout together at `whitespace`, and a whole configuration like
+generator-jhipster's at `compiles`. A snapshot counts the templates each run fixes, so that none stops
+being exercised. A new fixing rule gets a run there, at the strictest level it keeps, and a
+template of the list it fixes. The restructuring fixes, at `compiles` only, render their templates
+with `ejs.render` in their own tests (`test/prefer-output.test.ts`).
+
+The same runs check any directory of templates, skipped otherwise. Run them on the templates of
+generator-jhipster, current and released ones (`git archive v8.11.0 generators`), for any change to a
+fix, the processor's fix translation or the conventions of the parser:
+
+```sh
+EJS_TEMPLATES=/path/to/generator-jhipster/generators npx vitest run packages/eslint-plugin-ejs-templates/test/ejs-output.test.ts
+```
 
 ---
 
