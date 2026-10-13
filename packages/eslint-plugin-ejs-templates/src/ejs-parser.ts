@@ -124,6 +124,12 @@ export type TagBlock = {
   isStandalone: boolean;
   /** Whether this block is a virtualized ESLint directive comment from an EJS comment tag. */
   isDirectiveComment: boolean;
+  /**
+   * The half of an `eslint-disable-next-line` comment tag this directive block is: `disable`
+   * covers the comment tag itself, `enable` is synthesized after the next tag and carries that
+   * tag's position, so it is no tag of its own to fix.
+   */
+  nextLineDirective?: 'disable' | 'enable';
 };
 
 function extractEslintDirectiveFromEjsComment(commentText: string): string | null {
@@ -148,6 +154,7 @@ function createDirectiveCommentBlock(params: {
   lineIndent: string;
   isStandalone: boolean;
   closeDelim?: EjsClosingDelimiter;
+  nextLineDirective?: 'disable' | 'enable';
 }): TagBlock {
   const {
     ejsNode,
@@ -160,6 +167,7 @@ function createDirectiveCommentBlock(params: {
     lineIndent,
     isStandalone,
     closeDelim,
+    nextLineDirective,
   } = params;
   return {
     ejsNode,
@@ -182,6 +190,7 @@ function createDirectiveCommentBlock(params: {
     virtualBodyExtraLine: '',
     isStandalone,
     isDirectiveComment: true,
+    nextLineDirective,
   };
 }
 
@@ -319,6 +328,7 @@ export function extractTagBlocks(nodes: EjsSyntaxNode[]): TagBlock[] {
           lineIndent: pendingNextLineDirective.lineIndent,
           isStandalone: pendingNextLineDirective.isStandalone,
           closeDelim: pendingNextLineDirective.closeDelim,
+          nextLineDirective: 'disable',
         }),
       );
     }
@@ -414,6 +424,7 @@ export function extractTagBlocks(nodes: EjsSyntaxNode[]): TagBlock[] {
           lineIndent,
           isStandalone,
           closeDelim: pendingNextLineDirective.closeDelim,
+          nextLineDirective: 'enable',
         }),
       );
       pendingNextLineDirective = null;
