@@ -7,6 +7,7 @@
 //     http://www.apache.org/licenses/LICENSE-2.0
 
 import { describe, test, expect } from 'vitest';
+import ejs from 'ejs';
 import { lint, applyFix } from './helpers.js';
 
 // ---------------------------------------------------------------------------
@@ -284,6 +285,31 @@ describe('autofix: prefer-single-line-tags', () => {
         }
       _%>"
     `);
+  });
+
+  // The closing tag parses inside the blocks the first tag opens, which ejs-template-parser counts from its tokens: its
+  // `});` stays one statement. Split into `}` and `);`, which EJS joins with a `;`, the template would not compile.
+  test('keeps the close of a callback whose tag opens it before a statement', () => {
+    const input =
+      '<%_ if (a) {\n  x.forEach((f) => {\n    const u = f;\n_%>\n<%_ if (u) { _%>\nu\n<%_ } _%>\n<%_ });\n} _%>\n';
+    const fixed = applyFix(input, { 'ejs-templates/prefer-single-line-tags': 'error' });
+    expect(fixed).toMatchInlineSnapshot(`
+      "<%_ if (a) { _%>
+      <%_ x.forEach((f) => { _%>
+      <%_ const u = f; _%>
+      <%_ if (u) { _%>
+      u
+      <%_ } _%>
+      <%_ });
+       _%>
+      <%_ } _%>
+      "
+    `);
+    const data = [
+      { a: true, x: [1, 0] },
+      { a: false, x: [] },
+    ];
+    expect(data.map((locals) => ejs.render(fixed, locals))).toEqual(data.map((locals) => ejs.render(input, locals)));
   });
 
   test('applies indent-aware split when indent also reports in the same run', () => {

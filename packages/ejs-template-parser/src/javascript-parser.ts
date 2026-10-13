@@ -69,17 +69,55 @@ const collectNodesStartingInRange = (node: SyntaxNode, contentStart = 0, content
   return nodes;
 };
 
-const collectErrorNodes = (node: SyntaxNode): SyntaxNode[] => {
-  const nodes: SyntaxNode[] = [];
-  if (node.isError || node.isMissing) {
-    // We may have nodes that starts within the content but ends outside of it (e.g. an unclosed `{` at the end of the content).
-    // Include those nodes, but log them for visibility since they may indicate parsing issues.
-    nodes.push(node);
+/** The tokens of a tree, in order: its leaves, but the ones tree-sitter adds to recover (a missing `}`). */
+const tokensOf = (node: SyntaxNode): SyntaxNode[] => {
+  if (node.childCount === 0) return node.isMissing ? [] : [node];
+  return node.children.flatMap(tokensOf);
+};
+
+/**
+ * The braces some code leaves open (a `{` without its `}`) and closes without opening (a `}` without its `{`), from
+ * its tokens in order, whatever tree-sitter recovers them as: the braces of strings, template strings, regular
+ * expressions and comments are no tokens of their own, and the `${` of a template string opens the `}` closing it.
+ *
+ * The braces of a block comment across tags count, as the ones of the code it comments out: the tags between keep the
+ * depth of that code. tree-sitter reads the start of a comment the code does not close as a `/` and a regular
+ * expression starting with `*`, whose code is counted from its own tokens; and the end of a comment an earlier tag
+ * opens as a `*` and a `/`, side by side, which are left aside.
+ */
+const countBraces = (root: SyntaxNode, text: string): { open: number; close: number } => {
+  let open = 0;
+  let close = 0;
+  const closeBrace = (): void => {
+    if (open > 0) open--;
+    else close++;
+  };
+  const tokens = tokensOf(root);
+  for (let index = 0; index < tokens.length; index++) {
+    const token = tokens[index];
+    const next = tokens.at(index + 1);
+    const adjacent = next?.startIndex === token.endIndex;
+    if (token.type === '/' && adjacent && next.text.startsWith('*')) {
+      const comment = text.slice(next.startIndex + 1);
+      const tree = parseJavaScript(comment);
+      try {
+        const inComment = countBraces(tree.rootNode, comment);
+        for (let closed = 0; closed < inComment.close; closed++) closeBrace();
+        open += inComment.open;
+      } finally {
+        tree.delete();
+      }
+      break;
+    }
+    if (token.type === '*' && adjacent && next.type === '/') {
+      index++;
+    } else if (token.type === '{' || token.type === '${') {
+      open++;
+    } else if (token.type === '}') {
+      closeBrace();
+    }
   }
-  for (const child of node.children) {
-    nodes.push(...collectErrorNodes(child));
-  }
-  return nodes;
+  return { open, close };
 };
 
 /**
@@ -87,22 +125,11 @@ const collectErrorNodes = (node: SyntaxNode): SyntaxNode[] => {
  */
 export function parseJavaScriptPartial(text: string, incrementalCode = ''): RelativeJavascriptNode {
   const contentTree = parseJavaScript(text);
-  const isMissingCloseBrace = (n: SyntaxNode) =>
-    (n.isError && n.text.trimEnd().endsWith('{')) || (n.isMissing && n.type === '}');
-  const isMissingOpenBrace = (n: SyntaxNode) => n.isError && (n.text.trimStart().startsWith('}') || n.type === '}');
-  const errorNodes = collectErrorNodes(contentTree.rootNode);
-  const missingCloseBracesCount =
-    errorNodes
-      .filter(isMissingCloseBrace)
-      .map((n) => (n.text ? n.text : '{'))
-      .join()
-      .match(/{/g)?.length ?? 0;
-  const missingOpenBracesCount =
-    errorNodes
-      .filter(isMissingOpenBrace)
-      .map((n) => (n.text ? n.text : n.type))
-      .join()
-      .match(/}/g)?.length ?? 0;
+  // A balanced snippet has no brace to count; the others are counted by their tokens, not by the errors tree-sitter
+  // recovers with, whose text ends with the last statement of the snippet rather than with the `{` it opened.
+  const braces = contentTree.rootNode.hasError ? countBraces(contentTree.rootNode, text) : { open: 0, close: 0 };
+  const missingCloseBracesCount = braces.open;
+  const missingOpenBracesCount = braces.close;
   let wrapperPrefix = '';
   let contentTreeBestGuess: ReturnType<typeof parseJavaScript> | undefined = undefined;
   if (contentTree.rootNode.hasError) {
@@ -111,14 +138,6 @@ export function parseJavaScriptPartial(text: string, incrementalCode = ''): Rela
     wrapperPrefix = ejsBaseWrapperPrefix + incrementalCode;
     const wrapperSuffix = ejsBaseWrapperSuffix + '}\n'.repeat(missingCloseBracesCount);
     contentTreeBestGuess = parseJavaScript(`${wrapperPrefix}${text}${wrapperSuffix}`);
-    /*
-    const nodesWithErrors = collectErrorNodes(contentTreeBestGuess.rootNode).filter((c) => c.isError);
-    if (nodesWithErrors.length > 0) {
-      console.log(text);
-      console.log(incrementalCode);
-      console.log(nodesWithErrors.map((n) => `${n.type}: ${n.text}`).join('\n'));
-    }
-    */
   }
 
   const contentStart = wrapperPrefix.length;

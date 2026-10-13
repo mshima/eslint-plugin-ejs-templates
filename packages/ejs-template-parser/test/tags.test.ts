@@ -171,6 +171,20 @@ describe('getEjsTags', () => {
     ]);
   });
 
+  // tree-sitter recovers from the code of the first tag with an error ending with its last statement, not with the
+  // `{` of the callback: the braces are counted from its tokens.
+  test('counts the braces a tag opens before a statement of its own', () => {
+    const tags = tagsOf(
+      '<%_ if (a) {\n  x.forEach((f) => {\n    const u = f;\n_%>\n<%_ if (u) { _%>\nu\n<%_ } _%>\n<%_ });\n} _%>\n',
+    );
+    expect(tags.map((tag) => [tag.code.trim().replace(/\s+/gu, ' '), tag.depthBefore, tag.depthAfter])).toEqual([
+      ['if (a) { x.forEach((f) => { const u = f;', 0, 2],
+      ['if (u) {', 2, 3],
+      ['}', 3, 2],
+      ['}); }', 2, 0],
+    ]);
+  });
+
   test('a partial template closing a block another template opens goes below zero', () => {
     expect(tagsOf('A\n<%_ } _%>\nB').map((tag) => [tag.depthBefore, tag.depthAfter])).toEqual([[0, -1]]);
   });
