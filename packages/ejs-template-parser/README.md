@@ -287,7 +287,10 @@ It returns:
 - `offsets` — the offset in the template edited of each offset of the template, then of its end,
   after what an edit inserts there;
 - `errors` — the errors of the template edited (`diagnoseTemplate`) the edits bring, the ones the
-  template has, at their offsets, aside.
+  template has, at their offsets, aside: diagnosed when read, which takes two more parses.
+
+The template can be given built already (`buildTemplate`): it is not built again, and not freed,
+for a caller editing it several times, which frees it when done.
 
 Where `escapeText` cannot write a text (a tag needed in the literal mode), its delimiters are
 escaped alone, and the errors tell what EJS would not render.

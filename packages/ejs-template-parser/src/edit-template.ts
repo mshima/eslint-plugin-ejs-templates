@@ -9,7 +9,7 @@
 import type { EjsDiagnostic } from './diagnostics.js';
 import type { EjsClosingDelimiter, EjsOpeningDelimiter } from './ejs-parser.js';
 import { escapeText } from './escape-text.js';
-import { buildTemplate, cleanupTemplate, diagnoseTemplate, validateTemplate } from './template.js';
+import { buildTemplate, cleanupTemplate, diagnoseTemplate, type EjsTemplate } from './template.js';
 
 /** An edit of a template: what a range of it renders deleted, a text rendered in its place. */
 export type EjsEdit = {
@@ -31,7 +31,10 @@ export type EjsEditedTemplate = {
    * the one before it, short of the next one: exactly where the characters are written as they were.
    */
   offsets: number[];
-  /** The errors of the template edited (`diagnoseTemplate`) the edits bring: the template's own, at their offsets, aside. */
+  /**
+   * The errors of the template edited (`diagnoseTemplate`) the edits bring, the template's own, at their offsets,
+   * aside: diagnosed when read, once.
+   */
   errors: EjsDiagnostic[];
 };
 
@@ -94,23 +97,24 @@ const tokenRanges = (texts: Text[]): Range[] => {
  * Where escapeText cannot write a text (a tag needed in the literal mode, see escapeText), its delimiters are escaped
  * alone: the errors tell what EJS would not render.
  *
- * @param template the template, which parses
+ * @param template the template, which parses, or the template buildTemplate built of it, left as it is: built once
+ *   for the edits of several calls
  * @param edits the edits, in offsets of the template
  * @returns the template edited, where each offset of the template is in it, and the errors the edits bring
  * @throws RangeError when an edit is out of the template, overlaps another one, or cuts a tag
  * @throws EjsSyntaxError when the template does not parse
  */
-export function editTemplate(template: string, edits: EjsEdit[]): EjsEditedTemplate {
+export function editTemplate(template: string | EjsTemplate, edits: EjsEdit[]): EjsEditedTemplate {
+  const source = typeof template === 'string' ? template : template.text;
   const sorted: SortedEdit[] = edits
     .map((edit, order) => ({ ...edit, order }))
     .sort((a, b) => a.offset - b.offset || a.order - b.order);
 
-  const built = buildTemplate(template);
+  // A template built already is left as it is, to its builder to free.
+  const built = typeof template === 'string' ? buildTemplate(template) : template;
   let texts: Text[];
   let tags: Tag[];
-  let ownErrors: EjsDiagnostic[];
   try {
-    ownErrors = validateTemplate(built).filter(({ severity }) => severity === 'error');
     texts = built.nodes.flatMap((node) =>
       node.kind === 'text'
         ? [
@@ -126,13 +130,13 @@ export function editTemplate(template: string, edits: EjsEdit[]): EjsEditedTempl
     );
     tags = built.tags.map(({ offset, length, openDelim, closeDelim }) => ({ offset, length, openDelim, closeDelim }));
   } finally {
-    cleanupTemplate(built);
+    if (typeof template === 'string') cleanupTemplate(built);
   }
 
   let previousEnd = 0;
   for (const { offset, length } of sorted) {
     const end = offset + length;
-    if (!Number.isInteger(offset) || !Number.isInteger(length) || offset < 0 || length < 0 || end > template.length) {
+    if (!Number.isInteger(offset) || !Number.isInteger(length) || offset < 0 || length < 0 || end > source.length) {
       throw new RangeError(`The edit at ${String(offset)} of length ${String(length)} is out of the template`);
     }
     if (offset < previousEnd) throw new RangeError(`The edit at ${String(offset)} overlaps the one before it`);
@@ -146,8 +150,8 @@ export function editTemplate(template: string, edits: EjsEdit[]): EjsEditedTempl
   }
 
   /** Whether each character of the template is in a text, and whether it renders. */
-  const inText = Array.from({ length: template.length }, () => false);
-  const renders = Array.from({ length: template.length }, () => false);
+  const inText = Array.from({ length: source.length }, () => false);
+  const renders = Array.from({ length: source.length }, () => false);
   for (const text of texts) {
     for (let index = text.offset; index < text.offset + text.length; index++) inText[index] = true;
     for (const renderedOffset of text.renderedOffsets.slice(0, -1)) renders[renderedOffset] = true;
@@ -164,13 +168,13 @@ export function editTemplate(template: string, edits: EjsEdit[]): EjsEditedTempl
         // A tag deleted, with the blanks it slurped and the line break it dropped.
         if (tag.openDelim === '<%_') {
           let blanks = tag.offset;
-          while (blanks > 0 && inText[blanks - 1] && isBlank(template[blanks - 1])) blanks--;
+          while (blanks > 0 && inText[blanks - 1] && isBlank(source[blanks - 1])) blanks--;
           start = Math.min(start, blanks);
         }
         if (tag.closeDelim !== '%>') {
           let after = tagEnd;
-          if (tag.closeDelim === '_%>') while (inText[after] && isBlank(template[after])) after++;
-          const lineBreak = inText[after] ? LINE_BREAK.exec(template.slice(after)) : null;
+          if (tag.closeDelim === '_%>') while (inText[after] && isBlank(source[after])) after++;
+          const lineBreak = inText[after] ? LINE_BREAK.exec(source.slice(after)) : null;
           end = Math.max(end, after + (lineBreak?.[0].length ?? 0));
         }
       }
@@ -182,10 +186,9 @@ export function editTemplate(template: string, edits: EjsEdit[]): EjsEditedTempl
       }
       // What could make a delimiter with what is written again, and the whitespace a delimiter could slurp or drop.
       const grows = (index: number) =>
-        inText[index] &&
-        (DELIMITER_CHARACTERS.has(template[index]) || (renders[index] && isWhitespace(template[index])));
+        inText[index] && (DELIMITER_CHARACTERS.has(source[index]) || (renders[index] && isWhitespace(source[index])));
       while (start > 0 && grows(start - 1)) start--;
-      while (end < template.length && grows(end)) end++;
+      while (end < source.length && grows(end)) end++;
       if (start === before.start && end === before.end) return { start, end };
     }
   };
@@ -209,7 +212,7 @@ export function editTemplate(template: string, edits: EjsEdit[]): EjsEditedTempl
 
   /** The offset in the template edited of each offset of a region, after what an edit inserts there. */
   const moved = new Map<number, number>();
-  let edited = template;
+  let edited = source;
   let shift = 0;
   for (const region of regions) {
     // What the region renders, edited, cut where its edits start and end: the texts of the edits there, a mark for
@@ -286,7 +289,7 @@ export function editTemplate(template: string, edits: EjsEdit[]): EjsEditedTempl
       if (slot.mark !== undefined) moved.set(slot.mark, slot.at + before);
       before += written.get(slot) ?? 0;
     }
-    shift = current.length - template.length;
+    shift = current.length - source.length;
     edited = current;
   }
 
@@ -295,7 +298,7 @@ export function editTemplate(template: string, edits: EjsEdit[]): EjsEditedTempl
   const offsets: number[] = [];
   let region = 0;
   let delta = 0;
-  for (let offset = 0; offset <= template.length; offset++) {
+  for (let offset = 0; offset <= source.length; offset++) {
     while (region < regions.length && regions[region].end < offset) {
       delta = (moved.get(regions[region].end) ?? 0) - regions[region].end;
       region++;
@@ -311,9 +314,18 @@ export function editTemplate(template: string, edits: EjsEdit[]): EjsEditedTempl
     }
   }
 
-  const own = new Set(ownErrors.map(({ code, offset }) => `${code}@${String(offsets[offset])}`));
-  const errors = diagnoseTemplate(edited).filter(
-    ({ severity, code, offset }) => severity === 'error' && !own.has(`${code}@${String(offset)}`),
-  );
-  return { template: edited, offsets, errors };
+  // The errors, when they are read: they diagnose the template edited, and the template.
+  let errors: EjsDiagnostic[] | undefined;
+  return {
+    template: edited,
+    offsets,
+    get errors() {
+      if (!errors) {
+        const errorsOf = (text: string) => diagnoseTemplate(text).filter(({ severity }) => severity === 'error');
+        const own = new Set(errorsOf(source).map(({ code, offset }) => `${code}@${String(offsets[offset])}`));
+        errors = errorsOf(edited).filter(({ code, offset }) => !own.has(`${code}@${String(offset)}`));
+      }
+      return errors;
+    },
+  };
 }
