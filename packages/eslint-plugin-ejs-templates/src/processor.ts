@@ -868,8 +868,9 @@ function translateFix(
     }
     return null;
   } else if (fix.text === SENTINEL_INDENT) {
-    // indent: fix standalone <%_ _%> indentation (single-line and multiline)
-    if (block.tagType.startsWith('slurp-needs-indent')) {
+    // indent: fix standalone <%_ _%> indentation (single-line and multiline). The fix replaces
+    // from the start of the line, so the tag must be alone on it.
+    if (block.tagType.startsWith('slurp-needs-indent') && block.isStandalone) {
       // Replace from line start through full tag; in default mode only the
       // start/end boundaries are adjusted for multiline content.
       const indentStart = block.tagOffset - block.tagColumn;
@@ -881,7 +882,7 @@ function translateFix(
     return null;
   } else if (fix.text === SENTINEL_INDENT_NORMALIZE) {
     // indent (normalizeContent=true): normalize multiline content indentation too.
-    if (block.tagType.startsWith('slurp-needs-indent') || block.tagType === 'slurp-multiline') {
+    if (block.isStandalone && (block.tagType.startsWith('slurp-needs-indent') || block.tagType === 'slurp-multiline')) {
       const indentStart = block.tagOffset - block.tagColumn;
       const normalizedText = buildIndentedTag(block, { normalizeContent: true });
       const currentText = block.lineIndent + block.openDelim + block.codeContent + block.closeDelim;
@@ -1873,7 +1874,9 @@ export const processor: Linter.Processor = {
         };
       }),
       needsNormalize: nonDirectiveBlocks.map((block) => {
-        if (block.tagType !== 'slurp-multiline') return false;
+        // A tag alone on its line: the fix rewrites the line from its start, which holds the
+        // text before the tag otherwise.
+        if (block.tagType !== 'slurp-multiline' || !block.isStandalone) return false;
         // Only normalize when the close delimiter is already on its own line
         // (last codeContent segment is all whitespace). If the close is on the
         // same line as the last content line, normalizing it would conflict with
