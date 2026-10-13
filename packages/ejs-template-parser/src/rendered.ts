@@ -26,7 +26,7 @@ const BLANK = /[ \t]/;
 const TEXT_TOKENS = /<%%|%%>|%>|-%>|_%>/g;
 
 /**
- * What EJS 6 renders of a text of a template, between the tag closing with `closeBefore` and the one opening with
+ * What EJS 6 and 7 render of a text of a template, between the tag closing with `closeBefore` and the one opening with
  * `openAfter` (none at the start or the end of the template), as `Template.prototype.generateSource` and `scanLine`
  * of EJS compile it:
  * - the blanks before a `<%_` and after a `_%>` are slurped;
