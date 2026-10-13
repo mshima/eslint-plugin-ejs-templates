@@ -2,7 +2,7 @@
 
 An [ESLint](https://eslint.org/) plugin for [EJS](https://ejs.co/) (Embedded JavaScript) templates.
 
-EJS files are parsed by [tree-sitter-embedded-template](https://github.com/tree-sitter/tree-sitter-embedded-template) via [web-tree-sitter](https://github.com/tree-sitter/tree-sitter/tree/master/lib/binding_web), which provides accurate position information for all lint messages and autofixes.
+EJS files are parsed by [ejs-template-parser](https://github.com/mshima/eslint-plugin-ejs-templates/tree/main/packages/ejs-template-parser), with [tree-sitter-embedded-template](https://github.com/tree-sitter/tree-sitter-embedded-template) via [web-tree-sitter](https://github.com/tree-sitter/tree-sitter/tree/master/lib/binding_web), which provides accurate position information for all lint messages and autofixes.
 
 ## Features
 

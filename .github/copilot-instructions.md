@@ -5,9 +5,19 @@ repository root points here, so this file is the single source of truth — upda
 
 ## Project overview
 
-An ESLint plugin that lints EJS (Embedded JavaScript) template files. EJS files are parsed
-with [tree-sitter-embedded-template] via web-tree-sitter, and each EJS tag is extracted into a
-virtual JavaScript block that ESLint rules can inspect.
+An ESLint plugin that lints EJS (Embedded JavaScript) template files, and the parser it is built
+on, each a package of its own:
+
+- **ejs-template-parser** parses templates with [tree-sitter-embedded-template] via
+  web-tree-sitter, and the code of each tag with tree-sitter-javascript, inside the blocks the
+  tags before it left open: the tags with their delimiters and code, the braces each one opens and
+  closes, and the tree of the texts, tags and blocks of a template (`parseTemplate`).
+- **eslint-plugin-ejs-templates** extracts each EJS tag into a virtual JavaScript block that
+  ESLint rules can inspect, from the tags `getEjsTags` gives.
+
+A change to how a template or a tag is read belongs to the parser; the plugin builds the virtual
+JavaScript, the rules and the fixes on top of it. What `getEjsNodes` and `getEjsTags` return is
+what the plugin lints and fixes: a change there must keep the plugin's tests passing.
 
 **Language / toolchain:** TypeScript, ESLint flat-config API, tsc (builds), Vitest (tests).
 
@@ -22,13 +32,18 @@ are shared at the root, where every command runs.
 
 ```
 packages/
-  eslint-plugin-ejs-templates/   – the ESLint plugin
+  ejs-template-parser/           – the parser
+  eslint-plugin-ejs-templates/   – the ESLint plugin, which depends on the parser
 ```
+
+The root `prepare` (run by `npm install`) builds every package once, in the order of the
+`workspaces` of the root `package.json`: a package after the ones it depends on. The packages
+themselves have no `prepare`, which npm would run on install as well.
 
 ## Commands
 
 ```sh
-npm run build      # each package: tsc -p tsconfig.build.json -> dist/
+npm run build      # each package, in order: tsc -p tsconfig.build.json -> dist/
 npm test           # vitest run   (pretest: prettier --check && eslint .; posttest: typecheck)
 npm run typecheck  # tsc --noEmit  (whole repo: every package's src and test, config files)
 npm run lint       # eslint .
@@ -39,27 +54,54 @@ npm run fix        # prettier --write && eslint --fix
 
 `tsconfig.json` is the project the editor, ESLint and `npm run typecheck` all use. It covers
 **everything** (`**/*.ts` — every package's `src` and `test`, and the root config files) and sets
-`noEmit`, so the
-language server checks test files with the same options CI does. Keeping test files out of it
+`noEmit`, so the language server checks test files with the same options CI does. Keeping test files out of it
 makes VSCode fall back to an inferred project and report errors the CLI never sees.
 
 Each package's `tsconfig.build.json` extends it and is the only config that emits: it narrows
-the inputs back to the package's `src/**/*` (plus `web-tree-sitter.d.ts`) and restores
-`rootDir`/`outDir`. Add compiler options
-to `tsconfig.json` so every consumer gets them; put anything emit-specific in the build config.
+the inputs back to the package's `src/**/*` (plus the parser's `web-tree-sitter.d.ts`) and
+restores `rootDir`/`outDir`. Add compiler options to `tsconfig.json` so every consumer gets them;
+put anything emit-specific in the build config.
+
+The `paths` of `tsconfig.json` map `ejs-template-parser` to its sources, and `vitest.config.ts`
+aliases it the same way: the plugin typechecks, lints and tests against the parser as it is in
+the working tree, without a build in between. The plugin's `tsconfig.build.json` resets `paths`,
+so that its build compiles against the parser's declarations in `dist/`, as the published package
+resolves it.
+
+`web-tree-sitter.d.ts` is a module version of the types of web-tree-sitter, whose own are an
+ambient module needing `@types/emscripten`. The parser's declarations import their types from it,
+so it is published with them.
 `declaration` deliberately stays on in `tsconfig.json` — declaration-emit errors such as TS2883
 only surface with it, and they should fail `typecheck`, not just `build`.
 
 `npm test` runs `pretest` and `posttest` around it, so formatting, lint and typecheck all gate
 the suite. Running `npx vitest run` alone skips those.
 
-The WASM grammars must be present in the plugin's `wasm/` before anything runs; `npm run
-prepare` builds the packages and copies them out of the root `node_modules`. A fresh clone needs
-`npm install` (which triggers `prepare`).
+The WASM grammars must be present in the parser's `wasm/` before anything runs; its build copies
+them out of the root `node_modules`. A fresh clone needs `npm install` (which triggers
+`prepare`).
 
 ---
 
 ## Codebase map
+
+The parser, in `packages/ejs-template-parser/`:
+
+```
+src/
+  index.ts              – the public API
+  template.ts           – parseTemplate: the tree of texts, tags and blocks
+  tags.ts               – getEjsTags: the tags, each code tag parsed in its brace context
+  ejs-parser.ts         – getEjsNodes, the delimiters, the absorbed `_%>` of an output tag
+  javascript-parser.ts  – parseJavaScriptPartial: best-guess parse of unbalanced JS snippets
+  ts-parser.ts          – web-tree-sitter setup (parseEjs, parseJavaScript, findErrorNode)
+test/
+  template.test.ts      – the tree of a template
+  tags.test.ts          – getEjsNodes and getEjsTags
+  parse-javascript-partial.test.ts
+  performance.test.ts   – scaling guard (see "Performance invariant")
+  esm.test.ts           – the built package loads in Node as a plain ES module
+```
 
 The plugin, in `packages/eslint-plugin-ejs-templates/`:
 
@@ -67,9 +109,7 @@ The plugin, in `packages/eslint-plugin-ejs-templates/`:
 src/
   index.ts              – plugin entry: registers processor, rules, and built-in configs
   processor.ts          – ESLint processor: virtual JS, position mapping, fix translation
-  ejs-parser.ts         – EJS parse -> TagBlock[] (getEjsNodes, extractTagBlocks)
-  javascript-parser.ts  – parseJavaScriptPartial: best-guess parse of unbalanced JS snippets
-  ts-parser.ts          – web-tree-sitter setup (parseEjs, parseJavaScript, findErrorNode)
+  ejs-parser.ts         – the tags of the parser -> TagBlock[] (extractTagBlocks)
   types.ts              – shared TypeScript types
   utils.ts              – getTagTypeComments and friends
   rules/
@@ -91,7 +131,6 @@ test/
   helpers.ts            – makeLinter(), makeConfig(), lint(), applyFix()
   core.test.ts          – parser, processor, position mapping, plugin shape
   index.test.ts         – multi-rule autofix + fixture tests
-  performance.test.ts   – scaling guard (see "Performance invariant")
   *.test.ts             – one file per rule, named after the rule
   fixtures/             – fixture EJS files referenced by tests
 ```
@@ -246,28 +285,47 @@ EJS-specific and core does not report it at all.
 
 ### tree-sitter trees must be freed
 
-Parse trees live in WASM memory that the JavaScript garbage collector does not manage. They are
-released by `block.javascriptPartialNode?.cleanup()`, which normally runs from `postprocess()`.
+Parse trees live in WASM memory that the JavaScript garbage collector does not manage: the tree
+of a template (`template.delete()`, or `nodes[0].tree.delete()`) and the trees of the code of each
+tag (`tag.javascript.cleanup()`). In the plugin they are released by
+`block.javascriptPartialNode?.cleanup()`, which normally runs from `postprocess()`.
 
 Anything that calls `preprocess()` **without** `postprocess()` — an ad-hoc script, a benchmark,
 an exploratory test — must free the trees itself. Leaking them exhausts the WASM heap after a
 few hundred templates and **aborts the process** (`Aborted()` / "null function or function
 signature mismatch") rather than failing cleanly, which is easy to misread as a parser bug in
-whatever you were investigating. In tests, free them in a `finally` block; see
+whatever you were investigating. In tests, free them in a `finally` block; see the parser's
 `test/parse-javascript-partial.test.ts`.
 
 ### Performance invariant: brace context must stay bounded by nesting depth
 
-`extractTagBlocks()` prepends the enclosing brace context to every tag it parses, so that a
-`<% } %>` tag parses as a close rather than an error. That context must grow with **nesting
+The parser's `getEjsTags()` prepends the enclosing brace context to every tag it parses, so that
+a `<% } %>` tag parses as a close rather than an error. That context must grow with **nesting
 depth**, never with template length. If a closed block is left in it, tag N re-parses every
 preceding tag and extraction becomes O(n²) — a 32KB template took ~3.9s before this was fixed.
 
-Two things keep it bounded, both in `extractTagBlocks()`: entries are dropped once their block
-closes, and same-depth continuations (`} else if (c) {`) supersede one another rather than
-stacking. `test/performance.test.ts` guards this by counting characters fed to the parser and
+Two things keep it bounded, both in `getEjsTags()`: entries are dropped once their block closes,
+and same-depth continuations (`} else if (c) {`) supersede one another rather than stacking. The
+parser's `test/performance.test.ts` guards this by counting characters fed to the parser and
 asserting that doubling a template does not much more than double them; it deliberately does
-not assert wall-clock time, which flakes in CI.
+not assert wall-clock time, which flakes in CI. The plugin's `extractTagBlocks()` reads each tag
+of `getEjsTags()` once: re-parsing there the code of the tags before the current one brings the
+quadratic case back.
+
+### The parsed code of a tag
+
+`getEjsTags()` parses `parsedCode`: the code without the line break (and the indentation after
+it), or the one blank, separating it from the closing delimiter. It changes nothing of the
+JavaScript, but the texts of the nodes and of `splitStatements()` are the ones of `parsedCode`,
+which the plugin sends to its rules (`lintCodeContent`) and builds its fixes from. Changing it
+changes the fixes of the plugin.
+
+### The absorbed `_` of `_%>`
+
+tree-sitter-embedded-template ends an output tag's code node one character too late when the tag
+closes with `_%>` (tree-sitter/tree-sitter-embedded-template#46). `getEjsTags()` gives the tag its
+real `_%>` and the code without the `_`; anything reading the code of a node directly goes through
+`getDirectiveCodeText()`, so that the virtual JavaScript and the tag blocks never disagree.
 
 ### Splitting a tag keeps the output identical only via slurp delimiters
 
@@ -309,11 +367,13 @@ produce a synthetic `;;` for rules to trip over.
 Any future synthetic text should follow the same two rules: apply it uniformly, and suppress
 messages that land on it.
 
-### WASM location fallback
+### Plain ES modules
 
-`Parser.init({ locateFile })` in `src/ts-parser.ts` uses `require.resolve`, which is not defined
-in a pure-ESM context. It is dormant while the default WASM lookup succeeds, but fails from a
-different working directory or a `.mjs` entry point.
+The packages must load when Node imports them, without a transpiling loader: jiti (which loads an
+`eslint.config.ts`) and Vitest define the `require` an ES module lacks, so a bare `require` works
+under them and fails in Node ("require is not defined in ES module scope") — with an
+`eslint.config.js` or `.mjs`, for example. The parser resolves `web-tree-sitter.wasm` with
+`createRequire(import.meta.url)`; its `test/esm.test.ts` builds it and imports it in Node.
 
 ---
 
@@ -338,7 +398,8 @@ different working directory or a `.mjs` entry point.
 }
 ```
 
-`RelativeJavascriptNode` (see `src/javascript-parser.ts`) is not a bare tree-sitter node. It
+`RelativeJavascriptNode` (from the parser's `src/javascript-parser.ts`) is not a bare tree-sitter
+node. It
 carries `contentNode`, the `nodes` starting inside the original content, `bracesDelta` /
 `missingOpenBracesCount` / `missingCloseBracesCount`, `splitStatements()`, and `cleanup()`.
 
@@ -350,7 +411,7 @@ carries `contentNode`, the `nodes` starting inside the original content, `braces
 - Use `.js` extensions on all relative imports (ESM, even in TypeScript source).
 - `tsc` builds to `dist/` with ESM output; package entry is `dist/index.js`.
 - No default exports from modules — only named exports (the plugin object itself is the one
-  default export, from `src/index.ts`).
+  default export, from the plugin's `src/index.ts`).
 - Rule modules export a `camelCase` constant; the plugin registry uses the `kebab-case` name.
 - Commits follow Conventional Commits — commitlint runs on the commit-msg hook, and
   release-please derives releases from them.
@@ -396,3 +457,5 @@ When assertions for applyFix result are added to this repository:
 - Prefer `toMatchInlineSnapshot()` snapshot style checks.
 - After converting to inline snapshots, run Vitest with update mode to materialize snapshots
   in the test file.
+
+[tree-sitter-embedded-template]: https://github.com/tree-sitter/tree-sitter-embedded-template

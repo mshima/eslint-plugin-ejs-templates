@@ -11,7 +11,7 @@ import { describe, test, expect, vi } from 'vitest';
 /**
  * Total characters handed to the JavaScript parser, accumulated by the mock below.
  *
- * `extractTagBlocks` prepends the enclosing brace context to every tag it parses, so the
+ * `getEjsTags` prepends the enclosing brace context to every tag it parses, so the
  * amount of text reaching the parser is what decides whether extraction is linear. If that
  * context is ever allowed to grow with the length of the template rather than with nesting
  * depth, tag N re-parses everything before it and the total goes quadratic — which is the
@@ -33,10 +33,11 @@ vi.mock('../src/ts-parser.js', async (importOriginal) => {
   };
 });
 
-const { extractTagBlocks, getEjsNodes } = await import('../src/ejs-parser.js');
+const { getEjsNodes } = await import('../src/ejs-parser.js');
+const { getEjsTags } = await import('../src/tags.js');
 
 /**
- * Characters fed to the JavaScript parser while extracting every tag in `template`.
+ * Characters fed to the JavaScript parser while reading every tag in `template`.
  *
  * The parse trees are freed afterwards: they live in WASM memory that the garbage
  * collector does not manage, and leaking them across many templates exhausts the heap
@@ -44,11 +45,13 @@ const { extractTagBlocks, getEjsNodes } = await import('../src/ejs-parser.js');
  */
 function parsedCharsFor(template: string): number {
   parsed.chars = 0;
-  const blocks = extractTagBlocks(getEjsNodes(template));
+  const nodes = getEjsNodes(template);
+  const tags = getEjsTags(nodes);
   try {
     return parsed.chars;
   } finally {
-    for (const block of blocks) block.javascriptPartialNode?.cleanup();
+    for (const tag of tags) if (tag.type !== 'comment') tag.javascript.cleanup();
+    nodes[0]?.tree.delete();
   }
 }
 
@@ -87,7 +90,7 @@ const nestedCallbacks = (n: number): string =>
  */
 const MAX_GROWTH_FACTOR = 2.5;
 
-describe('extractTagBlocks scaling', () => {
+describe('getEjsTags scaling', () => {
   test.each([
     { shape: 'sibling blocks', build: siblingBlocks },
     { shape: 'else ladder', build: elseLadder },

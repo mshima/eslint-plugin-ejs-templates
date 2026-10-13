@@ -15,7 +15,12 @@
     "rewriteRelativeImportExtensions": true,
     "noUnusedParameters": true,
     "verbatimModuleSyntax": true,
-    "noEmit": true
+    "noEmit": true,
+    // The packages check against each other's sources, not their builds; each package's
+    // tsconfig.build.json resets it, building against the declarations of the packages it uses.
+    "paths": {
+      "ejs-template-parser": ["./packages/ejs-template-parser/src/index.ts"]
+    }
   },
   "include": ["**/*.ts"],
   "exclude": ["**/node_modules", "**/dist"]

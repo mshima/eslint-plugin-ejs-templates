@@ -1,0 +1,51 @@
+{
+  "name": "ejs-template-parser",
+  "version": "0.0.0",
+  "description": "Parser of EJS templates with tree-sitter: the tags, their code, and the blocks the tags open and close",
+  "keywords": [
+    "ejs",
+    "template",
+    "parser",
+    "tree-sitter",
+    "ast"
+  ],
+  "homepage": "https://github.com/mshima/eslint-plugin-ejs-templates/tree/main/packages/ejs-template-parser#readme",
+  "bugs": {
+    "url": "https://github.com/mshima/eslint-plugin-ejs-templates/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mshima/eslint-plugin-ejs-templates.git",
+    "directory": "packages/ejs-template-parser"
+  },
+  "license": "Apache-2.0",
+  "author": "",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "types": "dist/index.d.ts",
+  "files": [
+    "web-tree-sitter.d.ts",
+    "dist",
+    "wasm",
+    "LICENSE",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json && cpy ../../node_modules/tree-sitter-embedded-template/tree-sitter-embedded_template.wasm ../../node_modules/tree-sitter-javascript/tree-sitter-javascript.wasm wasm --flat",
+    "dev": "tsc -p tsconfig.build.json --watch",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "web-tree-sitter": "^0.26.13"
+  },
+  "devDependencies": {
+    "cpy-cli": "^7.0.0",
+    "tree-sitter-embedded-template": "0.25.0",
+    "tree-sitter-javascript": "0.25.0"
+  }
+}

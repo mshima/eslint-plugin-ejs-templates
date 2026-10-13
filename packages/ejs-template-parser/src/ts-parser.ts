@@ -1,4 +1,4 @@
-// Copyright 2024 The eslint-plugin-templates Authors
+// Copyright 2024 The eslint-plugin-ejs-templates Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -7,13 +7,18 @@
 //     http://www.apache.org/licenses/LICENSE-2.0
 
 import { existsSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Tree, Node as SyntaxNode } from '../web-tree-sitter.js';
 
-export type { SyntaxNode };
+export type { SyntaxNode, Tree };
 
 const moduleDir = dirname(fileURLToPath(import.meta.url));
+
+// `require` does not exist in an ES module: Node refuses this module when it reaches a bare `require`, which only
+// transpiling loaders (jiti, vitest) define.
+const require = createRequire(import.meta.url);
 
 function resolveWasm(localFileName: string): string {
   const localPath = resolve(moduleDir, '../wasm', localFileName);
@@ -51,8 +56,8 @@ _javascriptParser.setLanguage(_javascriptLanguage);
  * Parse an EJS template using tree-sitter-embedded-template.
  *
  * The call is synchronous — the WASM initialisation has already completed
- * when this module was first imported.  Returns the root {@link SyntaxNode}
- * of the parse tree.
+ * when this module was first imported.  Returns the parse tree, which lives in
+ * WASM memory: free it with `tree.delete()`.
  */
 export function parseEjs(text: string): Tree {
   const tree = _parser.parse(text);
