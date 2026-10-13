@@ -38,6 +38,22 @@ describe('editTemplate', () => {
     ).toEqual({ template: 'x y\n', offsets: [1, 1, 3, 3, 4], errors: [] });
   });
 
+  test('edits a template built already, left to its builder to free', () => {
+    const text = 'a <%% b %> c\n<%_ x(); _%>\nd\n';
+    const edits: EjsEdit[] = [
+      { offset: 2, length: 4 },
+      { offset: 13, length: 12 },
+    ];
+    const built = buildTemplate(text);
+    try {
+      expect(editTemplate(built, edits)).toEqual(editTemplate(text, edits));
+      // Still built: its trees not freed.
+      expect(built.tags.map(({ node }) => node.type)).toEqual(['directive']);
+    } finally {
+      cleanupTemplate(built);
+    }
+  });
+
   describe('deleting keeps the rest rendering as before', () => {
     test('the escape of a character deleted goes with it', () => {
       // `<%%` renders `<%`: deleting its `<` and `%` deletes its extra `%` too.
