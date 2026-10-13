@@ -179,6 +179,12 @@ diagnostic of that code, and the marker comment the rule reports on.
 `postprocess()` maps messages from virtual-file positions back to EJS source positions and
 translates fixes (below).
 
+ESLint lints the virtual file once: `preprocess()` returns it alone. Parsing it and running every
+rule on it is most of the time of a lint, so a second virtual file nearly doubles it, which the
+plugin did until it returned three (the same file unwrapped, and the wrapped one again) for the
+parsing errors of ESLint's parser. `postprocess()` reports these from the one pass: a fatal message
+at its tag, or at the end of the last tag when it is in the wrapper. A test counts the passes.
+
 `preprocess()` builds the template once, `buildTemplate()` of the parser: the blocks come from its
 `tags`, and its diagnostics, `validateTemplate()`, go in the metadata of the virtual code
 (`getVirtualCodeMetadata()`).
@@ -189,10 +195,9 @@ Some diagnostics of the parser cannot be reported on the virtual JavaScript: a s
 delimiter is in a text, which the virtual JavaScript does not have. The rules of
 `DIAGNOSTIC_RULES` in `src/processor.ts` (`no-stray-close-delimiter`, `no-comment-across-tags`)
 each _request_ them instead (`requestDiagnostics()`): one message at the end of the virtual file,
-when the metadata has a diagnostic of the rule's code. `postprocess()` answers the requests of the
-main pass, `messages[0]`, with one message per diagnostic, in the coordinates of the template,
-with the severity and the `suppressions` of the request; it drops the requests of the other
-passes, the third one linting the same virtual code.
+when the metadata has a diagnostic of the rule's code. `postprocess()` answers each request with
+one message per diagnostic, in the coordinates of the template, with the severity and the
+`suppressions` of the request.
 
 Being at the end of the virtual file, a request follows every directive comment of the template: a
 block `eslint-disable` of the rule suppresses it (ESLint passes suppressed messages to
@@ -431,9 +436,7 @@ what EJS renders") — whitespace slurping is easy to reason about wrongly in ei
 
 The virtual JavaScript contains characters the author never wrote: the `//@ejs-tag:` marker, and
 a `;` appended to an output tag's expression so it forms a statement. A rule reporting on one of
-those is reporting on generated code, and its message must be dropped in `postprocess()` — both
-in the wrapped pass and in the raw-validation fallback, since a check added to only one leaves
-the messages standing.
+those is reporting on generated code, and its message must be dropped in `postprocess()`.
 
 The suffix is appended for every output tag, single-line or multiline, and skipped when the
 content already ends with a semicolon. Both halves matter. Appending it inconsistently left a

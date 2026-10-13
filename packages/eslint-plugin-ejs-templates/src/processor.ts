@@ -1114,15 +1114,10 @@ function translateFix(
 // ---------------------------------------------------------------------------
 
 /**
- * Position mapping for a single EJS tag block within the concatenated virtual file.
+ * Position mapping for a single EJS tag block within the function-wrapped virtual file
+ * (`GLOBAL_VIRTUAL_OPEN + blocks + GLOBAL_VIRTUAL_CLOSE`), used for message and fix translation.
  *
- * Two variants track the same block in different virtual file contexts:
- * - **segments**: Positions in the function-wrapped virtual file (`GLOBAL_VIRTUAL_OPEN + blocks + GLOBAL_VIRTUAL_CLOSE`)
- *   Used for main ESLint linting and fix translation.
- * - **rawSegments**: Positions in raw concatenated virtual code (no function wrapper).
- *   Used for fallback raw JS validation when main pass reports fatal errors with `return` statements.
- *
- * Line and offset numbers are absolute positions within their respective virtual files.
+ * Line and offset numbers are absolute positions within the virtual file.
  * They are used during postprocess() to locate ESLint messages and map them back to
  * the corresponding TagBlock for translation to original EJS source positions.
  */
@@ -1155,16 +1150,14 @@ const processedFilesMap = new Map<
 type FileBlocks = {
   segments: VirtualBlockSegment[];
   nonDirectiveSegments: VirtualBlockSegment[];
-  rawSegments: VirtualBlockSegment[];
 };
 
 /**
  * File-level mapping from ESLint virtual code to position metadata.
  *
  * Stores two VirtualBlockSegment arrays for each file:
- * - segments: Block positions in wrapped virtual code (for main linting)
- * - nonDirectiveSegments: Wrapped virtual segments excluding directive-comment blocks
- * - rawSegments: Block positions in raw virtual code (for fallback validation)
+ * - segments: Block positions in the virtual code
+ * - nonDirectiveSegments: The segments excluding directive-comment blocks
  *
  * Lifecycle: set in preprocess(), deleted in postprocess().
  */
@@ -1275,16 +1268,6 @@ export function getDiagnosticBlocks(
  */
 export function getVirtualCodeMetadata(virtualCode: string): VirtualCodeMetadata | undefined {
   return virtualCodeMetadataMap.get(virtualCode);
-}
-
-/**
- * Translate a fatal parser error message from raw JS validation.
- *
- * Currently a pass-through (returns message unchanged), but provides a hook for
- * future message transformations if raw validation needs special error handling.
- */
-function translateRawParserFatalMessage(message: string): string {
-  return message;
 }
 
 /**
@@ -1422,25 +1405,6 @@ function answerDiagnosticRequests(
         return message;
       });
   });
-}
-
-/**
- * Format a list of rule IDs as a human-readable string for error messages.
- *
- * Examples:
- * - `['a']` → `'a'`
- * - `['a', 'b']` → `'a' and 'b'`
- * - `['a', 'b', 'c']` → `'a', 'b', and 'c'`
- */
-function formatRuleListForUnusedDirective(ruleIds: string[]): string {
-  const quoted = ruleIds.map((ruleId) => `'${ruleId}'`);
-  if (quoted.length === 1) {
-    return quoted[0];
-  }
-  if (quoted.length === 2) {
-    return `${quoted[0]} and ${quoted[1]}`;
-  }
-  return `${quoted.slice(0, -1).join(', ')}, and ${quoted[quoted.length - 1]}`;
 }
 
 /**
@@ -1643,58 +1607,6 @@ function translateUnusedDirectiveFix(
 }
 
 /**
- * Normalize or filter ESLint "unused directive" messages based on rule context.
- *
- * Two filtering modes:
- *
- * **ignoreEjsTemplateRules=false** (main linting pass):
- * Returns all unused-directive messages unchanged. These are handled by
- * the standard ESLint mechanism and translateUnusedDirectiveFix().
- *
- * **ignoreEjsTemplateRules=true** (raw validation pass):
- * Filters out unused directives that only mention EJS-specific rules
- * (those starting with 'ejs-templates/'). This prevents redundant errors
- * from the raw JS validator, since those rules don't apply to raw code.
- * If ALL unused rules are EJS-specific, supresses the message (returns null).
- * If SOME are EJS-specific, rewrites message to list only non-EJS rules.
- *
- * Raw validation still reports JS-specific rule violations (like prefer-const),
- * which are valuable; we just suppress the confusing meta-messages about
- * EJS-only directives.
- */
-function normalizeUnusedDisableDirectiveMessage(
-  msg: Linter.LintMessage,
-  options?: { ignoreEjsTemplateRules?: boolean },
-): Linter.LintMessage | null {
-  const ignoreEjsTemplateRules = options?.ignoreEjsTemplateRules ?? false;
-  if (msg.ruleId !== null || !msg.message.startsWith('Unused eslint-disable directive')) {
-    return msg;
-  }
-
-  const allRuleIds = [...msg.message.matchAll(/'([^']+)'/gu)].map((m) => m[1]);
-  if (allRuleIds.length === 0) {
-    return msg;
-  }
-
-  if (!ignoreEjsTemplateRules) {
-    return msg;
-  }
-
-  const remainingRuleIds = allRuleIds.filter((ruleId) => !ruleId.startsWith('ejs-templates/'));
-  if (remainingRuleIds.length === allRuleIds.length) {
-    return msg;
-  }
-  if (remainingRuleIds.length === 0) {
-    return null;
-  }
-
-  return {
-    ...msg,
-    message: `Unused eslint-disable directive (no problems were reported from ${formatRuleListForUnusedDirective(remainingRuleIds)}).`,
-  };
-}
-
-/**
  * Build the virtual JavaScript code for the entire EJS template.
  *
  * Extracts the JavaScript portions from EJS directives and concatenates them
@@ -1771,17 +1683,12 @@ export const processor: Linter.Processor = {
    * 1. Build the template (`buildTemplate()`), its tags and its diagnostics (`validateTemplate()`)
    * 2. Extract each EJS tag as a TagBlock with JS content and metadata
    * 3. Generate virtual JS code for each block (with type marker and optional wrapping)
-   * 4. Build three virtual code variants (see Return section)
-   * 5. Initialize per-virtual-code metadata maps for rule detection
-   * 6. Store block position mappings for later message translation
+   * 4. Initialize per-virtual-code metadata maps for rule detection
+   * 5. Store block position mappings for later message translation
    *
-   * **Return values (ESLint receives all three for parallel validation):**
-   * - [0] Wrapped virtual code: `function() {\n <blocks> \n}();`
-   *       Primary linting pass with function wrapper for structural balance.
-   * - [1] Raw virtual code: `<blocks>` (concatenated, no wrapper).
-   *       Fallback for raw JS syntax validation when [0] triggers fatal errors.
-   * - [2] Wrapped raw virtual code: same as [0], used when [1] has `return` statement errors.
-   *       Allows fallback when raw code would be syntactically invalid.
+   * **Return value:** the virtual code, wrapped in a function as EJS compiles a template into the body of one:
+   * `(function() {\n <blocks> \n})();`. ESLint lints it once: parsing it and running every rule is most of the
+   * time of a lint, so that a second virtual code would nearly double it.
    *
    * **Metadata initialization:**
    * - tagFormatByVirtualCodeMap: tracks format rule satisfaction
@@ -1808,7 +1715,7 @@ export const processor: Linter.Processor = {
     }
 
     if (blocks.length === 0) {
-      fileBlocksMap.set(filename, { segments: [], nonDirectiveSegments: [], rawSegments: [] });
+      fileBlocksMap.set(filename, { segments: [], nonDirectiveSegments: [] });
       // No rule runs without a virtual file: the wrapper alone, for the rules to request the diagnostics of the
       // template, a stray close delimiter the only one a template without blocks can have.
       const reported = new Set<EjsDiagnosticCode>(Object.values(DIAGNOSTIC_RULES));
@@ -1820,14 +1727,11 @@ export const processor: Linter.Processor = {
       return [virtualCode];
     }
 
-    // Track block positions for both wrapped (segments) and raw (rawSegments) virtual code variants.
-    // These are used during postprocess() to locate ESLint messages and translate them back to source.
+    // Track block positions in the virtual code, used during postprocess() to locate ESLint messages and translate
+    // them back to source.
     const segments: VirtualBlockSegment[] = [];
-    const rawSegments: VirtualBlockSegment[] = [];
     let lineCursor = 2; // Start at line 2 (line 1 is GLOBAL_VIRTUAL_OPEN)
     let offsetCursor = GLOBAL_VIRTUAL_OPEN.length; // Account for wrapper in offset
-    let rawLineCursor = 1; // Raw code starts at line 1 (no wrapper)
-    let rawOffsetCursor = 0; // Raw code starts at offset 0 (no wrapper)
 
     for (const block of blocks) {
       const lineCount = block.virtualCode.split('\n').length;
@@ -1838,31 +1742,15 @@ export const processor: Linter.Processor = {
 
       segments.push({ block, startLine, endLine, startOffset, endOffset });
 
-      const rawStartLine = rawLineCursor;
-      const rawEndLine = rawStartLine + lineCount - 1;
-      const rawStartOffset = rawOffsetCursor;
-      const rawEndOffset = rawStartOffset + block.virtualCode.length;
-
-      rawSegments.push({
-        block,
-        startLine: rawStartLine,
-        endLine: rawEndLine,
-        startOffset: rawStartOffset,
-        endOffset: rawEndOffset,
-      });
-
-      // Each block is joined with a single newline in concatenated virtual files.
+      // Each block is joined with a single newline in the virtual code.
       lineCursor += lineCount;
       offsetCursor += block.virtualCode.length + 1; // +1 for separator newline
-      rawLineCursor += lineCount;
-      rawOffsetCursor += block.virtualCode.length + 1; // +1 for separator newline
     }
 
     const nonDirectiveSegments = segments.filter(({ block }) => !block.isDirectiveComment);
-    fileBlocksMap.set(filename, { segments, nonDirectiveSegments, rawSegments });
+    fileBlocksMap.set(filename, { segments, nonDirectiveSegments });
 
-    const joinedBlocksVirtualCode = blocks.map((b) => b.virtualCode).join('\n');
-    const virtualCode = `${GLOBAL_VIRTUAL_OPEN}${joinedBlocksVirtualCode}${GLOBAL_VIRTUAL_CLOSE}`;
+    const virtualCode = `${GLOBAL_VIRTUAL_OPEN}${blocks.map((b) => b.virtualCode).join('\n')}${GLOBAL_VIRTUAL_CLOSE}`;
     const nonDirectiveBlocks = blocks.filter((block) => !block.isDirectiveComment);
     virtualCodeMetadataMap.set(virtualCode, {
       tagFormat: nonDirectiveBlocks.map((block) => {
@@ -1889,25 +1777,16 @@ export const processor: Linter.Processor = {
       diagnostics,
     });
 
-    // Build the three virtual code variants for parallel ESLint validation passes.
-    // Pass 1 (index 0): Wrapped code with function wrapper — main linting target
-    // Pass 2 (index 1): Raw code without wrapper — fallback for raw JS validation
-    // Pass 3 (index 2): Wrapped raw code — alternative when pass 2 has `return` errors
-    const rawVirtualCode = joinedBlocksVirtualCode;
-    const wrappedRawVirtualCode = `${GLOBAL_VIRTUAL_OPEN}${joinedBlocksVirtualCode}${GLOBAL_VIRTUAL_CLOSE}`;
-
-    return [virtualCode, rawVirtualCode, wrappedRawVirtualCode];
+    return [virtualCode];
   },
 
   /**
    * Postprocess: Translate ESLint messages from virtual code back to original EJS source.
    *
    * **Processing steps:**
-   * 1. Receive messages from all three parallel validation passes (main, raw, wrapped-raw)
-   * 2. Normalize and filter ESLint system messages (unused-disable directives)
-   * 3. Route messages to appropriate handler:
-   *    - Main pass: full message translation (rules + fixes)
-   *    - Raw validation: fallback that only applies when main pass has `return` errors
+   * 1. Receive the messages of the virtual code
+   * 2. Report a syntax error tree-sitter finds in the JavaScript of the template, alone
+   * 3. Report the parsing error ESLint's parser finds (a fatal message), at its tag
    * 4. For each message, locate its TagBlock via segment mapping
    * 5. Translate message line/column from virtual to original EJS positions
    * 6. Translate sentinel-based fixes for plugin rules (prefer-single-line-tags, etc)
@@ -1915,11 +1794,6 @@ export const processor: Linter.Processor = {
    * 8. Clean up per-virtual-code metadata maps after processing
    * 9. Answer the requests of the rules of `DIAGNOSTIC_RULES` with the diagnostics of the template
    * 10. Free the template, in a `finally`
-   *
-   * **Validation fallback logic:**
-   * If the main (wrapped) pass produces fatal `return` errors, the processor falls back
-   * to the raw or wrapped-raw validation messages instead. This handles cases where
-   * certain JS patterns require a function wrapper for syntactic validity.
    */
   postprocess(messages: Linter.LintMessage[][], filename: string): Linter.LintMessage[] {
     const processedFile = processedFilesMap.get(filename);
@@ -1963,12 +1837,11 @@ export const processor: Linter.Processor = {
       }
       fullTree.delete();
 
-      const { segments = [], rawSegments = [] } = fileBlocksMap.get(filename) ?? {};
+      const { segments = [] } = fileBlocksMap.get(filename) ?? {};
       fileBlocksMap.delete(filename);
       const currentVirtualCode = `${GLOBAL_VIRTUAL_OPEN}${segments.map((s) => s.block.virtualCode).join('\n')}${GLOBAL_VIRTUAL_CLOSE}`;
       virtualCodeMetadataMap.delete(currentVirtualCode);
 
-      // The requests of the main pass; the third one lints the same virtual code, and its rules request again.
       const answeredMessages = answerDiagnosticRequests(
         (messages[0] ?? []).filter((msg) => isDiagnosticRuleId(msg.ruleId)),
         processedFile.diagnostics,
@@ -1990,12 +1863,7 @@ export const processor: Linter.Processor = {
 
       const mappedMessages = virtualMessages
         .filter((msg) => !msg.fatal && !suppressedRuleIds.has(msg.ruleId ?? '') && !isDiagnosticRuleId(msg.ruleId))
-        .flatMap((msg) => {
-          const normalizedMsg = normalizeUnusedDisableDirectiveMessage(msg, { ignoreEjsTemplateRules: false });
-          if (!normalizedMsg) {
-            return [];
-          }
-
+        .flatMap((normalizedMsg) => {
           const segmentIndex = segments.findIndex(
             (s) => normalizedMsg.line >= s.startLine && normalizedMsg.line <= s.endLine,
           );
@@ -2124,112 +1992,43 @@ export const processor: Linter.Processor = {
           return [mapped];
         });
 
-      // ── Raw validation fallback logic ──────────────────────────────────────
-      // When EJS tags contain bare `return` statements, raw JS validation (pass 2)
-      // fails because `return` is only valid inside a function body. In this case,
-      // fall back to wrapped-raw validation (pass 3) which has the function wrapper.
-      // Note: rawSegments are used with raw messages, segments with wrapped messages.
-      const rawValidationMessages = messages[1] ?? [];
-      const wrappedRawValidationMessages = messages[2] ?? [];
-      const shouldFallbackToWrappedRaw = rawValidationMessages.some(
-        (msg) => msg.fatal && /\breturn\b/u.test(msg.message),
-      );
-      const finalValidationMessages = shouldFallbackToWrappedRaw ? wrappedRawValidationMessages : rawValidationMessages;
-      const finalValidationSegments = shouldFallbackToWrappedRaw ? segments : rawSegments;
-
-      const mappedRawValidationMessages = finalValidationMessages
-        .filter((msg) => !suppressedRuleIds.has(msg.ruleId ?? '') && !isDiagnosticRuleId(msg.ruleId))
-        .flatMap((msg) => {
-          const normalizedMsg = normalizeUnusedDisableDirectiveMessage(msg, { ignoreEjsTemplateRules: true });
-          if (!normalizedMsg) {
-            return [];
-          }
-
-          const segment = finalValidationSegments.find(
-            (s) => normalizedMsg.line >= s.startLine && normalizedMsg.line <= s.endLine,
-          );
+      // The parsing error ESLint's parser finds where tree-sitter finds none (above), such as a declaration repeated: at
+      // its tag, or past the code of the last tag (in the wrapper), at its end.
+      const fatalMessages = virtualMessages
+        .filter((msg) => msg.fatal)
+        .map((msg) => {
+          const segment = segments.find((s) => msg.line >= s.startLine && msg.line <= s.endLine);
           if (!segment) {
-            if (normalizedMsg.fatal) {
-              const lastSegment = segments[segments.length - 1];
-              const block = lastSegment.block;
-
-              let line = block.originalLine;
-              let column = block.originalColumn + 1;
-
-              for (const ch of block.codeContent) {
-                if (ch === '\n') {
-                  line += 1;
-                  column = 1;
-                } else {
-                  column += 1;
-                }
+            const { block } = segments[segments.length - 1];
+            let line = block.originalLine;
+            let column = block.originalColumn + 1;
+            for (const ch of block.codeContent) {
+              if (ch === '\n') {
+                line += 1;
+                column = 1;
+              } else {
+                column += 1;
               }
-
-              const fatalMsg: Linter.LintMessage = {
-                ...normalizedMsg,
-                message: translateRawParserFatalMessage(normalizedMsg.message),
-                line,
-                column,
-              };
-              delete fatalMsg.fix;
-              return [fatalMsg];
             }
-            return [];
+            const fatalMsg: Linter.LintMessage = { ...msg, line, column };
+            delete fatalMsg.fix;
+            return fatalMsg;
           }
-
-          // The first line of each virtual block is the `//@ejs-tag:<type>` marker comment.
-          // It is generated code, not real JS — suppress lint errors from external rules
-          // reported on that line. ejs-templates rules and ESLint system messages (ruleId
-          // === null, e.g. unused-disable-directives) are intentional and kept intact.
-          if (
-            normalizedMsg.line === segment.startLine &&
-            normalizedMsg.ruleId !== null &&
-            !normalizedMsg.ruleId.startsWith('ejs-templates/')
-          ) {
-            return [];
+          const localMsg: Linter.LintMessage = { ...msg, line: msg.line - segment.startLine + 1, column: msg.column };
+          if (msg.endLine !== undefined) {
+            localMsg.endLine = msg.endLine - segment.startLine + 1;
+            localMsg.endColumn = msg.endColumn;
           }
-
-          // Same for the synthetic `;`; this pass sees the blocks through `rawSegments`, so it
-          // needs the check as well — the wrapped pass alone would leave these messages standing.
-          if (isSyntheticSuffixMessage(normalizedMsg, segment)) {
-            return [];
-          }
-
-          const localMsg: Linter.LintMessage = {
-            ...normalizedMsg,
-            line: normalizedMsg.line - segment.startLine + 1,
-            column: normalizedMsg.column,
-          };
-
-          if (normalizedMsg.endLine !== undefined) {
-            localMsg.endLine = normalizedMsg.endLine - segment.startLine + 1;
-            localMsg.endColumn = normalizedMsg.endColumn;
-          }
-
           delete localMsg.fix;
-          return [mapMessage(localMsg, segment.block)];
+          return mapMessage(localMsg, segment.block);
         });
-
-      // Keep primary diagnostics and append only unique entries from raw validation.
-      const toKey = (msg: Linter.LintMessage): string =>
-        `${msg.ruleId ?? ''}|${String(msg.fatal ?? false)}|${String(msg.line)}|${String(msg.column)}|${msg.message}`;
-
-      const seen = new Set(mappedMessages.map(toKey));
-      const uniqueRawMessages = mappedRawValidationMessages.filter((msg) => {
-        const key = toKey(msg);
-        if (seen.has(key)) {
-          return false;
-        }
-        seen.add(key);
-        return true;
-      });
 
       const formatMessages = mappedMessages.filter((msg) => msg.ruleId === 'ejs-templates/format');
       const nonFormatMessages = mappedMessages.filter((msg) => msg.ruleId !== 'ejs-templates/format');
 
       // Keep `format` fixes last so all structural/semantic fixes and validations
       // run first, and formatting is applied as a final normalization step.
-      return [...nonFormatMessages, ...uniqueRawMessages, ...answeredMessages, ...formatMessages];
+      return [...nonFormatMessages, ...fatalMessages, ...answeredMessages, ...formatMessages];
     } finally {
       // On every path: the trees of the template, the ones of the code of its tags included.
       processedFilesMap.delete(filename);

@@ -274,7 +274,7 @@ describe('processor virtual code', () => {
       throw new Error('Expected ejs.preprocess to be defined');
     }
 
-    expect(parts).toHaveLength(3);
+    expect(parts).toHaveLength(1);
 
     const virtual = parts[0];
     expect(typeof virtual).toBe('string');
@@ -287,6 +287,25 @@ describe('processor virtual code', () => {
     expect(virtual).toContain('//@ejs-tag:code-slurpable');
     expect(virtual).toContain('//@ejs-tag:escaped-output');
     expect(virtual.indexOf('//@ejs-tag:code-slurpable')).toBeLessThan(virtual.indexOf('//@ejs-tag:escaped-output'));
+  });
+
+  // Parsing the virtual JavaScript and running every rule on it is most of the time of a lint: once by template.
+  test('ESLint lints the virtual JavaScript of a template once', () => {
+    let runs = 0;
+    const counter = { rules: { runs: { create: () => ({ Program: () => void runs++ }) } } };
+    makeLinter().verify(
+      '<% const x = 1; %>\n<%= x %>\n',
+      [
+        {
+          files: ['**/*.ejs'],
+          plugins: { 'ejs-templates': plugin, counter },
+          processor: 'ejs-templates/ejs',
+          rules: { 'counter/runs': 'error' },
+        },
+      ],
+      { filename: 'template.ejs' },
+    );
+    expect(runs).toBe(1);
   });
 });
 
