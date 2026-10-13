@@ -464,6 +464,8 @@ describe('processor position mapping', () => {
     ['-%>, with its eslint-enable', '<%# eslint-disable no-var -%>\nA\n<%# eslint-enable no-var -%>\nB\n', 'A\nB\n'],
     // The blanks before the tag, which the `<%_` after it would slurp, are written in an output tag.
     ['-%>, blanks before it', 'a  <%# eslint-disable no-var -%>\n<%_ y(); _%>\nb\n', "a<%- '  ' %><%_ y(); _%>\nb\n"],
+    // The `%` and the `>` it leaves side by side, which EJS would read as a close delimiter, are written `%%>`.
+    ['-%>, between the characters of a delimiter', '%<%# eslint-disable no-var -%>\n>\n', '%%>\n'],
   ])(
     "reportUnusedDisableDirectives='error': autofix removes an unused directive closed by %s, the output unchanged",
     (_label, input, fixed) => {
@@ -472,6 +474,20 @@ describe('processor position mapping', () => {
       expect(ejs.render(output, { y: () => undefined })).toBe(ejs.render(input, { y: () => undefined }));
     },
   );
+
+  test("reportUnusedDisableDirectives='error': the fix removing a directive covers its tag, a tag alike after it", () => {
+    // The tag after it starts with the same `<%# `: the fix deletes the directive all the same, not from there on.
+    expect(lintWithUnusedDisableDirectivesError('<%# eslint-disable no-var -%>\n<%# a %>\nA\n')).toEqual([
+      {
+        ruleId: null,
+        message: "Unused eslint-disable directive (no problems were reported from 'no-var').",
+        line: 1,
+        column: 0,
+        severity: 2,
+        fix: { range: [0, 30], text: '' },
+      },
+    ]);
+  });
 
   test("reportUnusedDisableDirectives='error': autofix keeps an eslint-enable without rule list", () => {
     const input = '<%# eslint-disable no-var, eqeqeq %>\n<% var x = 1; %>\n<%# eslint-enable %>\n';
