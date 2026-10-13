@@ -6,6 +6,9 @@
     "packages/ejs-template-parser": {
       "include-component-in-tag": true,
       "initial-version": "0.1.0"
+    },
+    "packages/eslint-plugin-ejs-templates": {
+      "include-component-in-tag": false
     }
   },
   "plugins": ["node-workspace"]

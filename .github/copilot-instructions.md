@@ -42,10 +42,9 @@ themselves have no `prepare`, which npm would run on install as well.
 
 release-please releases the packages listed in `release-please-config.json`, each from the
 Conventional Commits touching its folder, and the publish job of `release-please.yml` publishes
-them in dependency order. For now it lists ejs-template-parser alone: the plugin is in
-development, out of the releases, and depends on the parser at `*` so that its workspace stays
-linked whatever the parser's version. Releasing the plugin again means listing it there (its last
-release, 0.5.0, is in `.release-please-manifest.json`) and giving its dependency a real range.
+them in dependency order. It lists both packages: the parser tagged
+`ejs-template-parser-v<version>`, the plugin `v<version>`. Its `node-workspace` plugin moves the
+plugin's dependency on the parser to the version of the parser each release brings.
 
 ## Commands
 
