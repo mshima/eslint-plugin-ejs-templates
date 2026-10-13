@@ -7,6 +7,7 @@
 //     http://www.apache.org/licenses/LICENSE-2.0
 
 import { describe, test, expect } from 'vitest';
+import ejs from 'ejs';
 import stylistic from '@stylistic/eslint-plugin';
 import { Linter } from 'eslint';
 import plugin from '../src/index.js';
@@ -453,6 +454,24 @@ describe('processor position mapping', () => {
     expect(fixed).toContain('eslint-enable no-var -%>');
     expect(fixed).not.toContain('eqeqeq');
   });
+
+  // A directive removed goes with what EJS drops after its tag, which would render once the tag is gone: the line break
+  // after its `-%>`, the blanks and the line break after its `_%>`.
+  test.each([
+    ['-%>', '<%# eslint-disable no-var -%>\nA\n', 'A\n'],
+    ['_%>', '<%# eslint-disable no-var _%>  \nA\n', 'A\n'],
+    ['%>, which drops nothing', '<%# eslint-disable no-var %>\nA\n', '\nA\n'],
+    ['-%>, with its eslint-enable', '<%# eslint-disable no-var -%>\nA\n<%# eslint-enable no-var -%>\nB\n', 'A\nB\n'],
+    // The blanks before the tag, which the `<%_` after it would slurp, are written in an output tag.
+    ['-%>, blanks before it', 'a  <%# eslint-disable no-var -%>\n<%_ y(); _%>\nb\n', "a<%- '  ' %><%_ y(); _%>\nb\n"],
+  ])(
+    "reportUnusedDisableDirectives='error': autofix removes an unused directive closed by %s, the output unchanged",
+    (_label, input, fixed) => {
+      const output = applyFixWithUnusedDisableDirectivesError(input, {});
+      expect(output).toBe(fixed);
+      expect(ejs.render(output, { y: () => undefined })).toBe(ejs.render(input, { y: () => undefined }));
+    },
+  );
 
   test("reportUnusedDisableDirectives='error': autofix keeps an eslint-enable without rule list", () => {
     const input = '<%# eslint-disable no-var, eqeqeq %>\n<% var x = 1; %>\n<%# eslint-enable %>\n';

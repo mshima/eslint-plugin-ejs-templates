@@ -160,6 +160,9 @@ const TEMPLATES: string[] = [
   // indent: a tag spanning lines with text before it on its line, alone and after the other rules of the layout
   '<%_ if (x) { _%>\nb + <%_ }\n        y();\n_%>\n',
   'a(<%\n  if (b) { %>B(<% } else\n  if (c) { %>C(<% } else\n  if (d) { %>D(<% } %>x\n',
+  // an unused eslint-disable removed with the line break its `-%>` drops, and the blanks before it kept rendering
+  '<%# eslint-disable no-var -%>\n<% x(); %>\nA\n',
+  'a  <%# eslint-disable no-var -%>\n<%_ y(); _%>\nb\n',
   // output-semi
   '<%= x; %> <%- y %>\n',
   // slurp-newline, prefer-slurping-codeonly, experimental-prefer-slurp-multiline, no-comment-empty-line
@@ -208,23 +211,23 @@ describe('autofix: what EJS renders', () => {
       ).length;
     expect(Object.fromEntries(RUNS.map((run) => [run.name, fixedCount(run)]))).toMatchInlineSnapshot(`
       {
-        "configs.customize()": 21,
-        "experimental-prefer-slurp-multiline": 3,
-        "format": 8,
-        "indent": 6,
-        "javascript rules": 2,
-        "layout rules together": 17,
-        "no-comment-empty-line": 1,
-        "no-multiline-output": 1,
-        "no-negated-condition": 1,
-        "output-semi always": 9,
-        "output-semi never": 1,
-        "prefer-encoded always": 5,
-        "prefer-encoded never": 4,
-        "prefer-output": 2,
-        "prefer-single-line-tags": 4,
-        "prefer-slurping-codeonly": 3,
-        "slurp-newline": 1,
+        "configs.customize()": 23,
+        "experimental-prefer-slurp-multiline": 5,
+        "format": 10,
+        "indent": 8,
+        "javascript rules": 4,
+        "layout rules together": 19,
+        "no-comment-empty-line": 3,
+        "no-multiline-output": 3,
+        "no-negated-condition": 3,
+        "output-semi always": 11,
+        "output-semi never": 3,
+        "prefer-encoded always": 7,
+        "prefer-encoded never": 6,
+        "prefer-output": 4,
+        "prefer-single-line-tags": 6,
+        "prefer-slurping-codeonly": 5,
+        "slurp-newline": 3,
       }
     `);
   });
@@ -288,6 +291,18 @@ describe('ejsOutput', () => {
       "compiles
       code ["a","(","'","y","'",")"]
       text "b""
+    `);
+  });
+
+  test('reads an output of a string literal alone as the text it renders', () => {
+    expect(ejsOutput("a<%- '  ' %>b", 'exact')).toBe(ejsOutput('a  b', 'exact'));
+    expect(ejsOutput("a<%= '<\\x3E' %>b", 'exact')).toBe(ejsOutput('a&lt;&gt;b', 'exact'));
+    expect(ejsOutput("a<%- x %>b<%- 'c' + d %>", 'exact')).toMatchInlineSnapshot(`
+      "compiles
+      text "a"
+      raw ["x"]
+      text "b"
+      raw ["'","c","'","+","d"]"
     `);
   });
 
