@@ -29,6 +29,7 @@ export {
   getEjsTags,
   isTagNode,
 } from './tags.js';
+export { escapeText } from './escape-text.js';
 export { type EjsDiagnostic, type EjsDiagnosticCode } from './diagnostics.js';
 export { type EjsRenderedText } from './rendered.js';
 export {

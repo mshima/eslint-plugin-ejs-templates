@@ -103,12 +103,14 @@ src/
   tags.ts               – getEjsTags: the tags, each code tag parsed in its brace context, shaped
   ejs-parser.ts         – getEjsNodes, the delimiters, the absorbed `_%>` of an output tag
   javascript-parser.ts  – parseJavaScriptPartial: best-guess parse of unbalanced JS snippets
+  escape-text.ts        – escapeText: a text to insert in a template, rendered literally (EJS 6.0.1)
   ts-parser.ts          – web-tree-sitter setup (parseEjs, parseJavaScript, findErrorNode)
 test/
   template.test.ts      – the tree of a template
   tags.test.ts          – getEjsNodes and getEjsTags
   diagnostics.test.ts   – validateTemplate, the nodes of a template
   parse-javascript-partial.test.ts
+  escape-text.test.ts   – escapeText, checked against ejs itself
   performance.test.ts   – scaling guard (see "Performance invariant")
   esm.test.ts           – the built package loads in Node as a plain ES module
 ```
@@ -292,6 +294,15 @@ EJS-specific and core does not report it at all.
 ---
 
 ## Gotchas
+
+### How EJS reads a template
+
+[`docs/ejs.md`](../docs/ejs.md) tells what EJS 6.0.1 does with a template, from its sources: the
+slurping before the splitting, the leftmost split at its delimiters, the modes (the literal mode
+`<%%` and `%%>` enter, in which the next close delimiter is written rather than dropped), the line
+break `-%>` and `_%>` drop, and the function it compiles. Read it before reasoning about what a
+template renders, and add to it what you learn of EJS — checked with `ejs.render`, the
+devDependency of ejs-template-parser.
 
 ### tree-sitter trees must be freed
 
