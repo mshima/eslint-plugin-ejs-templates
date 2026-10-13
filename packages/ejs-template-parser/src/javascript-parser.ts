@@ -10,9 +10,12 @@ import { parseJavaScript, type SyntaxNode, type Tree } from './ts-parser.js';
 
 export type RelativeJavascriptNode = {
   /**
-   * Parser content node corresponding to the original tag content (excluding synthetic wrapper).
+   * Parser content node corresponding to the original tag content (excluding synthetic wrapper): the code parsed
+   * alone, which a tag of a template whose program has no error parses only when this is read.
    */
   contentNode: SyntaxNode;
+  /** Whether the code parses alone: complete statements, opening and closing no block. */
+  parsesAlone: boolean;
   /**
    * Guessed nodes in the content subtree that start within the original content range.
    * Should be used with start offset correction (virtualOffset - start) to map back to original source positions.
@@ -129,7 +132,7 @@ const countBraces = (root: SyntaxNode, text: string): { open: number; close: num
 };
 
 /** A tree some code is read in, and the offset the code starts at in it. */
-type CodeInTree = { start: number; nodes: () => SyntaxNode[] };
+export type CodeInTree = { start: number; nodes: () => SyntaxNode[] };
 
 /** Code read in a tree of its own, or of more code where it starts at `start`: the nodes starting in it. */
 const codeInTree = (root: SyntaxNode, start: number, length: number): CodeInTree => ({
@@ -170,21 +173,24 @@ export function collectNodesInRanges(
   return nodes;
 }
 
-/**
- * Some code parsed alone (`contentTree`), its braces counted from its tokens, and its nodes read in `codeIn()`: its own
- * tree, or a tree it is part of, in which the braces it leaves open or closes are closed or opened.
- */
-function relativeJavascriptNode(
-  text: string,
-  contentTree: Tree,
-  codeIn: () => CodeInTree,
-  release: () => void,
-): RelativeJavascriptNode {
-  // A balanced snippet has no brace to count; the others are counted by their tokens, not by the errors tree-sitter
-  // recovers with, whose text ends with the last statement of the snippet rather than with the `{` it opened.
-  const braces = contentTree.rootNode.hasError ? countBraces(contentTree.rootNode, text) : { open: 0, close: 0 };
-  const missingCloseBracesCount = braces.open;
-  const missingOpenBracesCount = braces.close;
+/** What some code is read as. */
+type CodeParts = {
+  /** Its tree parsed alone, parsed when first called. */
+  alone: () => Tree;
+  /** The braces it leaves open (`open`) and the ones it closes without opening (`close`). */
+  braces: { open: number; close: number };
+  parsesAlone: boolean;
+  /** The tree its nodes are read in: its own, or one it is part of, inside the blocks it opens and closes. */
+  codeIn: () => CodeInTree;
+  /** Frees what it holds: its tree parsed alone, a tree it shares. */
+  cleanup: () => void;
+};
+
+/** Some code, from what it is read as ({@link CodeParts}). */
+function relativeJavascriptNode(text: string, parts: CodeParts): RelativeJavascriptNode {
+  const { codeIn } = parts;
+  const missingCloseBracesCount = parts.braces.open;
+  const missingOpenBracesCount = parts.braces.close;
   const bracesDelta = missingCloseBracesCount - missingOpenBracesCount;
   // The nodes are collected when read: walking a tree marshals each of its nodes out of WASM, and most tags never need
   // them.
@@ -197,7 +203,10 @@ function relativeJavascriptNode(
     get nodes() {
       return nodesOf();
     },
-    contentNode: contentTree.rootNode,
+    get contentNode() {
+      return parts.alone().rootNode;
+    },
+    parsesAlone: parts.parsesAlone,
     get start() {
       return codeIn().start;
     },
@@ -211,10 +220,7 @@ function relativeJavascriptNode(
         (n) => n.type === 'statement_block' || missingCloseBracesCount > 0 || missingOpenBracesCount > 0,
       );
     },
-    cleanup: () => {
-      release();
-      contentTree.delete();
-    },
+    cleanup: parts.cleanup,
     splitStatements: () => {
       const contentStart = codeIn().start;
       const createStatement = (statementText: string, type: SplitStatementType): SplitStatement | null => {
@@ -341,34 +347,83 @@ function relativeJavascriptNode(
  */
 export function parseJavaScriptPartial(text: string, incrementalCode = ''): RelativeJavascriptNode {
   const contentTree = parseJavaScript(text);
+  const alone = () => contentTree;
   if (!contentTree.rootNode.hasError) {
-    return relativeJavascriptNode(
-      text,
-      contentTree,
-      () => codeInTree(contentTree.rootNode, 0, text.length),
-      () => undefined,
-    );
+    return relativeJavascriptNode(text, {
+      alone,
+      braces: { open: 0, close: 0 },
+      parsesAlone: true,
+      codeIn: () => codeInTree(contentTree.rootNode, 0, text.length),
+      cleanup: () => {
+        contentTree.delete();
+      },
+    });
   }
+  // A balanced snippet has no brace to count; the others are counted by their tokens, not by the errors tree-sitter
+  // recovers with, whose text ends with the last statement of the snippet rather than with the `{` it opened.
+  const braces = countBraces(contentTree.rootNode, text);
   const wrapperPrefix = `function __ejs_brace_probe__() {\n${incrementalCode}`;
-  const { open } = countBraces(contentTree.rootNode, text);
-  const bestGuess = parseJavaScript(`${wrapperPrefix}${text}\n  foo(); \n}\n${'}\n'.repeat(open)}`);
-  return relativeJavascriptNode(
-    text,
-    contentTree,
-    () => codeInTree(bestGuess.rootNode, wrapperPrefix.length, text.length),
-    () => {
+  const bestGuess = parseJavaScript(`${wrapperPrefix}${text}\n  foo(); \n}\n${'}\n'.repeat(braces.open)}`);
+  return relativeJavascriptNode(text, {
+    alone,
+    braces,
+    parsesAlone: false,
+    codeIn: () => codeInTree(bestGuess.rootNode, wrapperPrefix.length, text.length),
+    cleanup: () => {
       bestGuess.delete();
+      contentTree.delete();
     },
-  );
+  });
 }
 
 /**
- * The code of a tag parsed alone: balanced, its nodes are read in its own tree; otherwise in `program()`, the
- * program of its template, which closes and opens the blocks of its tags, where it starts at `start`. `release()`
- * is called when it is freed, for the program to be freed with its last tag.
+ * The code of a tag parsed alone, which tells its braces: balanced, its nodes are read in its own tree; otherwise in
+ * `program()`, the program of its template, inside the blocks it opens and closes. `release()` is called when it is
+ * freed, for the program to be freed with its last tag.
  */
 export function parseTagCode(text: string, program: () => CodeInTree, release: () => void): RelativeJavascriptNode {
   const contentTree = parseJavaScript(text);
-  const ownTree = () => codeInTree(contentTree.rootNode, 0, text.length);
-  return relativeJavascriptNode(text, contentTree, contentTree.rootNode.hasError ? program : ownTree, release);
+  const parsesAlone = !contentTree.rootNode.hasError;
+  return relativeJavascriptNode(text, {
+    alone: () => contentTree,
+    braces: parsesAlone ? { open: 0, close: 0 } : countBraces(contentTree.rootNode, text),
+    parsesAlone,
+    codeIn: parsesAlone ? () => codeInTree(contentTree.rootNode, 0, text.length) : program,
+    cleanup: () => {
+      release();
+      contentTree.delete();
+    },
+  });
+}
+
+/**
+ * The code of a tag read in the program of its template, which tells its braces and whether it parses alone: its nodes
+ * are read there when it does not, and in its own tree otherwise, which is parsed only when they, or `contentNode`, are
+ * read. `release()` is called when it is freed, for the program to be freed with its last tag.
+ */
+export function readTagCode(
+  text: string,
+  read: { braces: { open: number; close: number }; parsesAlone: boolean },
+  program: () => CodeInTree,
+  release: () => void,
+): RelativeJavascriptNode {
+  let contentTree: Tree | undefined;
+  let freed = false;
+  const alone = (): Tree => {
+    // Parsed after its cleanup, its tree would never be freed.
+    if (freed) throw new Error('The code of the tag is freed: read its tree before javascript.cleanup()');
+    return (contentTree ??= parseJavaScript(text));
+  };
+  return relativeJavascriptNode(text, {
+    alone,
+    ...read,
+    codeIn: read.parsesAlone ? () => codeInTree(alone().rootNode, 0, text.length) : program,
+    cleanup: () => {
+      if (freed) return;
+      freed = true;
+      release();
+      contentTree?.delete();
+      contentTree = undefined;
+    },
+  });
 }

@@ -20,7 +20,7 @@ import { describe, test, expect, vi } from 'vitest';
  * Counting characters rather than timing the run keeps the assertion deterministic; a
  * wall-clock budget would flake under CI load and on slower machines.
  */
-const parsed = { chars: 0 };
+const parsed = { chars: 0, calls: 0 };
 
 vi.mock('../src/ts-parser.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../src/ts-parser.js')>();
@@ -28,6 +28,7 @@ vi.mock('../src/ts-parser.js', async (importOriginal) => {
     ...actual,
     parseJavaScript: (text: string) => {
       parsed.chars += text.length;
+      parsed.calls++;
       return actual.parseJavaScript(text);
     },
   };
@@ -105,5 +106,22 @@ describe('buildTemplate scaling', () => {
         `(${String(smallChars)} -> ${String(largeChars)} chars); ` +
         `a factor near 4 means the code of a tag is parsed again with the code of the tags before it`,
     ).toBeLessThan(MAX_GROWTH_FACTOR);
+  });
+});
+
+describe('buildTemplate parses the JavaScript of a template once', () => {
+  // Its tags are read in its program; a tag is parsed alone only when its tree is read.
+  test('a template whose program parses', () => {
+    parsed.calls = 0;
+    const built = buildTemplate(siblingBlocks(3));
+    try {
+      validateTemplate(built);
+      const programOnly = parsed.calls;
+      const output = built.tags.find((tag) => tag.type === 'escaped-output');
+      expect(output?.type === 'escaped-output' && output.javascript.contentNode.type).toBe('program');
+      expect([programOnly, parsed.calls]).toEqual([1, 2]);
+    } finally {
+      cleanupTemplate(built);
+    }
   });
 });
