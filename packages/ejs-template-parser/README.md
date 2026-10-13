@@ -185,6 +185,45 @@ rule:
 - `no-comment-empty-line` — a comment tag on a line of its own not closed by `-%>`, which leaves an
   empty line.
 
+### Inserting a text
+
+`escapeText(template, offset, text)` gives what to insert at an offset of a template so that EJS
+(6.0.1, the default delimiters) renders `text` literally where the offset renders, and renders the
+rest of the template as before. It follows how EJS reads a template, without parsing it with
+tree-sitter.
+
+```js
+import { escapeText } from 'ejs-template-parser';
+
+escapeText('a\n', 1, '<%= x %>'); // '<%%= x %%>'
+escapeText('a %= b\n', 2, '<'); // '<%': with the template, `a <%%= b`, which renders `a <%= b`
+escapeText('<%_ if (a) { _%>  b\n<%_ } _%>\n', 16, ' x'); // "<%- ' ' %>x<%# _%>"
+```
+
+The offset is in a text of the template, or between two of its nodes; a RangeError tells an offset
+in a tag, or inside a delimiter of a text (`<%%`, `%%>`, a `%>` EJS drops). Inside what a
+delimiter slurps (the blanks before a `<%_` or after a `_%>`, the line break after a `-%>` or a
+`_%>`), the offset renders where the delimiter does.
+
+The text is written as it is, its delimiters escaped (`<%%`, `%%>`), except where EJS would not
+render it as written, around which a tag is added:
+
+- a delimiter the text makes with the template around: a text ending with `<` before a `%` of the
+  template, or with `%` before a `>`, starting with `%` after a `<`, or with `>` after a `%`;
+- blanks a delimiter slurps: the blanks the text starts with right after a `_%>`, or ends with
+  right before a `<%_`, are written as an output tag of a string, `<%- '  ' %>`; a line break it
+  starts with right after a `-%>` or a `_%>` is preceded by another one, which EJS drops;
+- inserted inside what a delimiter slurps, the text would stop it slurping what is on its other
+  side: an empty tag slurps it again, `<%_ %>` before the text, `<%# _%>` or `<%# -%>` after it;
+- the literal mode `<%%` and `%%>` enter, in which EJS writes the next close delimiter where it
+  drops one in a text: a text entering it before a `%>` of the template is followed by an empty
+  comment tag, `<%# %>`, which leaves it; a text ending with `<`, `-`, `_` or `%` right before a
+  `%>` of the template is separated from it the same way, or, in the literal mode, written with
+  the `%>` (`%%>`) before an opened comment tag `<%# `, which the `%>` of the template closes.
+
+A text inserted in the literal mode between `-%><%%` and the line break the `-%>` drops would need
+a tag, which leaves the literal mode: a RangeError tells it.
+
 ### Lower level
 
 - `getEjsNodes(text)` — the top-level tree-sitter nodes of a template, each with its `linePrefix`.
