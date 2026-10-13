@@ -20,9 +20,9 @@ parse is synchronous.
 ## Usage
 
 ```js
-import { parseTemplate } from 'ejs-template-parser';
+import { buildTemplate, cleanupTemplate } from 'ejs-template-parser';
 
-const template = parseTemplate(`<%_ for (const field of fields) { _%>
+const template = buildTemplate(`<%_ for (const field of fields) { _%>
   <%= field.name %>
 <%_ } _%>
 `);
@@ -34,21 +34,56 @@ try {
   // loop.branches[0].children: the text '\n  ', the tag <%= field.name %>, the text '\n'
   // loop.close.code === ' } '
 } finally {
-  template.delete();
+  cleanupTemplate(template);
 }
 ```
 
 ## API
 
-### `parseTemplate(text)`
+### `buildTemplate(text)`
 
-Parses a template into a tree. Throws, with the `line` and `column` of the error, when the template
-has a syntax error (a tag left open).
+Builds the tree of a template. Throws, with the `line` and `column` of the error and its
+`syntax-error` diagnostic (`diagnostic`), when the template has a syntax error (a tag left open).
 
+Its trees live in WebAssembly memory, which the garbage collector does not manage (see
+[Memory](#memory)):
+
+- declared with `const`, as on Node 22, which has no `using`, the template is freed by
+  `cleanupTemplate`, called once done with it, in a `finally`:
+
+  ```js
+  const template = buildTemplate(text);
+  try {
+    // ...
+  } finally {
+    cleanupTemplate(template);
+  }
+  ```
+
+- declared with `using`, on Node 24 or in code compiled for an older Node, it is freed at the end of
+  its block, without `cleanupTemplate`:
+
+  ```js
+  {
+    using template = buildTemplate(text);
+    // ...
+  }
+  ```
+
+The template built has:
+
+- `text` — the template.
 - `children` — the texts, tags and blocks of the template, in order. Together they cover the whole
   template.
+- `nodes` — the texts and the tags of the template in order, each tag once: joined, they write the
+  template back.
 - `tags` — every tag of the template, in order.
-- `delete()` — frees the parse trees (see [Memory](#memory)).
+
+### `cleanupTemplate(template)`
+
+Frees the trees of a template `buildTemplate` built; the nodes of its tags are invalid afterwards,
+their other fields stay. Called again, it does nothing. A template declared with `using` is cleaned
+up at the end of its block.
 
 A node of the tree is one of:
 
@@ -67,7 +102,10 @@ A node of the tree is one of:
     partial template, whose tags close blocks another template opens.
   - A code or output tag also has `parsedCode` — `code` without the line break or the blank
     separating it from the closing delimiter — and `javascript`, the best-guess parse of
-    `parsedCode` (see `parseJavaScriptPartial`).
+    `parsedCode` (see `parseJavaScriptPartial`); `shape`, how it renders the blanks around it, as
+    eslint-plugin-ejs-templates classifies it (`slurp` for `<%_` or `_%>`, `code-slurpable` for a
+    `<% %>` opening no block, `code`, or the type of an output tag); and `expectedIndent`, the
+    indentation of a slurp tag on a line of its own, two blanks for each block it is in.
 - **`EjsBlock`** — `{ kind: 'block', branches, close }`: tags opening and closing braces.
   - `branches` — `{ open, statement, children }` each: the tag opening the branch (`<% if (a) { %>`,
     or the continuation `<% } else { %>` of the branch before), the tree-sitter type of its
@@ -79,6 +117,53 @@ A node of the tree is one of:
 A tag opening or closing several blocks at once (`<% } } %>`) is the `close` (or the `open`) of
 each of them. A tag closing a block and opening another one (`<% }); b.forEach(i => { %>`) closes
 the first and opens the second; `else`, `catch` and `finally` make a branch of the same block.
+
+### Diagnostics
+
+`validateTemplate(template)` gives the diagnostics of a template `buildTemplate` built, before
+`cleanupTemplate` frees it (they read the JavaScript of its tags): `{ code, severity, message,
+offset, length, line, column }` each, in order. A template that does not parse has its diagnostic on
+the error `buildTemplate` throws.
+
+```js
+let template;
+try {
+  template = buildTemplate(text);
+} catch (error) {
+  console.log(error.diagnostic); // { code: 'syntax-error', ... }
+}
+try {
+  for (const { severity, code, line, message } of validateTemplate(template)) {
+    console.log(`${line}: ${severity} ${code}: ${message}`);
+  }
+} finally {
+  cleanupTemplate(template);
+}
+```
+
+Errors, what EJS fails on or renders otherwise than written:
+
+- `syntax-error` — the template does not parse, a tag left open (on the error `buildTemplate`
+  throws).
+- `javascript-error` — the JavaScript EJS compiles the template to does not parse, at this tag. The
+  template is compiled as EJS compiles it: its code tags in line, its texts and output tags appended.
+- `comment-across-tags` — a block comment opened in a tag and closed in a later one: what is between
+  them is commented out.
+- `stray-close-delimiter` — a `%>` (or `-%>`, `_%>`) in a text, which EJS drops; `%%>` writes one.
+
+Warnings, what is out of the conventions of [eslint-plugin-ejs-templates], each one named after its
+rule:
+
+- `unclosed-block`, `unopened-close` — a block no tag closes, a tag closing a block no tag opens, as
+  in a partial template.
+- `prefer-slurping-codeonly` — a `<% %>` tag opening no block, which leaves its blanks and its line
+  break in the output where `<%_ _%>` slurps them.
+- `slurp-newline` — a slurp tag with text before it on its line, whose blanks it slurps.
+- `indent` — a slurp tag on a line of its own not indented two blanks for each block it is in.
+- `prefer-single-line-tags` — a tag of several statements opening or closing blocks over several
+  lines, or one closing several blocks.
+- `no-comment-empty-line` — a comment tag on a line of its own not closed by `-%>`, which leaves an
+  empty line.
 
 ### Lower level
 
@@ -94,11 +179,25 @@ the first and opens the second; `else`, `catch` and `finally` make a branch of t
 
 ## Memory
 
-Parse trees live in WebAssembly memory, which the JavaScript garbage collector does not manage.
-Leaking them exhausts the WASM heap after a few hundred templates and aborts the process. Free them
-once done: `template.delete()` for `parseTemplate`; for the lower level, `tag.javascript.cleanup()`
-for each code tag and `nodes[0].tree.delete()` for the nodes. The fields of a tag other than its
-`node` and `javascript` stay valid afterwards.
+The trees of tree-sitter live in WebAssembly memory, which the JavaScript garbage collector does not
+manage: left behind, a few hundred templates exhaust it and abort the process. Free them once done
+with a template:
+
+- `cleanupTemplate(template)` for `buildTemplate`, in a `finally`;
+- or a `using` declaration, which cleans the template up at the end of its block, whatever ends it
+  (Node 24, or a compiler supporting it):
+
+  ```js
+  {
+    using template = buildTemplate(text);
+    // ...
+  }
+  ```
+
+- for the lower level, `tag.javascript.cleanup()` for each code tag and `nodes[0].tree.delete()` for
+  the nodes of `getEjsNodes`.
+
+The fields of a tag other than its `node` and `javascript` stay valid afterwards.
 
 ## Limitations
 

@@ -11,7 +11,7 @@ on, each a package of its own:
 - **ejs-template-parser** parses templates with [tree-sitter-embedded-template] via
   web-tree-sitter, and the code of each tag with tree-sitter-javascript, inside the blocks the
   tags before it left open: the tags with their delimiters and code, the braces each one opens and
-  closes, and the tree of the texts, tags and blocks of a template (`parseTemplate`).
+  closes, and the tree of the texts, tags and blocks of a template (`buildTemplate`).
 - **eslint-plugin-ejs-templates** extracts each EJS tag into a virtual JavaScript block that
   ESLint rules can inspect, from the tags `getEjsTags` gives.
 
@@ -97,14 +97,16 @@ The parser, in `packages/ejs-template-parser/`:
 ```
 src/
   index.ts              – the public API
-  template.ts           – parseTemplate: the tree of texts, tags and blocks
-  tags.ts               – getEjsTags: the tags, each code tag parsed in its brace context
+  template.ts           – buildTemplate, cleanupTemplate, validateTemplate: the tree of a template
+  diagnostics.ts        – the diagnostics of a template: its errors, its conventions
+  tags.ts               – getEjsTags: the tags, each code tag parsed in its brace context, shaped
   ejs-parser.ts         – getEjsNodes, the delimiters, the absorbed `_%>` of an output tag
   javascript-parser.ts  – parseJavaScriptPartial: best-guess parse of unbalanced JS snippets
   ts-parser.ts          – web-tree-sitter setup (parseEjs, parseJavaScript, findErrorNode)
 test/
   template.test.ts      – the tree of a template
   tags.test.ts          – getEjsNodes and getEjsTags
+  diagnostics.test.ts   – validateTemplate, the nodes of a template
   parse-javascript-partial.test.ts
   performance.test.ts   – scaling guard (see "Performance invariant")
   esm.test.ts           – the built package loads in Node as a plain ES module
@@ -293,7 +295,7 @@ EJS-specific and core does not report it at all.
 ### tree-sitter trees must be freed
 
 Parse trees live in WASM memory that the JavaScript garbage collector does not manage: the tree
-of a template (`template.delete()`, or `nodes[0].tree.delete()`) and the trees of the code of each
+of a template (`cleanupTemplate(template)`, or `nodes[0].tree.delete()`) and the trees of the code of each
 tag (`tag.javascript.cleanup()`). In the plugin they are released by
 `block.javascriptPartialNode?.cleanup()`, which normally runs from `postprocess()`.
 
@@ -318,6 +320,16 @@ asserting that doubling a template does not much more than double them; it delib
 not assert wall-clock time, which flakes in CI. The plugin's `extractTagBlocks()` reads each tag
 of `getEjsTags()` once: re-parsing there the code of the tags before the current one brings the
 quadratic case back.
+
+### The conventions of the tags, shared
+
+The parser classifies each code tag as eslint-plugin-ejs-templates does (`shape`: `slurp`,
+`code-slurpable`, `code`, or an output tag's) and gives the indentation of a slurp tag at its depth
+of blocks (`expectedIndent`); the plugin's `extractTagBlocks()` builds its tag types on them. The
+parser's warnings (`prefer-slurping-codeonly`, `slurp-newline`, `indent`, `prefer-single-line-tags`,
+`no-comment-empty-line`) report what these rules of the plugin report, with the same conditions: a
+change to one of these rules changes `conventionsOf()` in the parser's `src/diagnostics.ts` too,
+and both are checked against the templates of generator-jhipster, which lint clean.
 
 ### The parsed code of a tag
 

@@ -71,6 +71,8 @@ describe('getEjsTags', () => {
       {
         kind: 'tag',
         type: 'escaped-output',
+        shape: 'escaped-output',
+        expectedIndent: '',
         offset: 6,
         length: 11,
         line: 1,
@@ -94,6 +96,8 @@ describe('getEjsTags', () => {
       {
         kind: 'tag',
         type: 'code',
+        shape: 'slurp',
+        expectedIndent: '',
         offset: 2,
         length: 16,
         line: 1,

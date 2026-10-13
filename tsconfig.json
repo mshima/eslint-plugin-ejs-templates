@@ -1,9 +1,9 @@
 {
   "compilerOptions": {
-    "target": "ES2022",
+    "target": "ES2024",
     "module": "node16",
     "moduleResolution": "node16",
-    "lib": ["ES2022", "DOM"],
+    "lib": ["ES2024", "ESNext.Disposable", "DOM"],
     "types": ["node", "emscripten"],
     "strict": true,
     "esModuleInterop": true,
