@@ -161,11 +161,12 @@ const strayCloseDelimiters = (
 };
 
 /** The nodes of a tree with an error, not the ones inside another one. */
+// The walks go down the subtrees tree-sitter tells have an error, and look for comments inside WASM: walking a whole
+// tree in JavaScript marshals each of its nodes out of WASM.
 const errorNodes = (node: SyntaxNode): SyntaxNode[] =>
-  node.isError || node.isMissing ? [node] : node.children.flatMap(errorNodes);
+  node.isError || node.isMissing ? [node] : node.hasError ? node.children.flatMap(errorNodes) : [];
 
-const commentNodes = (node: SyntaxNode): SyntaxNode[] =>
-  node.type === 'comment' ? [node] : node.children.flatMap(commentNodes);
+const commentNodes = (node: SyntaxNode): SyntaxNode[] => node.descendantsOfType('comment');
 
 /**
  * The diagnostics of a template, from its texts and tags in order, and the blocks it leaves unclosed and the closes
