@@ -31,8 +31,8 @@ export type EjsBranch = {
   /**
    * The tree-sitter type of the statement the branch belongs to, when the tag opens a statement block:
    * `if_statement`, `else_clause`, `for_statement`, `for_in_statement` (`for...of` and `for...in`),
-   * `while_statement`, `do_statement`, `try_statement`, `catch_clause`, `finally_clause`, `arrow_function`
-   * or `function_expression` (a callback, like `forEach(item => {`).
+   * `while_statement`, `do_statement`, `try_statement`, `catch_clause`, `finally_clause`, `switch_statement`,
+   * `arrow_function` or `function_expression` (a callback, like `forEach(item => {`).
    */
   statement?: string;
   children: EjsTemplateNode[];
@@ -149,9 +149,10 @@ export function buildTemplate(text: string): EjsTemplate {
     const { javascript } = tag;
     const closes = javascript.missingOpenBracesCount;
     const opens = javascript.missingCloseBracesCount;
-    // Without the statement a partial template opens elsewhere, tree-sitter recovers with a block of the program.
+    // Without the statement a partial template opens elsewhere, tree-sitter recovers with a block of the program, or
+    // of the blocks the program opens for the ones its tags close without opening: a bare block is no statement.
     const statements = openedNodes(tag).map((node) =>
-      node.parent && !['program', 'ERROR'].includes(node.parent.type) ? node.parent.type : undefined,
+      node.parent && !['program', 'ERROR', 'statement_block'].includes(node.parent.type) ? node.parent.type : undefined,
     );
     // `} else {`, `} catch (e) {`: the next branch of the block, rather than a block closed and another opened.
     const continues =
