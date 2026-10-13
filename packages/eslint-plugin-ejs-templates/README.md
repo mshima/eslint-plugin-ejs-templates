@@ -614,11 +614,14 @@ CREATE INDEX ON `<%= bucket %>` %%>(tokenDate);
 CREATE INDEX ON `<%= bucket %>` (tokenDate);
 ```
 
-The two suggestions:
+The two suggestions, written with `escapeText()` of ejs-template-parser from what EJS renders of the
+text:
 
-- **Write it literally**: `%>` becomes `%%>`, `-%>` `-%%>` and `_%>` `_%%>`.
+- **Write it literally**: `%>` becomes `%%>`, `-%>` `-%%>` and `_%>` `_%%>`; the output then has
+  the delimiter, and what EJS dropped along with it.
 - **Delete it, the output unchanged**: with what EJS removes along with it, the line break right
-  after a `-%>` or a `_%>`, and the blanks after a `_%>`.
+  after a `-%>` or a `_%>`, and the blanks after a `_%>`. Blanks before it that a `<%_` after would
+  then slurp are kept, written as `<%- ' ' %>`.
 
 There is no fix: a stray delimiter is as often a typo to delete as a literal to escape.
 

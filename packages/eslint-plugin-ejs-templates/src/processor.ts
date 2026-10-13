@@ -14,6 +14,8 @@ import {
   type EjsDiagnostic,
   type EjsDiagnosticCode,
   type EjsTemplate,
+  type EjsText,
+  escapeText,
   findErrorNode,
   getDirectiveCodeText,
   parseJavaScript,
@@ -1266,32 +1268,78 @@ function logVirtualCodeOnFatal(
 }
 
 /**
- * The suggestions of a stray close delimiter: written literally, `%%>`, the output then has it, or deleted, the output
- * unchanged, with what EJS removes along with it: the blanks after a `_%>`, and the line break right after a `-%>` or
- * after a `_%>` and its blanks.
+ * The suggestions of a stray close delimiter, from what EJS renders of the text it is in (`rendered`,
+ * `renderedOffsets`): deleted, the output unchanged, or written literally, the output then has what is deleted.
+ *
+ * What is deleted is the delimiter with what EJS drops along with it, up to the next character it renders (the blanks
+ * after a `_%>`, the line break after a `-%>` or a `_%>`), never past another close delimiter. Deleting it would join
+ * the blanks around it, which a `<%_` after or a `_%>` before could then slurp: the blanks and the delimiter are
+ * written again, by `escapeText()`, with what EJS rendered of the blanks, and the delimiter as written for the literal
+ * suggestion. A suggestion `escapeText()` cannot write (it throws a RangeError) is left out.
  */
-function strayCloseDelimiterSuggestions(diagnostic: EjsDiagnostic, sourceText: string): Linter.LintSuggestion[] {
+function strayCloseDelimiterSuggestions(
+  diagnostic: EjsDiagnostic,
+  sourceText: string,
+  texts: EjsText[],
+): Linter.LintSuggestion[] {
   const { offset, length } = diagnostic;
   const end = offset + length;
-  const delimiter = sourceText.slice(offset, end);
-  const literal = `${delimiter.slice(0, -2)}%%>`;
-  const following = sourceText.slice(end);
-  let removedLength = 0;
-  if (delimiter === '_%>') {
-    removedLength = /^[ \t]*(?:\r\n|\r|\n)?/.exec(following)?.[0].length ?? 0;
-  } else if (delimiter === '-%>') {
-    removedLength = /^(?:\r\n|\r|\n)?/.exec(following)?.[0].length ?? 0;
-  }
-  return [
-    {
-      desc: `Write it literally: ${literal}`,
-      fix: { range: [offset, end], text: literal },
-    },
-    {
-      desc: 'Delete it, the output unchanged',
-      fix: { range: [offset, end + removedLength], text: '' },
-    },
-  ];
+  const text = texts.find((t) => t.offset <= offset && end <= t.offset + t.length);
+  if (!text) return [];
+  const textEnd = text.offset + text.length;
+  const nextRendered = text.renderedOffsets.find((renderedOffset) => renderedOffset >= end) ?? end;
+  const nextDelimiter = /[-_]?%>/g;
+  nextDelimiter.lastIndex = end;
+  const deletedEnd = Math.min(nextRendered, nextDelimiter.exec(sourceText)?.index ?? nextRendered, textEnd);
+
+  // The blanks of the text around what is deleted, and what EJS renders of them.
+  let from = offset;
+  while (from > text.offset && (sourceText[from - 1] === ' ' || sourceText[from - 1] === '\t')) from--;
+  let to = deletedEnd;
+  while (to < textEnd && (sourceText[to] === ' ' || sourceText[to] === '\t')) to++;
+  const renderedIn = (start: number, stop: number) => {
+    let rendered = '';
+    for (let index = 0; index < text.rendered.length; index++) {
+      if (start <= text.renderedOffsets[index] && text.renderedOffsets[index] < stop) rendered += text.rendered[index];
+    }
+    return rendered;
+  };
+  const rest = sourceText.slice(0, from) + sourceText.slice(to);
+  const original = sourceText.slice(from, to);
+
+  /** The fix writing a text in place of the blanks and the delimiter, without what it leaves as it is. */
+  const fixOf = (replacement: string): Rule.Fix => {
+    let prefix = 0;
+    while (prefix < replacement.length && prefix < original.length && replacement[prefix] === original[prefix]) {
+      prefix++;
+    }
+    let suffix = 0;
+    while (
+      suffix < replacement.length - prefix &&
+      suffix < original.length - prefix &&
+      replacement[replacement.length - 1 - suffix] === original[original.length - 1 - suffix]
+    ) {
+      suffix++;
+    }
+    return {
+      range: [from + prefix, to - suffix],
+      text: replacement.slice(prefix, replacement.length - suffix),
+    };
+  };
+  const suggestions: Linter.LintSuggestion[] = [];
+  const suggest = (desc: string, written: string) => {
+    try {
+      suggestions.push({
+        desc,
+        fix: fixOf(escapeText(rest, from, renderedIn(from, offset) + written + renderedIn(deletedEnd, to))),
+      });
+    } catch (error) {
+      if (!(error instanceof RangeError)) throw error;
+    }
+  };
+  suggest('Write it literally, the output then has it', sourceText.slice(offset, deletedEnd));
+  suggest('Delete it, the output unchanged', '');
+  return suggestions;
 }
 
 /**
@@ -1303,6 +1351,7 @@ function answerDiagnosticRequests(
   requests: (Linter.LintMessage | Linter.SuppressedLintMessage)[],
   diagnostics: EjsDiagnostic[],
   sourceText: string,
+  texts: EjsText[],
 ): Linter.LintMessage[] {
   return requests.flatMap((request) => {
     const { ruleId, severity } = request;
@@ -1325,7 +1374,7 @@ function answerDiagnosticRequests(
           endColumn: (lines.length === 1 ? diagnostic.column + 1 : 1) + lastLine.length,
         };
         if (code === 'stray-close-delimiter') {
-          message.suggestions = strayCloseDelimiterSuggestions(diagnostic, sourceText);
+          message.suggestions = strayCloseDelimiterSuggestions(diagnostic, sourceText, texts);
         }
         return message;
       });
@@ -1882,6 +1931,7 @@ export const processor: Linter.Processor = {
         (messages[0] ?? []).filter((msg) => isDiagnosticRuleId(msg.ruleId)),
         processedFile.diagnostics,
         sourceText,
+        processedFile.template.nodes.filter((node) => node.kind === 'text'),
       );
 
       if (segments.length === 0) {

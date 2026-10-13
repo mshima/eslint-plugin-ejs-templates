@@ -7,6 +7,7 @@
 //     http://www.apache.org/licenses/LICENSE-2.0
 
 import { describe, test, expect } from 'vitest';
+import ejs from 'ejs';
 import { ESLint, type Linter } from 'eslint';
 import { lint, makeConfig, makeLinter } from './helpers.js';
 
@@ -34,7 +35,7 @@ describe('rule: ejs-templates/no-stray-close-delimiter', () => {
         endLine: 1,
         endColumn: 5,
         suggestions: [
-          { desc: 'Write it literally: %%>', fix: { range: [2, 4], text: '%%>' } },
+          { desc: 'Write it literally, the output then has it', fix: { range: [3, 3], text: '%' } },
           { desc: 'Delete it, the output unchanged', fix: { range: [2, 4], text: '' } },
         ],
       },
@@ -52,7 +53,7 @@ describe('rule: ejs-templates/no-stray-close-delimiter', () => {
         endLine: 2,
         endColumn: 6,
         suggestions: [
-          { desc: 'Write it literally: -%%>', fix: { range: [11, 14], text: '-%%>' } },
+          { desc: 'Write it literally, the output then has it', fix: { range: [13, 13], text: '%' } },
           { desc: 'Delete it, the output unchanged', fix: { range: [11, 15], text: '' } },
         ],
       },
@@ -70,7 +71,7 @@ describe('rule: ejs-templates/no-stray-close-delimiter', () => {
         endLine: 2,
         endColumn: 6,
         suggestions: [
-          { desc: 'Write it literally: _%%>', fix: { range: [11, 14], text: '_%%>' } },
+          { desc: 'Write it literally, the output then has it', fix: { range: [13, 13], text: '%' } },
           { desc: 'Delete it, the output unchanged', fix: { range: [11, 17], text: '' } },
         ],
       },
@@ -96,7 +97,7 @@ describe('rule: ejs-templates/no-stray-close-delimiter', () => {
         endLine: 1,
         endColumn: 5,
         suggestions: [
-          { desc: 'Write it literally: %%>', fix: { range: [2, 4], text: '%%>' } },
+          { desc: 'Write it literally, the output then has it', fix: { range: [3, 3], text: '%' } },
           { desc: 'Delete it, the output unchanged', fix: { range: [2, 4], text: '' } },
         ],
       },
@@ -139,9 +140,37 @@ describe('suggestions: no-stray-close-delimiter', () => {
     ['-%>', 'a -%>\nb\n', 'a -%%>\nb\n', 'a b\n'],
     ['_%>', 'a _%>  \nb\n', 'a _%%>  \nb\n', 'a b\n'],
     ['_%> followed by text', 'a _%>  b\n', 'a _%%>  b\n', 'a b\n'],
+    ['-%> before CRLF', 'a -%>\r\nb\n', 'a -%%>\r\nb\n', 'a b\n'],
+    ['%> at the end of the template', 'a %>', 'a %%>', 'a '],
+    ['%> after a literal', '<%% x %> y %> z\n', '<%% x %> y %%> z\n', '<%% x %> y  z\n'],
+    ['-%> before a <%_', 'a -%>\n<%_ x(); _%>\nb\n', 'a -%%>\n<%_ x(); _%>\nb\n', "a<%- ' ' %><%_ x(); _%>\nb\n"],
+    ['%> between blanks before a <%_', 'a %> <%_ x(); _%>\n', 'a %%><%_ x(); _%>\n', "a<%- ' ' %><%_ x(); _%>\n"],
   ])('%s: written literally, or deleted', (_label, template, literal, deleted) => {
     const [msg] = lint(template, rules);
     expect(msg.suggestions?.map((suggestion) => applySuggestion(template, suggestion))).toEqual([literal, deleted]);
+  });
+
+  test.each([
+    ['a %> b\n', ['a %> b\n']],
+    ['a -%>\nb\n', ['a -%>\nb\n']],
+    ['a _%>  \nb\n', ['a _%>  \nb\n']],
+    ['a _%>  b\n', ['a _%>  b\n']],
+    ['a %>\r\nb\n', ['a %>\r\nb\n']],
+    ['a -%>\r\nb\n', ['a -%>\r\nb\n']],
+    ['<%% x %> y %> z\n', ['<% x %> y %> z\n']],
+    ['a %>%> b\n', ['a %> b\n', 'a %> b\n']],
+    ['a %>-%>\nb\n', ['a %>b\n', 'a -%>\nb\n']],
+    ['a -%>\n<%_ const x = 1; _%>\nb\n', ['a -%>\nb\n']],
+    ['<%_ if (true) { _%>\n  a _%>\n<%_ } _%>\n', ['  a _%>\n']],
+    ['a %> <%_ const x = 1; _%>\n', ['a %>']],
+    ['a _%>\n', ['a _%>\n']],
+  ])('%j: EJS renders the delimiter written literally, and the template unchanged without it', (template, literals) => {
+    const msgs = lint(template, rules);
+    expect(
+      msgs.map(({ suggestions = [] }) =>
+        suggestions.map((suggestion) => ejs.render(applySuggestion(template, suggestion))),
+      ),
+    ).toEqual(literals.map((literal) => [literal, ejs.render(template)]));
   });
 });
 
