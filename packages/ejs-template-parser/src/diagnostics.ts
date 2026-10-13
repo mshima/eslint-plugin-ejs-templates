@@ -17,7 +17,8 @@ import { parseJavaScript, type SyntaxNode } from './ts-parser.js';
  *   is in between, and confuses the blocks;
  * - `stray-close-delimiter`: a `%>` (or `-%>`, `_%>`) in a text, which EJS drops; `%%>` writes one.
  *
- * Warnings, a template out of the conventions of eslint-plugin-ejs-templates, each one named after its rule:
+ * Warnings, a template out of the conventions of eslint-plugin-ejs-templates, each one named after its rule, which
+ * reports it (except `unclosed-block` and `unopened-close`):
  * - `unclosed-block`: a block no tag closes, as in a partial template;
  * - `unopened-close`: a tag closing a block no tag before it opens, as in a partial template;
  * - `prefer-slurping-codeonly`: a `<% %>` tag opening no block, which leaves its blanks and its line break in the
@@ -110,6 +111,10 @@ const conventionsOf = (template: string, tag: EjsTag): EjsDiagnostic[] => {
     report('slurp-newline', 'A slurp tag goes on a line of its own: it slurps the blanks before it');
   }
   const { javascript } = tag;
+  // A single-line tag is only reported when it closes more than one block, which is what makes `<%_ } } _%>`
+  // impossible to place at a single indent depth. A tag that closes one block and opens another (`<%_ } else { _%>`)
+  // is an ordinary continuation and is left alone: in a partial template, whose enclosing `if` lives in another file,
+  // its code parses as two fragments rather than one continuation.
   if (
     (multiline || javascript.missingOpenBracesCount > 1) &&
     (javascript.hasStructuralBraces || !javascript.multilineTrimmed) &&

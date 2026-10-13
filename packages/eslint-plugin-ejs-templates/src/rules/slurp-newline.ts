@@ -7,8 +7,7 @@
 //     http://www.apache.org/licenses/LICENSE-2.0
 
 import type { Rule } from 'eslint';
-import { SENTINEL_SLURP_NEWLINE } from '../processor.js';
-import { getTagTypeComments } from '../utils.js';
+import { getDiagnosticBlocks, SENTINEL_SLURP_NEWLINE } from '../processor.js';
 
 /**
  * ESLint rule: ensure `<%_ … _%>` tags are on their own line.
@@ -19,7 +18,9 @@ import { getTagTypeComments } from '../utils.js';
  * such tags and offers an autofix that inserts a newline immediately
  * before the tag.
  *
- * The processor marks such tags with the `slurp-not-standalone` type.
+ * The tags are the ones ejs-template-parser reports with its `slurp-newline`
+ * diagnostic (`validateTemplate()`); the processor marks them with the
+ * `slurp-not-standalone` type, which picks the fix.
  * Apply this rule **after** `prefer-slurping-codeonly` / `experimental-prefer-slurp-multiline`
  * and **before** `indent` in your ESLint config.
  *
@@ -49,22 +50,18 @@ export const slurpNewline: Rule.RuleModule = {
   create(context) {
     return {
       Program() {
-        const sourceCode = context.sourceCode;
-        const tagTypeComments = getTagTypeComments(sourceCode.text);
-        for (const { comment, tagType } of tagTypeComments) {
-          if (tagType === 'slurp-not-standalone') {
-            const { range = [0, 0] } = comment;
-            context.report({
-              loc: comment.loc ?? { line: 0, column: 0 },
-              messageId: 'slurpNewline',
-              fix(fixer) {
-                // Use a distinct sentinel text so that `translateFix` in the
-                // processor can identify this as a slurp-newline fix and insert
-                // a newline before the tag in the original EJS source.
-                return fixer.replaceTextRange([range[0], range[1]], SENTINEL_SLURP_NEWLINE);
-              },
-            });
-          }
+        for (const { comment } of getDiagnosticBlocks(context, 'slurp-newline')) {
+          const { range = [0, 0] } = comment;
+          context.report({
+            loc: comment.loc ?? { line: 0, column: 0 },
+            messageId: 'slurpNewline',
+            fix(fixer) {
+              // Use a distinct sentinel text so that `translateFix` in the
+              // processor can identify this as a slurp-newline fix and insert
+              // a newline before the tag in the original EJS source.
+              return fixer.replaceTextRange([range[0], range[1]], SENTINEL_SLURP_NEWLINE);
+            },
+          });
         }
       },
     };
