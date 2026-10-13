@@ -12,7 +12,7 @@ import { Linter } from 'eslint';
 import plugin from '../src/index.js';
 import { lint, applyFix, makeLinter, makeConfig } from './helpers.js';
 import { extractTagBlocks } from '../src/ejs-parser.js';
-import { getEjsNodes } from 'ejs-template-parser';
+import { buildTemplate } from 'ejs-template-parser';
 import { type Config } from 'eslint/config';
 import {
   processor,
@@ -98,95 +98,95 @@ function applyFixWithUnusedDisableDirectivesError(
 
 describe('extractTagBlocks', () => {
   test('skips standalone comment tags with -%> (no empty line)', () => {
-    const blocks = extractTagBlocks(getEjsNodes('<%# this is a comment -%>'));
+    const blocks = extractTagBlocks(buildTemplate('<%# this is a comment -%>').tags);
     expect(blocks).toHaveLength(0);
   });
 
   test('skips non-standalone comment tags (inline, no empty line)', () => {
-    const blocks = extractTagBlocks(getEjsNodes('text <%# comment %>'));
+    const blocks = extractTagBlocks(buildTemplate('text <%# comment %>').tags);
     expect(blocks).toHaveLength(0);
   });
 
   test('creates comment-empty-line block for standalone comment tag without -%>', () => {
-    const blocks = extractTagBlocks(getEjsNodes('<%# this is a comment %>'));
+    const blocks = extractTagBlocks(buildTemplate('<%# this is a comment %>').tags);
     expect(blocks).toHaveLength(1);
     expect(blocks[0].tagType).toBe('comment-empty-line');
     expect(blocks[0].isDirectiveComment).toBe(true);
   });
 
   test('extracts eslint-disable EJS comment as virtual directive comment', () => {
-    const blocks = extractTagBlocks(getEjsNodes('<%# eslint-disable no-var %>'));
+    const blocks = extractTagBlocks(buildTemplate('<%# eslint-disable no-var %>').tags);
     expect(blocks).toHaveLength(1);
     expect(blocks[0].virtualCode).toBe('/* eslint-disable no-var */');
     expect(blocks[0].isDirectiveComment).toBe(true);
   });
 
   test('extracts a single escaped-output tag (<%= %>)', () => {
-    const blocks = extractTagBlocks(getEjsNodes('<%= name %>'));
+    const blocks = extractTagBlocks(buildTemplate('<%= name %>').tags);
     expect(blocks).toHaveLength(1);
     expect(blocks[0].virtualCode).toMatch(/^\/\/@ejs-tag:escaped-output\n/);
     expect(blocks[0].virtualCode).toContain(' name');
   });
 
   test('extracts a raw-output tag (<%- %>)', () => {
-    const blocks = extractTagBlocks(getEjsNodes('<%- name %>'));
+    const blocks = extractTagBlocks(buildTemplate('<%- name %>').tags);
     expect(blocks).toHaveLength(1);
     expect(blocks[0].virtualCode).toMatch(/^\/\/@ejs-tag:raw-output\n/);
   });
 
   test('extracts a slurping tag (<%_ … _%>)', () => {
-    const blocks = extractTagBlocks(getEjsNodes('<%_ code _%>'));
+    const blocks = extractTagBlocks(buildTemplate('<%_ code _%>').tags);
     expect(blocks).toHaveLength(1);
     expect(blocks[0].virtualCode).toMatch(/^\/\/@ejs-tag:slurp\n/);
   });
 
   test('tags with slurping close (_%>) get type slurp', () => {
-    const blocks = extractTagBlocks(getEjsNodes('<% code _%>'));
+    const blocks = extractTagBlocks(buildTemplate('<% code _%>').tags);
     expect(blocks).toHaveLength(1);
     expect(blocks[0].virtualCode).toMatch(/^\/\/@ejs-tag:slurp\n/);
   });
 
   test('plain code tag with balanced braces → code-slurpable', () => {
-    const blocks = extractTagBlocks(getEjsNodes('<% const x = 1; %>'));
+    const blocks = extractTagBlocks(buildTemplate('<% const x = 1; %>').tags);
     expect(blocks).toHaveLength(1);
     expect(blocks[0].virtualCode).toMatch(/^\/\/@ejs-tag:code-slurpable\n/);
   });
 
   test('plain code tag with unbalanced braces → code', () => {
-    const blocks = extractTagBlocks(getEjsNodes('<% if (x) { %>'));
+    const blocks = extractTagBlocks(buildTemplate('<% if (x) { %>').tags);
     expect(blocks).toHaveLength(1);
     expect(blocks[0].virtualCode).toMatch(/^\/\/@ejs-tag:code\n/);
   });
 
   test('multiple tags are all extracted', () => {
-    const blocks = extractTagBlocks(getEjsNodes('<% a %> text <%= b %> <%- c %>'));
+    const blocks = extractTagBlocks(buildTemplate('<% a %> text <%= b %> <%- c %>').tags);
     expect(blocks).toHaveLength(3);
   });
 
   test('tracks tag position: tagLine and tagColumn', () => {
     // "<%= name %>" starts at line 1, col 0
-    const blocks = extractTagBlocks(getEjsNodes('<%= name %>'));
+    const blocks = extractTagBlocks(buildTemplate('<%= name %>').tags);
     expect(blocks[0].tagLine).toBe(1);
     expect(blocks[0].tagColumn).toBe(0);
   });
 
   test('tracks code-content position: originalLine and originalColumn', () => {
     // code starts after "<%=" (3 chars) so col = 3
-    const blocks = extractTagBlocks(getEjsNodes('<%= name %>'));
+    const blocks = extractTagBlocks(buildTemplate('<%= name %>').tags);
     expect(blocks[0].originalLine).toBe(1);
     expect(blocks[0].originalColumn).toBe(3); // right after '<%='
   });
 
   test('multi-line file: positions are on the correct line', () => {
     const text = 'line1\n<%= value %>\nline3';
-    const blocks = extractTagBlocks(getEjsNodes(text));
+    const blocks = extractTagBlocks(buildTemplate(text).tags);
     expect(blocks[0].tagLine).toBe(2);
     expect(blocks[0].originalLine).toBe(2);
   });
 
   test('tag in the middle of a line: column is correct', () => {
     const text = 'Hello, <%= name %>!';
-    const blocks = extractTagBlocks(getEjsNodes(text));
+    const blocks = extractTagBlocks(buildTemplate(text).tags);
     // "Hello, " = 7 chars, then "<%=" starts at col 7
     expect(blocks[0].tagColumn).toBe(7);
     // code starts after '<%=' at col 10
@@ -194,7 +194,7 @@ describe('extractTagBlocks', () => {
   });
 
   test('tag with trim-newline close (-%>) is tagged as code', () => {
-    const blocks = extractTagBlocks(getEjsNodes('<% code -%>'));
+    const blocks = extractTagBlocks(buildTemplate('<% code -%>').tags);
     expect(blocks[0].virtualCode).toMatch(/^\/\/@ejs-tag:code\n/);
   });
 });
@@ -205,32 +205,32 @@ describe('extractTagBlocks', () => {
 
 describe('processor virtual code', () => {
   test('virtual code line 1 is the type comment', () => {
-    const blocks = extractTagBlocks(getEjsNodes('<%= name %>'));
+    const blocks = extractTagBlocks(buildTemplate('<%= name %>').tags);
     const [line1] = blocks[0].virtualCode.split('\n');
     expect(line1).toBe('//@ejs-tag:escaped-output');
   });
 
   test('virtual code line 2 is the tag code (no per-tag function wrapper)', () => {
-    const blocks = extractTagBlocks(getEjsNodes('<% const x = 1; %>'));
+    const blocks = extractTagBlocks(buildTemplate('<% const x = 1; %>').tags);
     const lines = blocks[0].virtualCode.split('\n');
     expect(lines[1]).toBe(' const x = 1;');
   });
 
   test('virtual code contains tag JS content directly after marker', () => {
-    const blocks = extractTagBlocks(getEjsNodes('<% const x = 1; %>'));
+    const blocks = extractTagBlocks(buildTemplate('<% const x = 1; %>').tags);
     const lines = blocks[0].virtualCode.split('\n');
     expect(lines[1]).toBe(' const x = 1;');
     expect(lines).not.toContain('})()');
   });
 
   test('virtual code has no per-tag wrapper close', () => {
-    const blocks = extractTagBlocks(getEjsNodes('<%_ const x = 1;\nconst y = 2; _%>'));
+    const blocks = extractTagBlocks(buildTemplate('<%_ const x = 1;\nconst y = 2; _%>').tags);
     const lines = blocks[0].virtualCode.split('\n');
     expect(lines[lines.length - 1]).not.toBe('})()');
   });
 
   test('multiline tag gets -multiline suffix and code is wrapped in function', () => {
-    const blocks = extractTagBlocks(getEjsNodes('<%_ const x = 1;\nconst y = 2; _%>'));
+    const blocks = extractTagBlocks(buildTemplate('<%_ const x = 1;\nconst y = 2; _%>').tags);
     const lines = blocks[0].virtualCode.split('\n');
     expect(lines[0]).toBe('//@ejs-tag:slurp-multiline');
     expect(lines[1]).toBe(' const x = 1;');
@@ -239,29 +239,29 @@ describe('processor virtual code', () => {
 
   test('output tag virtual code wraps content in void()', () => {
     // Single-line output tags are wrapped as `void (...);` to prevent no-unused-vars.
-    const blocks = extractTagBlocks(getEjsNodes('<%= name %>'));
+    const blocks = extractTagBlocks(buildTemplate('<%= name %>').tags);
     expect(blocks[0].virtualCode).toContain('name;');
     expect(blocks[0].virtualBodyInlineSuffix).toBe(';');
   });
 
   test('raw output tag virtual code wraps content in void()', () => {
-    const blocks = extractTagBlocks(getEjsNodes('<%- name %>'));
+    const blocks = extractTagBlocks(buildTemplate('<%- name %>').tags);
     expect(blocks[0].virtualCode).toContain('name;');
   });
 
   test('code tag ending with { gets void 0 appended', () => {
-    const blocks = extractTagBlocks(getEjsNodes('<%_ if (x) { _%>'));
+    const blocks = extractTagBlocks(buildTemplate('<%_ if (x) { _%>').tags);
     expect(blocks[0].virtualCode).toContain('void 0;');
     expect(blocks[0].virtualBodyExtraLine).toBe('\nvoid 0;');
   });
 
   test('code tag NOT ending with { does not get void 0', () => {
-    const blocks = extractTagBlocks(getEjsNodes('<%_ doWork(); _%>'));
+    const blocks = extractTagBlocks(buildTemplate('<%_ doWork(); _%>').tags);
     expect(blocks[0].virtualCode).not.toContain('void 0;');
   });
 
   test('structural slurp tag keeps code body in virtual block', () => {
-    const blocks = extractTagBlocks(getEjsNodes('<%_ if (x) { _%>'));
+    const blocks = extractTagBlocks(buildTemplate('<%_ if (x) { _%>').tags);
     expect(blocks[0].virtualCode).toContain('if (x) {');
     expect(blocks[0].tagType).toBe('slurp');
   });
@@ -670,6 +670,7 @@ describe('plugin shape', () => {
         "ejs-templates/experimental-prefer-slurp-multiline": "off",
         "ejs-templates/format": "error",
         "ejs-templates/indent": "error",
+        "ejs-templates/no-comment-across-tags": "error",
         "ejs-templates/no-comment-empty-line": "error",
         "ejs-templates/no-complex-statements": "error",
         "ejs-templates/no-function-block": "error",
@@ -680,6 +681,7 @@ describe('plugin shape', () => {
           },
         ],
         "ejs-templates/no-multiline-output": "error",
+        "ejs-templates/no-stray-close-delimiter": "error",
         "ejs-templates/output-semi": "error",
         "ejs-templates/prefer-encoded": [
           "error",
@@ -717,7 +719,9 @@ describe('plugin shape', () => {
     expect(config?.rules).toMatchInlineSnapshot(`
       {
         "ejs-templates/experimental-prefer-slurp-multiline": "off",
+        "ejs-templates/no-comment-across-tags": "error",
         "ejs-templates/no-multiline-output": "error",
+        "ejs-templates/no-stray-close-delimiter": "error",
       }
     `);
   });
@@ -900,90 +904,90 @@ describe('interoperability: @stylistic/eslint-plugin', () => {
 
 describe('extractTagBlocks (tree-sitter parser)', () => {
   test('single-line <%= %> gets escaped-output type', () => {
-    const [b] = extractTagBlocks(getEjsNodes('<%= name %>'));
+    const [b] = extractTagBlocks(buildTemplate('<%= name %>').tags);
     expect(b.tagType).toBe('escaped-output');
     expect(b.openDelim).toBe('<%=');
     expect(b.closeDelim).toBe('%>');
   });
 
   test('single-line <%- %> gets raw-output type', () => {
-    const [b] = extractTagBlocks(getEjsNodes('<%- name %>'));
+    const [b] = extractTagBlocks(buildTemplate('<%- name %>').tags);
     expect(b.tagType).toBe('raw-output');
   });
 
   test('structural <% if (x) { %> gets code type', () => {
-    const [b] = extractTagBlocks(getEjsNodes('<% if (x) { %>'));
+    const [b] = extractTagBlocks(buildTemplate('<% if (x) { %>').tags);
     expect(b.tagType).toBe('code');
   });
 
   test('balanced <% code %> gets code-slurpable type', () => {
-    const [b] = extractTagBlocks(getEjsNodes('<% doWork(); %>'));
+    const [b] = extractTagBlocks(buildTemplate('<% doWork(); %>').tags);
     expect(b.tagType).toBe('code-slurpable');
   });
 
   test('single-line <%_ _%> gets slurp type', () => {
-    const [b] = extractTagBlocks(getEjsNodes('<%_ if (x) { _%>'));
+    const [b] = extractTagBlocks(buildTemplate('<%_ if (x) { _%>').tags);
     expect(b.tagType).toBe('slurp');
   });
 
   test('multiline <%_ _%> gets slurp-multiline type', () => {
-    const [b] = extractTagBlocks(getEjsNodes('<%_\n  if (x) {\n_%>'));
+    const [b] = extractTagBlocks(buildTemplate('<%_\n  if (x) {\n_%>').tags);
     expect(b.tagType).toBe('slurp-multiline');
   });
 
   test('multiline <%= %> gets escaped-output-multiline type', () => {
-    const [b] = extractTagBlocks(getEjsNodes('<%=\n  value\n%>'));
+    const [b] = extractTagBlocks(buildTemplate('<%=\n  value\n%>').tags);
     expect(b.tagType).toBe('escaped-output-multiline');
   });
 
   test('multiline <% %> code tag gets code-multiline type', () => {
-    const [b] = extractTagBlocks(getEjsNodes('<%\n  if (x) {\n%>'));
+    const [b] = extractTagBlocks(buildTemplate('<%\n  if (x) {\n%>').tags);
     expect(b.tagType).toBe('code-multiline');
   });
 
   test('inline slurp tag gets slurp-not-standalone type', () => {
-    const [b] = extractTagBlocks(getEjsNodes('text<%_ doWork(); _%>'));
+    const [b] = extractTagBlocks(buildTemplate('text<%_ doWork(); _%>').tags);
     expect(b.tagType).toBe('slurp-not-standalone');
     expect(b.isStandalone).toBe(false);
   });
 
   test('standalone slurp tag gets slurp type (not slurp-not-standalone)', () => {
-    const [b] = extractTagBlocks(getEjsNodes('<%_ doWork(); _%>'));
+    const [b] = extractTagBlocks(buildTemplate('<%_ doWork(); _%>').tags);
     expect(b.tagType).toBe('slurp');
     expect(b.isStandalone).toBe(true);
   });
 
   test('stores openDelim and closeDelim', () => {
-    const [b] = extractTagBlocks(getEjsNodes('<%_ code _%>'));
+    const [b] = extractTagBlocks(buildTemplate('<%_ code _%>').tags);
     expect(b.openDelim).toBe('<%_');
     expect(b.closeDelim).toBe('_%>');
   });
 
   test('stores codeContent (with surrounding spaces)', () => {
-    const [b] = extractTagBlocks(getEjsNodes('<%= name %>'));
+    const [b] = extractTagBlocks(buildTemplate('<%= name %>').tags);
     expect(b.codeContent).toBe(' name ');
   });
 
   test('lintCodeContent removes one trailing blank char', () => {
-    const [b] = extractTagBlocks(getEjsNodes('<%= name   %>'));
+    const [b] = extractTagBlocks(buildTemplate('<%= name   %>').tags);
     expect(b.codeContent).toBe(' name   ');
     expect(b.lintCodeContent).toBe(' name  ');
   });
 
   test('lintCodeContent removes trailing empty last line', () => {
-    const [b] = extractTagBlocks(getEjsNodes('<%_ const x = 1;\n_%>'));
+    const [b] = extractTagBlocks(buildTemplate('<%_ const x = 1;\n_%>').tags);
     expect(b.codeContent).toBe(' const x = 1;\n');
     expect(b.lintCodeContent).toBe(' const x = 1;');
   });
 
   test('standalone tag has lineIndent equal to whitespace before it', () => {
-    const [b] = extractTagBlocks(getEjsNodes('  <%_ if (x) { _%>'));
+    const [b] = extractTagBlocks(buildTemplate('  <%_ if (x) { _%>').tags);
     expect(b.lineIndent).toBe('  ');
     expect(b.tagColumn).toBe(2);
   });
 
   test('inline tag has empty lineIndent', () => {
-    const [b] = extractTagBlocks(getEjsNodes('Hello <%- name %>!'));
+    const [b] = extractTagBlocks(buildTemplate('Hello <%- name %>!').tags);
     expect(b.lineIndent).toBe('');
   });
 });
@@ -994,29 +998,29 @@ describe('extractTagBlocks (tree-sitter parser)', () => {
 
 describe('brace-depth tracking (indent foundation)', () => {
   test('block at depth 0 has expectedIndent = ""', () => {
-    const [open] = extractTagBlocks(getEjsNodes('<%_ if (x) { _%>'));
+    const [open] = extractTagBlocks(buildTemplate('<%_ if (x) { _%>').tags);
     expect(open.expectedIndent).toBe('');
   });
 
   test('block inside depth-1 gets expectedIndent = "  "', () => {
-    const [, inner] = extractTagBlocks(getEjsNodes('<%_ if (x) { _%>\n<%_ doWork(); _%>\n<%_ } _%>'));
+    const [, inner] = extractTagBlocks(buildTemplate('<%_ if (x) { _%>\n<%_ doWork(); _%>\n<%_ } _%>').tags);
     expect(inner.expectedIndent).toBe('  ');
   });
 
   test('closing block at depth 0 after open (lowerBraceDepth = 0)', () => {
-    const [, , close] = extractTagBlocks(getEjsNodes('<%_ if (x) { _%>\n<%_ doWork(); _%>\n<%_ } _%>'));
+    const [, , close] = extractTagBlocks(buildTemplate('<%_ if (x) { _%>\n<%_ doWork(); _%>\n<%_ } _%>').tags);
     expect(close.expectedIndent).toBe('');
   });
 
   test('nested depth produces 4-space expectedIndent', () => {
     const blocks = extractTagBlocks(
-      getEjsNodes('<%_ if (a) { _%>\n<%_ if (b) { _%>\n<%_ doWork(); _%>\n<%_ } _%>\n<%_ } _%>'),
+      buildTemplate('<%_ if (a) { _%>\n<%_ if (b) { _%>\n<%_ doWork(); _%>\n<%_ } _%>\n<%_ } _%>').tags,
     );
     expect(blocks[2].expectedIndent).toBe('    '); // depth 2
   });
 
   test('non-standalone slurp tag has expectedIndent = lineIndent (not changed)', () => {
-    const [b] = extractTagBlocks(getEjsNodes('Hello <%_ name _%>'));
+    const [b] = extractTagBlocks(buildTemplate('Hello <%_ name _%>').tags);
     expect(b.expectedIndent).toBe(b.lineIndent);
   });
 });
@@ -1029,7 +1033,7 @@ describe('void() wrapping for output tags', () => {
   test('output tag virtual code wraps expression in void()', () => {
     // The void() wrapper ensures the expression is syntactically valid as a statement
     // and does not introduce new `no-undef` errors for `debug`.
-    const blocks = extractTagBlocks(getEjsNodes('<%- foo %>'));
+    const blocks = extractTagBlocks(buildTemplate('<%- foo %>').tags);
     expect(blocks[0].virtualCode).toContain('foo;');
   });
 
@@ -1083,25 +1087,25 @@ describe('slurp marker parsing', () => {
   });
 
   test('the absorbed close-delimiter marker is removed from the code', () => {
-    const [b] = extractTagBlocks(getEjsNodes('<%- identifier _%>'));
+    const [b] = extractTagBlocks(buildTemplate('<%- identifier _%>').tags);
     expect(b.codeContent).toBe(' identifier ');
     expect(b.lintCodeContent).toBe(' identifier');
   });
 
   test('the tag keeps its real _%> close delimiter', () => {
-    const [b] = extractTagBlocks(getEjsNodes('<%- identifier _%>'));
+    const [b] = extractTagBlocks(buildTemplate('<%- identifier _%>').tags);
     expect(b.openDelim).toBe('<%-');
     expect(b.closeDelim).toBe('_%>');
   });
 
   test('a trailing underscore that is part of the code is left alone', () => {
-    const [b] = extractTagBlocks(getEjsNodes('<%- identifier_ %>'));
+    const [b] = extractTagBlocks(buildTemplate('<%- identifier_ %>').tags);
     expect(b.closeDelim).toBe('%>');
     expect(b.codeContent).toBe(' identifier_ ');
   });
 
   test('an identifier ending in an underscore keeps both it and the slurp close', () => {
-    const [b] = extractTagBlocks(getEjsNodes('<%- identifier_ _%>'));
+    const [b] = extractTagBlocks(buildTemplate('<%- identifier_ _%>').tags);
     expect(b.closeDelim).toBe('_%>');
     expect(b.codeContent).toBe(' identifier_ ');
   });
@@ -1198,7 +1202,7 @@ describe('synthetic semicolon in virtual code', () => {
   });
 
   test('the semicolon is not doubled when the content already ends with one', () => {
-    const [block] = extractTagBlocks(getEjsNodes('<%- foo; %>'));
+    const [block] = extractTagBlocks(buildTemplate('<%- foo; %>').tags);
     try {
       expect(block.virtualBodyInlineSuffix).toBe('');
       expect(block.virtualCode.endsWith(';;')).toBe(false);

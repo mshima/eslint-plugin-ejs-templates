@@ -128,10 +128,12 @@ src/
     index.ts            – re-exports all rule modules
     format.ts
     indent.ts
+    no-comment-across-tags.ts
     no-comment-empty-line.ts
     no-complex-statements.ts
     no-function-block.ts
     no-global-function-call.ts
+    no-stray-close-delimiter.ts
     output-semi.ts
     prefer-encoded.ts
     prefer-output.ts
@@ -165,6 +167,28 @@ and then look up the matching `TagBlock` via `getFileBlocks(context.filename)`.
 
 `postprocess()` maps messages from virtual-file positions back to EJS source positions and
 translates fixes (below).
+
+`preprocess()` builds the template once, `buildTemplate()` of the parser: the blocks come from its
+`tags`, and its diagnostics, `validateTemplate()`, go in the metadata of the virtual code
+(`getVirtualCodeMetadata()`).
+
+### Rules answered by `postprocess()`
+
+Some diagnostics of the parser cannot be reported on the virtual JavaScript: a stray close
+delimiter is in a text, which the virtual JavaScript does not have. The rules of
+`DIAGNOSTIC_RULES` in `src/processor.ts` (`no-stray-close-delimiter`, `no-comment-across-tags`)
+each _request_ them instead (`requestDiagnostics()`): one message at the end of the virtual file,
+when the metadata has a diagnostic of the rule's code. `postprocess()` answers the requests of the
+main pass, `messages[0]`, with one message per diagnostic, in the coordinates of the template,
+with the severity and the `suppressions` of the request; it drops the requests of the other
+passes, the third one linting the same virtual code.
+
+Being at the end of the virtual file, a request follows every directive comment of the template: a
+block `eslint-disable` of the rule suppresses it (ESLint passes suppressed messages to
+`postprocess()` with their `suppressions`, and counts the directive as used), while
+`eslint-disable-next-line` or a range closed by `eslint-enable` cannot. A template without blocks
+has no virtual file, so no rule would run on it: when it has a diagnostic of these rules,
+`preprocess()` returns the function wrapper alone.
 
 ### Tag types
 
@@ -308,8 +332,9 @@ devDependency of ejs-template-parser.
 
 Parse trees live in WASM memory that the JavaScript garbage collector does not manage: the tree
 of a template (`cleanupTemplate(template)`, or `nodes[0].tree.delete()`) and the trees of the code of each
-tag (`tag.javascript.cleanup()`). In the plugin they are released by
-`block.javascriptPartialNode?.cleanup()`, which normally runs from `postprocess()`.
+tag (`tag.javascript.cleanup()`). In the plugin `preprocess()` builds the template, and
+`postprocess()` frees it with `cleanupTemplate()` in a `finally`, on every path: its tree and the
+trees of the code of its tags, which are the `javascriptPartialNode`s of the blocks.
 
 Anything that calls `preprocess()` **without** `postprocess()` — an ad-hoc script, a benchmark,
 an exploratory test — must free the trees itself. Leaking them exhausts the WASM heap after a

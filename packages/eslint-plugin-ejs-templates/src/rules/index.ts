@@ -20,3 +20,5 @@ export { noMultilineOutput } from './no-multiline-output.js';
 export { preferEncoded } from './prefer-encoded.js';
 export { outputSemi } from './output-semi.js';
 export { preferOutput } from './prefer-output.js';
+export { noStrayCloseDelimiter } from './no-stray-close-delimiter.js';
+export { noCommentAcrossTags } from './no-comment-across-tags.js';
