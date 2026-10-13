@@ -47,6 +47,12 @@ development, out of the releases, and depends on the parser at `*` so that its w
 linked whatever the parser's version. Releasing the plugin again means listing it there (its last
 release, 0.5.0, is in `.release-please-manifest.json`) and giving its dependency a real range.
 
+The version of a release comes from its commits: before 1.0, a `feat` bumps the minor version, and a
+breaking change too (`bump-minor-pre-major`). `release-as` in the config of a package forces the
+version of its next release instead: the parser has `"release-as": "0.1.1"`, for a release its
+`feat` commits would make 0.2.0. Remove it once that release is published, or the next release
+would be made at the same version again.
+
 ## Commands
 
 ```sh
