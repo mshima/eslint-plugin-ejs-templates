@@ -1,10 +1,14 @@
 # How EJS reads a template
 
-What EJS 6.0.1 (the version generator-jhipster renders with, a devDependency of ejs-template-parser)
-does with a template, read from its sources (`lib/esm/ejs.js`: `Template#generateSource`,
+What EJS 7.0.1 (the devDependency of ejs-template-parser) does with a template, read from its
+sources (`lib/esm/ejs.js`: `Template#generateSource`,
 `parseTemplateText`, `scanLine`, `_addOutput`, `compile`). What the parser and the plugin assume of
 EJS is here; the parser's `escapeText` follows it step by step, and its tests check it against
 `ejs.render`.
+
+EJS 6.0.1, the version generator-jhipster renders with, reads a template the same way: the functions
+above are the same in both. 7.0.1 only stopped reading options (`delimiter`, `rmWhitespace`, ...)
+from the data of `render(template, data)`; they are passed in its third argument.
 
 Everything below uses the default delimiters (`<`, `%`, `>`). EJS builds all of it from its
 `openDelimiter`, `delimiter` and `closeDelimiter` options; the parser supports only the defaults.

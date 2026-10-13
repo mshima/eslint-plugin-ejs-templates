@@ -101,7 +101,7 @@ A node of the tree is one of:
     maps to the one it is written from (the `<` and the first `%` of `<%%`, the `%` and the `>` of
     `%%>`), the extra `%` to nothing.
 
-  `rendered` follows EJS 6:
+  `rendered` follows EJS 6 and 7:
   - the blanks before a `<%_` and after a `_%>` are slurped; after a `-%>` or a `_%>`, the first line
     break (`\r\n`, `\r` or `\n`) of the next text is dropped;
   - `<%%` renders `<%` and `%%>` renders `%>`, each one entering a literal mode in which the next
@@ -206,7 +206,7 @@ rule:
 ### Inserting a text
 
 `escapeText(template, offset, text)` gives what to insert at an offset of a template so that EJS
-(6.0.1, the default delimiters) renders `text` literally where the offset renders, and renders the
+(6 or 7, the default delimiters) renders `text` literally where the offset renders, and renders the
 rest of the template as before. It follows how EJS reads a template, without parsing it with
 tree-sitter.
 

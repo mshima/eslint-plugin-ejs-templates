@@ -103,7 +103,7 @@ src/
   tags.ts               – getEjsTags: the tags, each code tag parsed in its brace context, shaped
   ejs-parser.ts         – getEjsNodes, the delimiters, the absorbed `_%>` of an output tag
   javascript-parser.ts  – parseJavaScriptPartial: best-guess parse of unbalanced JS snippets
-  escape-text.ts        – escapeText: a text to insert in a template, rendered literally (EJS 6.0.1)
+  escape-text.ts        – escapeText: a text to insert in a template, rendered literally (EJS 6 and 7)
   ts-parser.ts          – web-tree-sitter setup (parseEjs, parseJavaScript, findErrorNode)
 test/
   template.test.ts      – the tree of a template
@@ -297,7 +297,7 @@ EJS-specific and core does not report it at all.
 
 ### How EJS reads a template
 
-[`docs/ejs.md`](../docs/ejs.md) tells what EJS 6.0.1 does with a template, from its sources: the
+[`docs/ejs.md`](../docs/ejs.md) tells what EJS 7.0.1 (and 6.0.1, the same) does with a template, from its sources: the
 slurping before the splitting, the leftmost split at its delimiters, the modes (the literal mode
 `<%%` and `%%>` enter, in which the next close delimiter is written rather than dropped), the line
 break `-%>` and `_%>` drop, and the function it compiles. Read it before reasoning about what a

@@ -7,7 +7,7 @@
 //     http://www.apache.org/licenses/LICENSE-2.0
 
 /**
- * The delimiters EJS 6 splits a template at, in the order it tries them at a position (its `_REGEX_STRING`): the
+ * The delimiters EJS 6 and 7 split a template at, in the order it tries them at a position (its `_REGEX_STRING`): the
  * escaped `<%%` and `%%>` first, the openers, then the closers.
  */
 const DELIMITER = /<%%|%%>|<%=|<%-|<%_|<%#|<%|%>|-%>|_%>/g;
@@ -43,7 +43,7 @@ type Delimiter = {
   end: number;
 };
 
-/** The delimiters of a text as EJS 6 finds them, and the blanks it slurps. */
+/** The delimiters of a text as EJS 6 and 7 find them, and the blanks it slurps. */
 const scanDelimiters = (text: string) => {
   const delimiters: Delimiter[] = [...text.matchAll(DELIMITER)].map((match) => ({
     value: match[0],
@@ -88,7 +88,7 @@ type Place = {
 };
 
 /**
- * Follows EJS 6.0.1 (`Template#generateSource`, `parseTemplateText` and `scanLine`) through a template up to an
+ * Follows EJS 6.0.1 and 7.0.1, the same there (`Template#generateSource`, `parseTemplateText` and `scanLine`) through a template up to an
  * offset. Throws a RangeError when the offset is in a tag or inside a delimiter.
  */
 const placeAt = (template: string, offset: number): Place => {
@@ -179,7 +179,7 @@ const escapeDelimiters = (text: string, previous?: string, next?: string) => {
 const blanksTag = (blanks: string) => (blanks ? `<%- '${blanks.replaceAll('\t', '\\t')}' %>` : '');
 
 /**
- * The text to insert at an offset of an EJS template so that EJS (6.0.1, with the default delimiters) renders `text`
+ * The text to insert at an offset of an EJS template so that EJS (6.0.1 or 7.0.1, with the default delimiters) renders `text`
  * literally there, and renders what was around it as before.
  *
  * The offset is in a text of the template, or between two of its nodes: never in a tag, nor inside a delimiter of a
