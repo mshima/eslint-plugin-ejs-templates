@@ -1275,7 +1275,8 @@ function findMatchingEnableDirective(
   currentBlockIndex: number,
 ): { block: TagBlock; index: number } | null {
   const currentBlock = blocks[currentBlockIndex];
-  if (!currentBlock.isDirectiveComment) {
+  // An `eslint-disable-next-line` ends with its synthesized `eslint-enable`, which is no tag of the template.
+  if (!currentBlock.isDirectiveComment || currentBlock.nextLineDirective) {
     return null;
   }
 
@@ -1290,7 +1291,7 @@ function findMatchingEnableDirective(
     // eslint-disable with no explicit rule list matches eslint-enable with no rule list
     for (let i = currentBlockIndex + 1; i < blocks.length; i++) {
       const block = blocks[i];
-      if (block.isDirectiveComment && /^eslint-enable(?:\s|$)/u.test(block.codeContent)) {
+      if (block.isDirectiveComment && !block.nextLineDirective && /^eslint-enable(?:\s|$)/u.test(block.codeContent)) {
         const enableMatch = /^eslint-enable(?:\s+(.*))?$/u.exec(block.codeContent);
         if (enableMatch && (!enableMatch[1] || enableMatch[1].trim().length === 0)) {
           return { block, index: i };
@@ -1308,7 +1309,7 @@ function findMatchingEnableDirective(
 
     for (let i = currentBlockIndex + 1; i < blocks.length; i++) {
       const block = blocks[i];
-      if (block.isDirectiveComment && /^eslint-enable(?:\s|$)/u.test(block.codeContent)) {
+      if (block.isDirectiveComment && !block.nextLineDirective && /^eslint-enable(?:\s|$)/u.test(block.codeContent)) {
         const enableMatch = /^eslint-enable(?:\s+(.*))?$/u.exec(block.codeContent);
         if (enableMatch) {
           const [, enableRuleListRaw = ''] = enableMatch;
@@ -1403,7 +1404,7 @@ function translateUnusedDirectiveFix(
   } else {
     disableFix = {
       range: [block.tagOffset, block.tagOffset + block.tagLength],
-      text: `<%# eslint-disable ${remainingRuleIds.join(', ')} ${block.closeDelim}`,
+      text: `<%# ${block.nextLineDirective ? 'eslint-disable-next-line' : 'eslint-disable'} ${remainingRuleIds.join(', ')} ${block.closeDelim}`,
     };
   }
 

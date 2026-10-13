@@ -142,6 +142,64 @@ describe('autofix: indent', () => {
 });
 
 // ---------------------------------------------------------------------------
+// An unused next-line disable directive
+// ---------------------------------------------------------------------------
+
+describe('unused eslint-disable-next-line ejs-templates/indent', () => {
+  const input = 'a\n<%# eslint-disable-next-line ejs-templates/indent %>\n<%_ if (x) { _%>\nb\n<%_ } _%>\n';
+
+  test('is reported once, at its comment tag', () => {
+    expect(lint(input, { 'ejs-templates/indent': 'error' })).toEqual([
+      {
+        ruleId: null,
+        message: "Unused eslint-disable directive (no problems were reported from 'ejs-templates/indent').",
+        line: 2,
+        column: 0,
+        severity: 1,
+        fix: { range: [2, 54], text: '' },
+      },
+    ]);
+  });
+
+  test('autofix removes the comment tag alone', () => {
+    expect(applyFix(input, { 'ejs-templates/indent': 'error' })).toMatchInlineSnapshot(`
+      "a
+
+      <%_ if (x) { _%>
+      b
+      <%_ } _%>
+      "
+    `);
+  });
+
+  test("is reported once with reportUnusedDisableDirectives='error'", () => {
+    expect(lint(input, { 'ejs-templates/indent': 'error' }, { reportUnusedDisableDirectives: 'error' })).toEqual([
+      {
+        ruleId: null,
+        message: "Unused eslint-disable directive (no problems were reported from 'ejs-templates/indent').",
+        line: 2,
+        column: 0,
+        severity: 2,
+        fix: { range: [2, 54], text: '' },
+      },
+    ]);
+  });
+
+  test("autofix removes the comment tag alone with reportUnusedDisableDirectives='error'", () => {
+    const fixed = applyFix(input, { 'ejs-templates/indent': 'error' }, { reportUnusedDisableDirectives: 'error' });
+    expect(fixed).toMatchInlineSnapshot(`
+      "a
+
+      <%_ if (x) { _%>
+      b
+      <%_ } _%>
+      "
+    `);
+    expect(lint(fixed, { 'ejs-templates/indent': 'error' }, { reportUnusedDisableDirectives: 'error' })).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Fixture tests – indent
 // ---------------------------------------------------------------------------
 

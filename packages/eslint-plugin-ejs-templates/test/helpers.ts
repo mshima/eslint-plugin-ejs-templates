@@ -16,13 +16,17 @@ export function makeLinter(): Linter {
 }
 
 /** The flat config used for all EJS linting in tests. */
-export function makeConfig(rules: Record<string, Linter.RuleSeverityAndOptions | Linter.RuleSeverity> = {}): Config[] {
+export function makeConfig(
+  rules: Record<string, Linter.RuleSeverityAndOptions | Linter.RuleSeverity> = {},
+  linterOptions?: Linter.LinterOptions,
+): Config[] {
   return [
     {
       files: ['**/*.ejs'],
       plugins: { 'ejs-templates': plugin },
       processor: 'ejs-templates/ejs',
       rules,
+      ...(linterOptions ? { linterOptions } : {}),
     },
   ] as const satisfies Config[];
 }
@@ -31,8 +35,9 @@ export function makeConfig(rules: Record<string, Linter.RuleSeverityAndOptions |
 export function lint(
   ejsText: string,
   rules: Record<string, Linter.RuleSeverityAndOptions | Linter.RuleSeverity> = {},
+  linterOptions?: Linter.LinterOptions,
 ): Linter.LintMessage[] {
-  return makeLinter().verify(ejsText, makeConfig(rules), { filename: 'template.ejs' });
+  return makeLinter().verify(ejsText, makeConfig(rules, linterOptions), { filename: 'template.ejs' });
 }
 
 /**
@@ -42,6 +47,7 @@ export function lint(
 export function applyFix(
   ejsText: string,
   rules: Record<string, Linter.RuleSeverityAndOptions | Linter.RuleSeverity> = {},
+  linterOptions?: Linter.LinterOptions,
 ): string {
-  return makeLinter().verifyAndFix(ejsText, makeConfig(rules), { filename: 'template.ejs' }).output;
+  return makeLinter().verifyAndFix(ejsText, makeConfig(rules, linterOptions), { filename: 'template.ejs' }).output;
 }

@@ -86,3 +86,56 @@ describe('formatting fixture tests', () => {
     expect(fixed).toBe(fixture4.expected);
   });
 });
+
+// ---------------------------------------------------------------------------
+// A next-line disable directive partly unused
+// ---------------------------------------------------------------------------
+
+describe('eslint-disable-next-line partly unused', () => {
+  const input = '<%# eslint-disable-next-line no-var, eqeqeq %>\n<% var x = 1; %>\n<% var y = 1; %>\n';
+  const rules = { 'no-var': 'error', eqeqeq: 'error' } as const;
+
+  test('is reported once, at its comment tag', () => {
+    expect(lint(input, rules)).toEqual([
+      {
+        ruleId: null,
+        message: "Unused eslint-disable directive (no problems were reported from 'eqeqeq').",
+        line: 1,
+        column: 0,
+        severity: 1,
+        fix: { range: [0, 46], text: '<%# eslint-disable-next-line no-var %>' },
+      },
+      {
+        ruleId: 'no-var',
+        severity: 2,
+        message: 'Unexpected var, use let or const instead.',
+        line: 3,
+        column: 4,
+        messageId: 'unexpectedVar',
+        endLine: 3,
+        endColumn: 14,
+        fix: { range: [67, 70], text: 'let' },
+      },
+    ]);
+  });
+
+  test('autofix keeps the used rule in the next-line directive and the tag after it', () => {
+    expect(applyFix(input, rules)).toMatchInlineSnapshot(`
+      "<%# eslint-disable-next-line no-var %>
+      <% var x = 1; %>
+      <% let y = 1; %>
+      "
+    `);
+  });
+
+  test("autofix keeps the used rule in the next-line directive with reportUnusedDisableDirectives='error'", () => {
+    const fixed = applyFix(input, rules, { reportUnusedDisableDirectives: 'error' });
+    expect(fixed).toMatchInlineSnapshot(`
+      "<%# eslint-disable-next-line no-var %>
+      <% var x = 1; %>
+      <% let y = 1; %>
+      "
+    `);
+    expect(lint(fixed, rules, { reportUnusedDisableDirectives: 'error' })).toEqual([]);
+  });
+});
