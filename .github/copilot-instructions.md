@@ -235,20 +235,23 @@ Rules without autofix (`no-function-block`, `no-global-function-call`) do not us
 
 ### Fixes spanning several tags
 
-A sentinel fix that rewrites more than the reporting tag (`prefer-output`) needs the following
-blocks. `postprocess()` passes them as `options.nextBlocks` to `translateFix()`, which
-**re-validates their shape before using them** — the reporting rule and the translator run at
-different times, so the translator never assumes the rule's view still holds. The same applies
-to fixes attached to core-rule reports, which take the following blocks directly.
+A fix that rewrites more than the reporting tag (`prefer-output`, the fix of `no-negated-condition`)
+finds the other tags in the tree of the template, `buildTemplate()` of the parser, which
+`postprocess()` passes to `translateFix()` as `options.template`. `findBranch()` gives the block a
+tag opens a branch of, with the index of that branch: the `if` is branch 0, each `} else if (…) {`
+and `} else {` the next one, and `block.close` the tag closing it. The translator **re-validates
+the shape of those tags before using them** (a plain `} else {`, a plain `}`): the reporting rule
+and the translator run at different times, so the translator never assumes the rule's view still
+holds.
 
-Do not locate related tags positionally. A branch body normally contains further tags, so the
-matching `} else {` is rarely the next block; walk forward tracking brace depth and match only
-tags at depth zero (`findNegatedConditionBranches()` is the reference implementation).
+Do not locate related tags positionally, nor by counting braces from tag to tag: a branch body
+normally contains further tags, and the tree already pairs each tag with its block. An `else if`
+link is a branch of its own, so the `else` of a link is simply the branch after it
+(`findNegatedConditionBranches()`); a fix that needs a plain `} else {` checks that branch, rather
+than skipping a link to pair the `if` with an `else` further down the chain.
 
-An `else if` link must abort such a _search_ rather than be skipped: skipping it pairs the `if`
-with a later `else` from further down the chain and silently produces invalid output. That is
-distinct from starting a match _at_ a link, which is how an `} else if (…) {` tag is fixed —
-the search then begins after that tag and finds the link's own `else` and closing tag.
+The texts of a branch are its `children`; what EJS renders of them is their `rendered`, which a fix
+writing them into a string must use rather than their source (`renderedOf()`).
 
 ---
 
@@ -270,8 +273,7 @@ every message back to EJS source positions, so the fix is attached there:
 
 ```ts
 if (mapped.ruleId === CORE_NO_NEGATED_CONDITION) {
-  const followingBlocks = segments.slice(segmentIndex + 1).map((s) => s.block);
-  const fix = buildNegatedConditionFix(segment.block, followingBlocks, sourceText);
+  const fix = buildNegatedConditionFix(segment.block, processedFile.template, sourceText);
   if (fix) return [{ ...mapped, fix }];
 }
 ```
@@ -286,8 +288,8 @@ extending this:
 - **`if`/`else` spanning tags** — rebuilds the opening tag and swaps the branch bodies.
 - **An `} else if (…) {` link** — the same swap applied to that link alone. The chain around it,
   including the outer `if` and the closing tag, is untouched. Core only reports a link whose own
-  `else` is a plain block (it skips an `if` whose `else` is another `if`), which is exactly the
-  shape the branch matcher already looks for.
+  `else` is a plain block (it skips an `if` whose `else` is another `if`): the branch after the
+  link in the tree, a plain `} else {`, the last one of the block.
 - **A negated ternary in an output tag** — rebuilds the tag with the branches swapped.
 
 Before adding any rule, check what core already reports — write a throwaway test that lints a
@@ -305,8 +307,8 @@ EJS-specific and core does not report it at all.
 4. If it needs a new sentinel, export the constant from `src/processor.ts` and add a branch in
    `translateFix()`. Handlers for tag types without a `javascriptPartialNode` (such as
    `comment-empty-line`) must come before the code that assumes one.
-5. If the fix spans multiple tags, extend the `nextBlocks` selection in `postprocess()`. If the
-   pattern is one core ESLint already reports, attach a fix to its message instead of adding a
+5. If the fix spans multiple tags, find them in the tree of the template, `options.template` (see
+   "Fixes spanning several tags"). If the pattern is one core ESLint already reports, attach a fix to its message instead of adding a
    rule at all (see "Relationship to core ESLint rules").
 6. Add `test/<rule-name>.test.ts` with `describe('rule: ejs-templates/<rule-name>')` and
    `describe('autofix: <rule-name>')` blocks.

@@ -11,15 +11,17 @@ import createDebug from 'debug';
 import {
   buildTemplate,
   cleanupTemplate,
+  type EjsBlock,
   type EjsDiagnostic,
   type EjsDiagnosticCode,
-  type EjsTag,
   type EjsTemplate,
+  type EjsTemplateNode,
   type EjsText,
   escapeText,
   findErrorNode,
   getDirectiveCodeText,
   parseJavaScript,
+  type RelativeJavascriptNode,
   type SyntaxNode,
   validateTemplate,
 } from 'ejs-template-parser';
@@ -542,32 +544,15 @@ export function getNegatedIfCondition(block: TagBlock): string | null {
   return conditionNode ? invertNegatedTest(conditionNode) : null;
 }
 
-/** Whether a tag is exactly `} else {` — an `else if` continuation deliberately does not match. */
-export function isElseOpeningBlock(block: TagBlock): boolean {
-  const errorNode = block.javascriptPartialNode?.contentNode.child(0);
+/** Whether the code of a tag is exactly `} else {` — an `else if` continuation deliberately does not match. */
+function isElseOpening(javascript: RelativeJavascriptNode): boolean {
+  const errorNode = javascript.contentNode.child(0);
   return (
     errorNode?.type === 'ERROR' &&
+    errorNode.childCount === 3 &&
     errorNode.child(0)?.type === '}' &&
     errorNode.child(1)?.type === 'else' &&
     errorNode.child(2)?.type === '{'
-  );
-}
-
-/**
- * Whether a tag closes a branch and continues the chain with `else if` rather than a plain
- * `else` — e.g. `} else if (other) {`.
- *
- * Such a statement must not be swapped: its branches form a chain, and moving the first body
- * past the remaining `else if` links would neither preserve behaviour nor stay syntactically
- * valid. The core `no-negated-condition` rule likewise leaves these alone.
- */
-export function isElseIfContinuationBlock(block: TagBlock): boolean {
-  const errorNode = block.javascriptPartialNode?.contentNode.child(0);
-  return (
-    errorNode?.type === 'ERROR' &&
-    errorNode.child(0)?.type === '}' &&
-    errorNode.child(1)?.type === 'else' &&
-    errorNode.child(2)?.type !== '{'
   );
 }
 
@@ -593,63 +578,48 @@ export function getNegatedElseIfCondition(block: TagBlock): string | null {
   return conditionNode ? invertNegatedTest(conditionNode) : null;
 }
 
-/** Whether a tag is exactly `}`, closing a block without opening another. */
-export function isBlockClosingBlock(block: TagBlock): boolean {
-  const errorNode = block.javascriptPartialNode?.contentNode.child(0);
+/** Whether the code of a tag is exactly `}`, closing a block without opening another. */
+function isBlockClosing(javascript: RelativeJavascriptNode): boolean {
+  const errorNode = javascript.contentNode.child(0);
   return errorNode?.type === 'ERROR' && errorNode.childCount === 1 && errorNode.child(0)?.type === '}';
 }
 
 /**
- * Locate the `} else {` and closing `}` tags belonging to an `if` tag, given the blocks that
- * follow it.
+ * The block of the tree of a template a tag opens a branch of, with the index of that branch: the `if` of a block
+ * is its branch 0, each `} else if (…) {` and `} else {` the next one. A tag opening several blocks opens a branch of
+ * the outer one.
+ */
+function findBranch(children: EjsTemplateNode[], offset: number): { block: EjsBlock; index: number } | null {
+  for (const node of children) {
+    if (node.kind !== 'block') continue;
+    const index = node.branches.findIndex((branch) => branch.open.offset === offset);
+    if (index !== -1) return { block: node, index };
+    for (const branch of node.branches) {
+      const found = findBranch(branch.children, offset);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
+/**
+ * The `} else {` and closing `}` tags of the `if` (or `} else if (…) {` link) a tag opens, from the tree of the
+ * template: its branch is followed by a plain `} else {` branch, the last one, and the block closes with a plain `}`.
  *
- * The branches cannot be found positionally: a branch body normally holds further tags —
- * output tags, nested conditionals, loops — so the matching `else` is rarely the next block.
- * Nesting is tracked through each block's brace delta and only tags at depth zero are
- * considered, which is what makes the match the *own* branches of this `if`.
- *
- * Returns null when the statement has no `else` (a closing `}` is reached first), when the
- * `else` is an `else if` continuation, or when the template ends unbalanced.
+ * Returns null when the statement has no `else`, when the next branch is an `else if` link (the chain cannot be
+ * swapped past it), or when the template ends with the block open.
  */
 export function findNegatedConditionBranches(
-  followingBlocks: TagBlock[],
-): { elseBlock: TagBlock; closeBlock: TagBlock } | null {
-  const findAtSameDepth = (from: number, wanted: 'else' | 'close'): number => {
-    let depth = 0;
-    for (let index = from; index < followingBlocks.length; index++) {
-      const candidate = followingBlocks[index];
-      if (depth === 0) {
-        // An `else if` link belongs to this statement but cannot be swapped, so the whole
-        // match is abandoned rather than skipped over — skipping would pair the `if` with a
-        // later `else` from further down the chain and reorder unrelated branches.
-        if (isElseIfContinuationBlock(candidate)) {
-          return -1;
-        }
-        if (isElseOpeningBlock(candidate)) {
-          return wanted === 'else' ? index : -1;
-        }
-        if (isBlockClosingBlock(candidate)) {
-          return wanted === 'close' ? index : -1;
-        }
-      }
-      depth += candidate.javascriptPartialNode?.bracesDelta ?? 0;
-      if (depth < 0) {
-        return -1;
-      }
-    }
-    return -1;
-  };
-
-  const elseIndex = findAtSameDepth(0, 'else');
-  if (elseIndex === -1) {
-    return null;
-  }
-  const closeIndex = findAtSameDepth(elseIndex + 1, 'close');
-  if (closeIndex === -1) {
-    return null;
-  }
-
-  return { elseBlock: followingBlocks[elseIndex], closeBlock: followingBlocks[closeIndex] };
+  template: EjsTemplate,
+  block: TagBlock,
+): { elseTag: { offset: number; length: number }; closeTag: { offset: number; length: number } } | null {
+  const found = findBranch(template.children, block.tagOffset);
+  if (!found) return null;
+  const { branches, close } = found.block;
+  const elseBranch = branches.at(found.index + 1);
+  if (!elseBranch || found.index + 2 !== branches.length || !close) return null;
+  if (!isElseOpening(elseBranch.open.javascript) || !isBlockClosing(close.javascript)) return null;
+  return { elseTag: elseBranch.open, closeTag: close };
 }
 
 /** Output tag types, including the multiline variants. */
@@ -667,16 +637,15 @@ export const isOutputTagType = (tagType: string): boolean => OUTPUT_TAG_TYPES.ha
 const HTML_ESCAPED = /[&<>'"]/u;
 
 /**
- * What EJS renders between two offsets of a template, from the `rendered` of its texts: null when a tag other than a
- * comment is in between, which renders no text of its own.
+ * What EJS renders of the children of a branch, from the `rendered` of its texts: null when a tag other than a
+ * comment, or a block, is among them, which renders no text of its own.
  */
-function renderedBetween(nodes: (EjsText | EjsTag)[], start: number, end: number): string | null {
+function renderedOf(children: EjsTemplateNode[]): string | null {
   let rendered = '';
-  for (const node of nodes) {
-    if (node.offset < start || node.offset + node.length > end) continue;
+  for (const node of children) {
     if (node.kind === 'text') {
       rendered += node.rendered;
-    } else if (node.type !== 'comment') {
+    } else if (node.kind === 'block' || node.type !== 'comment') {
       return null;
     }
   }
@@ -778,7 +747,7 @@ function buildNegatedTernaryFix(
  */
 function buildNegatedConditionFix(
   block: TagBlock,
-  followingBlocks: TagBlock[],
+  template: EjsTemplate,
   sourceText: string,
   targetOffset?: number,
 ): { range: [number, number]; text: string } | null {
@@ -789,18 +758,18 @@ function buildNegatedConditionFix(
   const ifCondition = getNegatedIfCondition(block);
   const elseIfCondition = ifCondition === null ? getNegatedElseIfCondition(block) : null;
   const positiveCondition = ifCondition ?? elseIfCondition;
-  const branches = positiveCondition === null ? null : findNegatedConditionBranches(followingBlocks);
+  const branches = positiveCondition === null ? null : findNegatedConditionBranches(template, block);
   if (positiveCondition === null || !branches) {
     // Not an `if`/`else` pair; the other form the core rule reports is a negated ternary.
     return buildNegatedTernaryFix(block, targetOffset);
   }
 
-  const { elseBlock, closeBlock } = branches;
+  const { elseTag: elseNode, closeTag: closeNode } = branches;
   const ifTagEnd = block.tagOffset + block.tagLength;
-  const elseTagStart = elseBlock.tagOffset;
-  const elseTagEnd = elseBlock.tagOffset + elseBlock.tagLength;
-  const closeTagStart = closeBlock.tagOffset;
-  const closeTagEnd = closeBlock.tagOffset + closeBlock.tagLength;
+  const elseTagStart = elseNode.offset;
+  const elseTagEnd = elseNode.offset + elseNode.length;
+  const closeTagStart = closeNode.offset;
+  const closeTagEnd = closeNode.offset + closeNode.length;
 
   // Branch bodies and the trailing tags are carried over verbatim, so template markup,
   // indentation and delimiter style survive the swap untouched; only the opening tag is
@@ -856,9 +825,8 @@ function translateFix(
   block: TagBlock,
   options: {
     applyIndentForSingleLineTags?: boolean;
-    nextBlocks?: TagBlock[];
-    /** The texts and tags of the template, for the fixes writing what EJS renders of its texts. */
-    templateNodes?: (EjsText | EjsTag)[];
+    /** The template, for the fixes spanning several tags: its blocks, and what EJS renders of its texts. */
+    template?: EjsTemplate;
   },
 ): { range: [number, number]; text: string } | null {
   // no-comment-empty-line sentinel: handled before the javascriptPartialNode guard
@@ -989,12 +957,21 @@ function translateFix(
     // `<% if (cond) { %>a<% } else { %>b<% } %>` => `<%= cond ? 'a' : 'b' %>`
     // The strings are what EJS renders of the branches, not their source: `%%>` renders `%>`, and the
     // delimiters of the tags slurp blanks and line breaks around them.
-    if (block.tagType !== 'code' || block.openDelim !== '<%' || !options.nextBlocks || !options.templateNodes) {
+    if (block.tagType !== 'code' || block.openDelim !== '<%' || !options.template) {
       return null;
     }
 
-    const secondBlock = options.nextBlocks.at(0);
-    if (!secondBlock) {
+    // The branches of the `if` the tag opens, from the tree of the template, re-checked against what the rule
+    // reported: one, or two when the second is a plain `} else {`, and the block closed by a plain `}`.
+    const found = findBranch(options.template.children, block.tagOffset);
+    const branches = found?.index === 0 ? found.block.branches : [];
+    const close = found?.block.close;
+    if (
+      !close ||
+      branches.length !== (fix.text === SENTINEL_PREFER_OUTPUT_ELSE ? 2 : 1) ||
+      (branches.length === 2 && !isElseOpening(branches[1].open.javascript)) ||
+      !isBlockClosing(close.javascript)
+    ) {
       return null;
     }
 
@@ -1003,21 +980,7 @@ function translateFix(
       return null;
     }
 
-    const openStart = block.tagOffset;
-    const openEnd = block.tagOffset + block.tagLength;
-    const truthyContent = renderedBetween(options.templateNodes, openEnd, secondBlock.tagOffset);
-    let lastBlock = secondBlock;
-
-    let falsyContent: string | null = '';
-    const thirdBlock = options.nextBlocks.at(1);
-    if (thirdBlock) {
-      falsyContent = renderedBetween(
-        options.templateNodes,
-        secondBlock.tagOffset + secondBlock.tagLength,
-        thirdBlock.tagOffset,
-      );
-      lastBlock = thirdBlock;
-    }
+    const [truthyContent, falsyContent = ''] = branches.map((branch) => renderedOf(branch.children));
 
     // Apply only when the full wrapper (tags + outputs) stays on one line.
     if (
@@ -1047,8 +1010,8 @@ function translateFix(
     const openDelim = HTML_ESCAPED.test(truthyContent + falsyContent) ? '<%-' : '<%=';
 
     return {
-      range: [openStart, lastBlock.tagOffset + lastBlock.tagLength],
-      text: `${openDelim} ${condition} ? '${escapedTruthyContent}' : '${escapedFalsyContent}' ${lastBlock.closeDelim}`,
+      range: [block.tagOffset, close.offset + close.length],
+      text: `${openDelim} ${condition} ? '${escapedTruthyContent}' : '${escapedFalsyContent}' ${close.closeDelim}`,
     };
   } else if (fix.text === SENTINEL_NO_MULTILINE_OUTPUT) {
     // no-multiline-output: `<%- cond ? 'a\nb' : '' %>` => a slurp conditional block.
@@ -2083,20 +2046,9 @@ export const processor: Linter.Processor = {
               return result;
             }
 
-            const sentinel = mapped.fix.text;
-            // Sentinels whose fix spans more than the reporting tag get the following blocks
-            // handed to the translator; it re-checks their shape before using them.
-            let nextBlocks: TagBlock[] | undefined;
-            if (sentinel.startsWith(SENTINEL_PREFER_OUTPUT)) {
-              nextBlocks = blocks.slice(
-                segmentIndex + 1,
-                segmentIndex + 1 + (sentinel === SENTINEL_PREFER_OUTPUT_ELSE ? 2 : 1),
-              );
-            }
             const translated = translateFix(mapped.fix, segment.block, {
               applyIndentForSingleLineTags: hasIndentMessages,
-              nextBlocks,
-              templateNodes: processedFile.template.nodes,
+              template: processedFile.template,
             });
             if (translated) {
               return [{ ...mapped, fix: translated }];
@@ -2112,10 +2064,9 @@ export const processor: Linter.Processor = {
           // only the edit is missing, so it is attached to the core rule's own message rather
           // than duplicated into a plugin rule.
           if (mapped.ruleId === CORE_NO_NEGATED_CONDITION) {
-            const followingBlocks = segments.slice(segmentIndex + 1).map((s) => s.block);
             const negatedConditionFix = buildNegatedConditionFix(
               segment.block,
-              followingBlocks,
+              processedFile.template,
               sourceText,
               offsetOfPosition(sourceText, mapped.line, mapped.column),
             );
