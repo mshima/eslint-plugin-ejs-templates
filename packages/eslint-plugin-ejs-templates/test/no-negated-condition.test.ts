@@ -154,8 +154,8 @@ describe('autofix: core no-negated-condition', () => {
   });
 
   // The link is fixable however many links precede it. Only the last link of a chain is ever
-  // reported — the built-in rule skips an `if` whose `else` is another `if` — so the matcher
-  // always finds a plain `} else {` as the next tag at the same depth.
+  // reported — the built-in rule skips an `if` whose `else` is another `if` — so the branch after
+  // the link is always a plain `} else {`, the last one of the block.
   test.each([1, 2, 3, 4])('inverts the negated link of a chain with %i preceding links', (preceding) => {
     const links = Array.from(
       { length: preceding },
@@ -179,6 +179,14 @@ describe('autofix: core no-negated-condition', () => {
   test('leaves an else if link with no final else untouched', () => {
     const template = '<% if (a) { %>A<% } else if (!b) { %>B<% } %>';
     expect(lint(template, rules)).toHaveLength(0);
+    expect(applyFix(template, rules)).toBe(template);
+  });
+
+  // The code of an `} else { … %>` tag runs in the else branch: swapping the bodies around the tag
+  // would run it in the other one, so only a tag holding exactly `} else {` is swapped around.
+  test('leaves an else tag with code of its own untouched', () => {
+    const template = '<% if (!a) { %>A<% } else { b(); %>B<% } %>';
+    expect(lint(template, rules).map((msg) => msg.ruleId)).toEqual(['no-negated-condition']);
     expect(applyFix(template, rules)).toBe(template);
   });
 
