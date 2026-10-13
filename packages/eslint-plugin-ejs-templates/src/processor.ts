@@ -376,18 +376,6 @@ function buildFormattedTag(block: TagBlock, options?: { multilineCloseOnNewLine?
   return `${block.openDelim} ${lines}\n${block.lineIndent}${block.closeDelim}`;
 }
 
-type NegatedOutputConditionalParts = {
-  condition: string;
-  consequent: string;
-  alternate: string;
-  hasTrailingSemi: boolean;
-};
-
-/**
- * Extract ternary parts when an output tag is in the form `!cond ? a : b`.
- *
- * Returns null for non-output tags, multiline content, or non-negated tests.
- */
 /** Escape sequences a single- or double-quoted literal may contain and still be decodable. */
 const STRING_ESCAPES = new Map<string, string>([
   ['\\n', '\n'],
@@ -478,45 +466,6 @@ export function getMultilineOutputConditionalParts(block: TagBlock): MultilineOu
   }
 
   return { condition, consequent, alternate };
-}
-
-export function getNegatedOutputConditionalParts(block: TagBlock): NegatedOutputConditionalParts | null {
-  if (block.tagType !== 'escaped-output' && block.tagType !== 'raw-output') {
-    return null;
-  }
-
-  const partialNode = block.javascriptPartialNode;
-  if (!partialNode || partialNode.multilineOriginal) {
-    return null;
-  }
-
-  const conditionalNode = partialNode.nodes.find(
-    (node) => node.type === 'ternary_expression' && node.parent?.type === 'expression_statement',
-  );
-  if (!conditionalNode) {
-    return null;
-  }
-
-  const conditionNode = conditionalNode.childForFieldName('condition') ?? conditionalNode.child(0);
-  const consequentNode = conditionalNode.childForFieldName('consequence') ?? conditionalNode.child(2);
-  const alternateNode = conditionalNode.childForFieldName('alternative') ?? conditionalNode.child(4);
-  if (!conditionNode || !consequentNode || !alternateNode) {
-    return null;
-  }
-
-  const condition = invertNegatedTest(conditionNode);
-  const consequent = consequentNode.text.trim();
-  const alternate = alternateNode.text.trim();
-  if (!condition || !consequent || !alternate) {
-    return null;
-  }
-
-  return {
-    condition,
-    consequent,
-    alternate,
-    hasTrailingSemi: block.codeContent.trimEnd().endsWith(';'),
-  };
 }
 
 /** Unwrap one layer of parentheses, so `(a && b)` yields `a && b`. */

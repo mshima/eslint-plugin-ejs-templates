@@ -69,14 +69,8 @@ const collectNodesStartingInRange = (node: SyntaxNode, contentStart = 0, content
   return nodes;
 };
 
-const collectErrorNodes = (node: SyntaxNode | SyntaxNode[]): SyntaxNode[] => {
+const collectErrorNodes = (node: SyntaxNode): SyntaxNode[] => {
   const nodes: SyntaxNode[] = [];
-  if (Array.isArray(node)) {
-    for (const n of node) {
-      nodes.push(...collectErrorNodes(n));
-    }
-    return nodes;
-  }
   if (node.isError || node.isMissing) {
     // We may have nodes that starts within the content but ends outside of it (e.g. an unclosed `{` at the end of the content).
     // Include those nodes, but log them for visibility since they may indicate parsing issues.
