@@ -295,6 +295,15 @@ EJS-specific and core does not report it at all.
 
 ## Gotchas
 
+### How EJS reads a template
+
+[`docs/ejs.md`](../docs/ejs.md) tells what EJS 6.0.1 does with a template, from its sources: the
+slurping before the splitting, the leftmost split at its delimiters, the modes (the literal mode
+`<%%` and `%%>` enter, in which the next close delimiter is written rather than dropped), the line
+break `-%>` and `_%>` drop, and the function it compiles. Read it before reasoning about what a
+template renders, and add to it what you learn of EJS — checked with `ejs.render`, the
+devDependency of ejs-template-parser.
+
 ### tree-sitter trees must be freed
 
 Parse trees live in WASM memory that the JavaScript garbage collector does not manage: the tree
