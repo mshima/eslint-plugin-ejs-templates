@@ -88,6 +88,13 @@ describe('validateTemplate', () => {
     expect(diagnosticsOf(text)).toEqual([['javascript-error', 'error', tag]]);
   });
 
+  test('reports the JavaScript EJS cannot compile once a tag, each tag', () => {
+    expect(diagnosticsOf('a<%= foo( bar( ) %>b\n<% c(; %>\n')).toEqual([
+      ['javascript-error', 'error', '<%= foo( bar( ) %>'],
+      ['javascript-error', 'error', '<% c(; %>'],
+    ]);
+  });
+
   test('reports a comment commenting out what is between two tags', () => {
     expect(diagnosticsOf('<%_ /* if (x) { _%>\na\n<%_ } */ _%>\n')).toEqual([
       ['comment-across-tags', 'error', '<%_ /* if (x) { _%>'],
@@ -106,6 +113,7 @@ describe('validateTemplate', () => {
     ['slurp-newline', 'a <%_ const x = 1; _%>\n', '<%_ const x = 1; _%>'],
     ['indent', '<%_ if (a) { _%>\n<%_ const x = 1; _%>\n<%_ } _%>\n', '<%_ const x = 1; _%>'],
     ['prefer-single-line-tags', '<%_ if (a) { _%>\n  <%_ if (b) { _%>\nx\n<%_ } } _%>\n', '<%_ } } _%>'],
+    ['prefer-single-line-tags', '<%_ if (a) {\n  b();\n_%>\nx\n<%_ } _%>\n', '<%_ if (a) {\n  b();\n_%>'],
     ['no-comment-empty-line', '<%# a comment %>\nb\n', '<%# a comment %>'],
     ['unclosed-block', '<%_ if (a) { _%>\nb\n', '<%_ if (a) { _%>'],
     ['unopened-close', 'b\n<%_ } _%>\n', '<%_ } _%>'],

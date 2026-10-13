@@ -134,6 +134,17 @@ describe('rule: ejs-templates/prefer-output', () => {
     expect(results.length).toBeGreaterThanOrEqual(0);
   });
 
+  test.each([
+    ['an output tag closing it', '<% if (a) { %>x<%= b %>y<% } %>'],
+    ['a statement after it', '<% if (a) { %>x<% b(); %>y<% } %>'],
+    ['a statement after its close', '<% if (a) { %>x<% } c(); %>'],
+    ['an else closed with a statement', '<% if (a) { %>x<% } else { %>y<% b(); } %>'],
+    ['an opening tag of several lines', '<% if (a) {\n %>x<% } %>'],
+    ['a closing tag of several lines', '<% if (a) { %>x<% }\n %>'],
+  ])('does not flag an if wrapper with %s', (_label, input) => {
+    expect(lint(input, { 'ejs-templates/prefer-output': 'error' })).toEqual([]);
+  });
+
   test('message includes example transformation', () => {
     const msgs = lint('<% if (value) { %>x<% } %>', { 'ejs-templates/prefer-output': 'error' });
     const preferOutputMsgs = msgs.filter((m) => m.ruleId === 'ejs-templates/prefer-output');

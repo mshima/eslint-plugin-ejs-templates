@@ -15,7 +15,7 @@ export default defineConfig({
       include: ['packages/*/src/**/*.ts'],
       reporter: ['text', 'html', 'lcov'],
       // Just under what the tests cover: `npm run coverage` fails when a change lowers it.
-      thresholds: { statements: 92, branches: 84, functions: 98, lines: 92 },
+      thresholds: { statements: 93, branches: 87, functions: 98, lines: 94 },
     },
   },
 });

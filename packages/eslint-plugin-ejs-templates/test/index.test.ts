@@ -11,7 +11,8 @@ import * as fixture1 from './fixtures/1.js';
 import * as fixture2 from './fixtures/2.js';
 import * as fixture3 from './fixtures/3.js';
 import * as fixture4 from './fixtures/4.js';
-import { lint, applyFix } from './helpers.js';
+import plugin from '../src/index.js';
+import { lint, applyFix, makeLinter } from './helpers.js';
 
 // ---------------------------------------------------------------------------
 // Autofix: both rules together
@@ -137,5 +138,34 @@ describe('eslint-disable-next-line partly unused', () => {
       "
     `);
     expect(lint(fixed, rules, { reportUnusedDisableDirectives: 'error' })).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Rules on a file the processor did not read
+// ---------------------------------------------------------------------------
+
+describe('rules on a JavaScript file', () => {
+  test.each([
+    'experimental-prefer-slurp-multiline',
+    'format',
+    'indent',
+    'no-comment-empty-line',
+    'no-complex-statements',
+    'no-function-block',
+    'no-global-function-call',
+    'no-multiline-output',
+    'output-semi',
+    'prefer-encoded',
+    'prefer-single-line-tags',
+    'prefer-slurping-codeonly',
+    'slurp-newline',
+  ])('ejs-templates/%s reports nothing', (rule) => {
+    const messages = makeLinter().verify(
+      'const value = 1;\n',
+      [{ files: ['**/*.js'], plugins: { 'ejs-templates': plugin }, rules: { [`ejs-templates/${rule}`]: 'error' } }],
+      { filename: 'file.js' },
+    );
+    expect(messages).toEqual([]);
   });
 });

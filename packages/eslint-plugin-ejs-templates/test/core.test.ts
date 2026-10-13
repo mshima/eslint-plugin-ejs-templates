@@ -14,6 +14,20 @@ import { lint, applyFix, makeLinter, makeConfig } from './helpers.js';
 import { extractTagBlocks } from '../src/ejs-parser.js';
 import { getEjsNodes } from 'ejs-template-parser';
 import { type Config } from 'eslint/config';
+import {
+  processor,
+  SENTINEL_COMMENT_EMPTY_LINE,
+  SENTINEL_FORMAT,
+  SENTINEL_INDENT,
+  SENTINEL_INDENT_NORMALIZE,
+  SENTINEL_NO_MULTILINE_OUTPUT,
+  SENTINEL_OUTPUT_SEMI_ADD,
+  SENTINEL_OUTPUT_SEMI_REMOVE,
+  SENTINEL_PREFER_OUTPUT,
+  SENTINEL_PREFER_SINGLE_LINE_TAGS_BRACES,
+  SENTINEL_PREFER_SLURP_MULTILINE,
+  SENTINEL_SLURP_NEWLINE,
+} from '../src/processor.js';
 
 type RuleConfigMap = Record<string, Linter.RuleSeverityAndOptions | Linter.RuleSeverity>;
 
@@ -500,6 +514,84 @@ describe('processor position mapping', () => {
 // ---------------------------------------------------------------------------
 // Plugin shape
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Sentinel fixes re-validate the tag they rewrite
+// ---------------------------------------------------------------------------
+
+let sentinelFileCount = 0;
+
+/**
+ * Run `postprocess()` on one message whose fix replaces the marker of a tag (or `range`, relative
+ * to the marker) with `text`, as a rule would; the translator sees the tag as `preprocess()` built it.
+ */
+function postprocessFix(ejsText: string, text: string, tagIndex = 0, range?: [number, number]): Linter.LintMessage[] {
+  const filename = `sentinel-${String(++sentinelFileCount)}.ejs`;
+  const [virtualCode] = processor.preprocess?.(ejsText, filename) ?? [];
+  if (typeof virtualCode !== 'string') throw new Error('preprocess gave no virtual code');
+  const marker = [...virtualCode.matchAll(/\/\/@ejs-tag:[^\n]*/gu)][tagIndex];
+  const start = marker.index;
+  const line = virtualCode.slice(0, start).split('\n').length;
+  const fixRange: [number, number] = range ? [start + range[0], start + range[1]] : [start, start + marker[0].length];
+  return (
+    processor.postprocess?.(
+      [
+        [
+          {
+            ruleId: 'ejs-templates/test',
+            severity: 2,
+            message: 'test',
+            line,
+            column: 1,
+            fix: { range: fixRange, text },
+          },
+        ],
+      ],
+      filename,
+    ) ?? []
+  );
+}
+
+describe('processor: a fix that does not fit its tag is dropped', () => {
+  test.each([
+    ['prefer-slurp-multiline on a single-line tag', '<% a(); %>', SENTINEL_PREFER_SLURP_MULTILINE],
+    ['slurp-newline on a standalone slurp tag', '<%_ a(); _%>', SENTINEL_SLURP_NEWLINE],
+    ['indent on an indented slurp tag', '<%_ a(); _%>', SENTINEL_INDENT],
+    ['indent normalize on a code tag', '<% a(); %>', SENTINEL_INDENT_NORMALIZE],
+    ['indent normalize on a normalized slurp tag', '<%_ a();\n    b();\n_%>', SENTINEL_INDENT_NORMALIZE],
+    ['format on a formatted tag', '<% a(); %>', SENTINEL_FORMAT],
+    ['prefer-single-line-tags on a single-line tag', '<% a(); %>', SENTINEL_PREFER_SINGLE_LINE_TAGS_BRACES],
+    [
+      'prefer-single-line-tags on statements without braces',
+      '<%\n a();\n b();\n%>',
+      SENTINEL_PREFER_SINGLE_LINE_TAGS_BRACES,
+    ],
+    ['output-semi add on a code tag', '<% a(); %>', SENTINEL_OUTPUT_SEMI_ADD],
+    ['output-semi remove on an output tag without semicolon', '<%= a %>', SENTINEL_OUTPUT_SEMI_REMOVE],
+    ['prefer-output on an output tag', '<%= a %>', SENTINEL_PREFER_OUTPUT],
+    ['prefer-output on a tag without condition', '<% a(); %>x<% b(); %>', SENTINEL_PREFER_OUTPUT],
+    ['prefer-output on a branch spanning lines', '<% if (a) { %>x\ny<% } %>', SENTINEL_PREFER_OUTPUT],
+    ['no-multiline-output on a code tag', '<% a(); %>', SENTINEL_NO_MULTILINE_OUTPUT],
+    ['no-comment-empty-line on a code tag', '<% a(); %>', SENTINEL_COMMENT_EMPTY_LINE],
+    ['an unknown sentinel', '<% a(); %>', 'UNKNOWN'],
+  ])('%s', (_label, ejsText, text) => {
+    expect(postprocessFix(ejsText, text)).toEqual([
+      { ruleId: 'ejs-templates/test', severity: 2, message: 'test', line: 1, column: 0 },
+    ]);
+  });
+
+  test('prefer-output on the last tag', () => {
+    expect(postprocessFix('<% if (a) { %>x<% } %>', SENTINEL_PREFER_OUTPUT, 1)).toEqual([
+      { ruleId: 'ejs-templates/test', severity: 2, message: 'test', line: 1, column: 15 },
+    ]);
+  });
+
+  test('a JavaScript fix of the marker', () => {
+    expect(postprocessFix('<% a(); %>', 'x', 0, [2, 4])).toEqual([
+      { ruleId: 'ejs-templates/test', severity: 2, message: 'test', line: 1, column: 0 },
+    ]);
+  });
+});
 
 describe('plugin shape', () => {
   test('plugin has meta', () => {
