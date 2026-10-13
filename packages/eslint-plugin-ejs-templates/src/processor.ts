@@ -1020,7 +1020,7 @@ function translateFix(
       text: `${openDelim} ${condition} ? '${escapedTruthyContent}' : '${escapedFalsyContent}' ${close.closeDelim}`,
     };
   } else if (fix.text === SENTINEL_NO_MULTILINE_OUTPUT) {
-    // no-multiline-output: `<%- cond ? 'a\nb' : '' %>` => a slurp conditional block.
+    // no-multiline-output: `<%- cond ? 'a\nb' : '' %>` => a conditional block.
     const parts = getMultilineOutputConditionalParts(block);
     if (!parts) {
       return null;
@@ -1039,12 +1039,14 @@ function translateFix(
     // from the output tag it replaces — it drops the newline the original tag's own line
     // contributes, and drops a leading indent that was literal output. Plain `<% %>` tags emit
     // nothing themselves and consume nothing around them, so writing the text with no added
-    // line breaks reproduces the original output exactly, wherever the tag sits.
+    // line breaks reproduces the original output exactly, wherever the tag sits. The last tag
+    // closes with the delimiter of the output tag, and drops after it what that one dropped:
+    // the line break after a `-%>`, the blanks and the line break after a `_%>`.
     const pieces = [`<% if (${parts.condition}) { %>`, parts.consequent];
     if (parts.alternate.length > 0) {
       pieces.push('<% } else { %>', parts.alternate);
     }
-    pieces.push('<% } %>');
+    pieces.push(`<% } ${block.closeDelim}`);
 
     return {
       range: [block.tagOffset, block.tagOffset + block.tagLength],

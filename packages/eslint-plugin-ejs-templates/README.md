@@ -534,7 +534,9 @@ The branch text is written flush against plain `<% %>` tags. Slurp tags would
 swallow the whitespace and newlines around them, so the block would render
 differently from the output tag it replaced; plain tags emit nothing themselves
 and consume nothing around them, so the rendered output is unchanged — including
-for an indented or inline tag, whose surrounding text is preserved exactly.
+for an indented or inline tag, whose surrounding text is preserved exactly. The
+last tag closes with the delimiter of the output tag: after a `-%>` or a `_%>`,
+the line break (and the blanks a `_%>` slurps) stays dropped.
 
 A non-empty alternate branch becomes an `else`:
 

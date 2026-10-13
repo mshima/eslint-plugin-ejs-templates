@@ -183,6 +183,7 @@ const TEMPLATES: string[] = [
   '<% if (c) { %>a<% } else { %>b<% } %>\n',
   'a <% if (c) { %>b<% } -%>\nX\n',
   "<%- c ? 'a\\nb' : '' %>\n",
+  "<%- c ? 'a\\nb' : '' -%>\nX\n",
   '<% if (!a) { %>A<% } else { %>B<% } %>\n',
   // no-negated-condition: the delimiters next to each body, which move with it
   '<% if (!a) { -%>\nA\n<% } else { %>\nB\n<% } %>\n',
@@ -288,18 +289,18 @@ describe('autofix: what EJS renders', () => {
       ).length;
     expect(Object.fromEntries(RUNS.map((run) => [run.name, fixedCount(run)]))).toMatchInlineSnapshot(`
       {
-        "configs.customize()": 27,
+        "configs.customize()": 28,
         "experimental-prefer-slurp-multiline": 5,
         "format": 10,
         "indent": 8,
         "javascript rules": 4,
         "layout rules together": 20,
         "no-comment-empty-line": 3,
-        "no-multiline-output": 3,
+        "no-multiline-output": 4,
         "no-negated-condition": 6,
-        "output-semi always": 11,
+        "output-semi always": 12,
         "output-semi never": 3,
-        "prefer-encoded always": 7,
+        "prefer-encoded always": 8,
         "prefer-encoded never": 6,
         "prefer-output": 5,
         "prefer-single-line-tags": 6,
@@ -319,8 +320,8 @@ describe('autofix: what EJS renders', () => {
     });
     expect(Object.fromEntries(counts)).toMatchInlineSnapshot(`
       {
-        "configs.customize()": "10 of 10",
-        "no-multiline-output": "1 of 1",
+        "configs.customize()": "11 of 11",
+        "no-multiline-output": "2 of 2",
         "no-negated-condition": "4 of 4",
         "prefer-output": "3 of 3",
       }

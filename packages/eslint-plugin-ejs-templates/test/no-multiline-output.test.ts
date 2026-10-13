@@ -7,6 +7,7 @@
 //     http://www.apache.org/licenses/LICENSE-2.0
 
 import { describe, test, expect } from 'vitest';
+import ejs from 'ejs';
 import { applyFix, lint } from './helpers.js';
 
 const rules = { 'ejs-templates/no-multiline-output': 'error' } as const;
@@ -73,6 +74,19 @@ describe('autofix: no-multiline-output', () => {
   test('fixes an indented tag, keeping the indentation as literal output', () => {
     expect(applyFix('  ' + String.raw`<%- condition ? 'aaa\nbbb' : '' %>`, rules)).toBe(
       '  <% if (condition) { %>aaa\nbbb<% } %>',
+    );
+  });
+
+  // A `-%>` or a `_%>` drops the line break after it (and a `_%>` the blanks before that line
+  // break): the last tag of the block closes with it, so that it stays dropped.
+  test.each([
+    ['-%>', String.raw`<%- c ? 'a\nb' : '' -%>` + '\nX\n', '<% if (c) { %>a\nb<% } -%>\nX\n'],
+    ['_%>', String.raw`<%- c ? 'a\nb' : 'd' _%>` + '  \nX\n', '<% if (c) { %>a\nb<% } else { %>d<% } _%>  \nX\n'],
+  ])('closes the block with the delimiter of the output tag, %s', (_label, template, fixed) => {
+    const output = applyFix(template, rules);
+    expect(output).toBe(fixed);
+    expect([true, false].map((c) => ejs.render(output, { c }))).toEqual(
+      [true, false].map((c) => ejs.render(template, { c })),
     );
   });
 
