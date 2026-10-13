@@ -7,6 +7,7 @@
 //     http://www.apache.org/licenses/LICENSE-2.0
 
 import { describe, test, expect } from 'vitest';
+import ejs from 'ejs';
 import * as fixture1 from './fixtures/1.js';
 import * as fixture2 from './fixtures/2.js';
 import * as fixture3 from './fixtures/3.js';
@@ -144,6 +145,34 @@ describe('eslint-disable-next-line partly unused', () => {
 // ---------------------------------------------------------------------------
 // Rules on a file the processor did not read
 // ---------------------------------------------------------------------------
+
+describe('experimental-prefer-slurp-multiline, format and indent together', () => {
+  // Each pass fixes the tags the one before rewrote: slurp delimiters, the close on a line of its own, then the
+  // indentation, which leaves alone a tag with text before it on its line.
+  test('keep the texts of an else if chain written inline', () => {
+    const input = 'a(<%\n  if (b) { %>B(<% } else\n  if (c) { %>C(<% } else\n  if (d) { %>D(<% } %>x\n';
+    const fixed = applyFix(input, {
+      'ejs-templates/experimental-prefer-slurp-multiline': 'error',
+      'ejs-templates/format': 'error',
+      'ejs-templates/indent': 'error',
+    });
+    expect(fixed).toMatchInlineSnapshot(`
+      "a(<%_ if (b) { _%>B(<%_ } else
+        if (c) {
+      _%>C(<%_ } else
+        if (d) {
+      _%>D(<% } %>x
+      "
+    `);
+    const data = [
+      { b: true, c: false, d: false },
+      { b: false, c: true, d: false },
+      { b: false, c: false, d: true },
+      { b: false, c: false, d: false },
+    ];
+    expect(data.map((locals) => ejs.render(fixed, locals))).toEqual(data.map((locals) => ejs.render(input, locals)));
+  });
+});
 
 describe('rules on a JavaScript file', () => {
   test.each([
