@@ -148,6 +148,13 @@ describe('escapeText', () => {
     });
   });
 
+  test('long runs of blanks, read in linear time', () => {
+    const blanks = '\t'.repeat(100_000);
+    const template = `a${blanks}b_%>${blanks}<%_ _%>`;
+    expect(escapeText(template, 1, `${blanks}x${blanks}`)).toBe(`${blanks}x${blanks}`);
+    expect(escapeText(template, template.length - 7, 'x')).toBe('x');
+  });
+
   describe('an offset out of a text', () => {
     test('in a tag', () => {
       expect(() => escapeText('a<%= b %>', 4, 'x')).toThrow(new RangeError('The offset 4 is inside a tag'));

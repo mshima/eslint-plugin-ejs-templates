@@ -12,8 +12,26 @@
  */
 const DELIMITER = /<%%|%%>|<%=|<%-|<%_|<%#|<%|%>|-%>|_%>/g;
 const CLOSE_DELIMITERS = new Set(['%>', '-%>', '_%>']);
-/** The blanks a `<%_` slurps before it and a `_%>` after it, removed by EJS before it splits the template. */
-const SLURPED_BLANKS = [/[ \t]+(?=<%_)/g, /(?<=_%>)[ \t]+/g];
+
+const isBlank = (char: string | undefined) => char === ' ' || char === '\t';
+/** Where the blanks ending at an offset start: scanned, as a regular expression would be in quadratic time. */
+const blanksStart = (text: string, end: number) => {
+  let start = end;
+  while (start > 0 && isBlank(text[start - 1])) start--;
+  return start;
+};
+/** Where the blanks starting at an offset end. */
+const blanksEnd = (text: string, start: number) => {
+  let end = start;
+  while (end < text.length && isBlank(text[end])) end++;
+  return end;
+};
+/** The offsets of a string in a text. */
+const indexesOf = (text: string, search: string) => {
+  const indexes: number[] = [];
+  for (let index = text.indexOf(search); index !== -1; index = text.indexOf(search, index + 1)) indexes.push(index);
+  return indexes;
+};
 const LINE_BREAK = /^(?:\r\n|\r|\n)/;
 
 /** What EJS is reading: the code of a tag (`eval`, `escaped`, `raw`, `comment`), the literal `<%%` and `%%>` enter, or text. */
@@ -32,11 +50,14 @@ const scanDelimiters = (text: string) => {
     start: match.index,
     end: match.index + match[0].length,
   }));
+  // The blanks a `<%_` slurps before it and a `_%>` after it, removed by EJS before it splits the template.
   const slurped = new Set<number>();
-  for (const pattern of SLURPED_BLANKS) {
-    for (const match of text.matchAll(pattern)) {
-      for (let index = match.index; index < match.index + match[0].length; index++) slurped.add(index);
-    }
+  for (const open of indexesOf(text, '<%_')) {
+    for (let index = blanksStart(text, open); index < open; index++) slurped.add(index);
+  }
+  for (const close of indexesOf(text, '_%>')) {
+    const end = blanksEnd(text, close + 3);
+    for (let index = close + 3; index < end; index++) slurped.add(index);
   }
   return { delimiters, slurped };
 };
@@ -202,19 +223,21 @@ export const escapeText = (template: string, offset: number, text: string): stri
   const before = template.slice(0, offset);
   const after = template.slice(offset);
   /** The blanks here are slurped by a `_%>` before. */
-  const slurpedBefore = /_%>[ \t]*$/.test(before);
+  const slurpedBefore = before.endsWith('_%>', blanksStart(before, before.length));
   /** The blanks here are slurped by a `<%_` after. */
-  const slurpedAfter = /^[ \t]*<%_/.test(after);
+  const slurpedAfter = after.startsWith('<%_', blanksEnd(after, 0));
 
   // The blanks of the template before the offset that a `<%_` after slurps: the text would stand between them.
-  const prefix = slurpedAfter && !slurpedBefore && /[ \t]$/.test(before) ? '<%_ %>' : '';
+  const prefix = slurpedAfter && !slurpedBefore && isBlank(before.at(-1)) ? '<%_ %>' : '';
   let leading = '';
   let middle = text;
   let trailing = '';
   if (slurpedBefore || slurpedAfter) {
-    const start = /^[ \t]*/.exec(text)?.[0] ?? '';
-    const end = /[ \t]*$/.exec(text.slice(start.length))?.[0] ?? '';
-    const rest = text.slice(start.length, text.length - end.length);
+    const startEnd = blanksEnd(text, 0);
+    const endStart = Math.max(blanksStart(text, text.length), startEnd);
+    const start = text.slice(0, startEnd);
+    const end = text.slice(endStart);
+    const rest = text.slice(startEnd, endStart);
     if (rest === '') {
       // Blanks alone: one tag for all of them.
       leading = text;
@@ -240,7 +263,7 @@ export const escapeText = (template: string, offset: number, text: string): stri
   };
 
   // What a `_%>` before slurps after the offset, which the text would stand before.
-  if (slurpedBefore && /^[ \t]/.test(after) && !slurpedAfter) suffix = '<%# _%>';
+  if (slurpedBefore && isBlank(after[0]) && !slurpedAfter) suffix = '<%# _%>';
 
   // The literal mode, and a close delimiter of the template right after the text.
   const next = place.nextDelimiter;
