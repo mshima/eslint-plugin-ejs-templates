@@ -121,6 +121,25 @@ describe('rule: ejs-templates/no-complex-statements (default)', () => {
 // ---------------------------------------------------------------------------
 
 describe('rule: ejs-templates/no-complex-statements (custom disallow)', () => {
+  test('reports a disallowed statement without message of its own by its type', () => {
+    expect(
+      lint('<% for (;;) {} %>', {
+        'ejs-templates/no-complex-statements': ['error', { disallow: ['ForStatement'] }],
+      }),
+    ).toEqual([
+      {
+        ruleId: 'ejs-templates/no-complex-statements',
+        severity: 2,
+        message: "The syntax 'ForStatement' is too complex for a template. Move this logic to a controller.",
+        line: 1,
+        column: 4,
+        messageId: 'defaultComplex',
+        endLine: 1,
+        endColumn: 15,
+      },
+    ]);
+  });
+
   test('allows statements not in disallow list', () => {
     const msgs = lint(
       `<% 
