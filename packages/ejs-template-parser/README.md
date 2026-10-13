@@ -247,6 +247,51 @@ render it as written, around which a tag is added:
 A text inserted in the literal mode between `-%><%%` and the line break the `-%>` drops would need
 a tag, which leaves the literal mode: a RangeError tells it.
 
+### Editing a template
+
+`editTemplate(template, edits)` applies edits to a template: each one deletes what a range of the
+template renders and renders a text in its place, the rest of the template rendering as before
+(EJS 6 or 7, the default delimiters). It is the deletion `escapeText` lacks: what a deletion leaves
+around it is written again, as `escapeText` writes it, so that EJS still renders it.
+
+```js
+import { editTemplate } from 'ejs-template-parser';
+
+// `a <%% b %> c` renders `a <% b %> c`: deleting `<% `, its `%>` would be dropped, so it is written `%%>`.
+editTemplate('a <%% b %> c\n', [{ offset: 2, length: 4 }]).template; // 'a b %%> c\n'
+// A tag on a line of its own deleted with the line break its `_%>` drops.
+editTemplate('a\n<%_ x(); _%>\nb\n', [{ offset: 2, length: 12 }]).template; // 'a\nb\n'
+// A text and a tag inserted.
+editTemplate('a\n', [{ offset: 0, length: 1, text: ['Hello ', { tag: '<%= name %>' }, '!'] }]).template;
+// 'Hello <%= name %>!\n'
+```
+
+Each edit is `{ offset, length, text }`, in offsets of the template: `length` characters of texts
+and whole tags deleted, 0 to insert alone, and `text` rendered there, its strings as written (as
+`escapeText` writes them) and its `{ tag }` the source of a tag inserted as it is. The edits never
+overlap nor cut a tag, a RangeError tells; at the same offset, they apply in their order.
+
+What a deletion leaves rendering as before:
+
+- the escape of a character it deletes goes with it: the extra `%` of `<%%` and of `%%>`;
+- a close delimiter whose literal mode it ends is written `%%>`, as is a delimiter the deletion
+  would make in a text (`%x%>` without its `x`);
+- the blanks and the line break a deleted tag slurped (before a `<%_`, after a `_%>` or a `-%>`)
+  are deleted with it; the blanks next to what is written again, which a delimiter could slurp
+  once joined, are written again with what EJS rendered of them (`<%- '  ' %>`), and the blanks a
+  delimiter kept slurps stay slurped.
+
+It returns:
+
+- `template` — the template edited;
+- `offsets` — the offset in the template edited of each offset of the template, then of its end,
+  after what an edit inserts there;
+- `errors` — the errors of the template edited (`diagnoseTemplate`) the edits bring, the ones the
+  template has, at their offsets, aside.
+
+Where `escapeText` cannot write a text (a tag needed in the literal mode), its delimiters are
+escaped alone, and the errors tell what EJS would not render.
+
 ### Lower level
 
 - `getEjsNodes(text)` — the top-level tree-sitter nodes of a template, each with its `linePrefix`;

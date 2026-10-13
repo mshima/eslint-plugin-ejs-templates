@@ -104,6 +104,7 @@ src/
   ejs-parser.ts         – getEjsNodes, the delimiters, the absorbed `_%>` of an output tag
   javascript-parser.ts  – parseJavaScriptPartial: best-guess parse of unbalanced JS snippets
   escape-text.ts        – escapeText: a text to insert in a template, rendered literally (EJS 6 and 7)
+  edit-template.ts      – editTemplate: edits of a template, the rest rendering as before (EJS 6 and 7)
   ts-parser.ts          – web-tree-sitter setup (parseEjs, parseJavaScript, findErrorNode)
 test/
   template.test.ts      – the tree of a template
@@ -111,6 +112,7 @@ test/
   diagnostics.test.ts   – validateTemplate, the nodes of a template
   parse-javascript-partial.test.ts
   escape-text.test.ts   – escapeText, checked against ejs itself
+  edit-template.test.ts – editTemplate, checked against ejs itself
   performance.test.ts   – scaling guard (see "Performance invariant")
   esm.test.ts           – the built package loads in Node as a plain ES module
 ```
