@@ -746,6 +746,12 @@ Auto-fixed form:
 - `<%= condition ? 'content' : '' %>`
 - `<%= condition ? 'A' : 'B' %>`
 
+The strings are what EJS renders of the branches, so the output is unchanged: `<%%` and `%%>` become
+`<%` and `%>` (written `<\x25` and `%\x3E` in the string, which would otherwise open or close a tag),
+and comment tags inside a branch render nothing. When a branch has a character `<%=` would escape
+(`&`, `<`, `>`, `'`, `"`), the fix writes a raw output tag, `<%- … %>`, since the text of a branch is
+not escaped. The close delimiter of the last tag (`-%>`, `_%>`) is kept.
+
 |             |                                                               |
 | ----------- | ------------------------------------------------------------- |
 | **Fixable** | Yes — `eslint --fix` for simple single-line wrapper patterns  |
