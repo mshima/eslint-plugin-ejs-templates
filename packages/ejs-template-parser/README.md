@@ -205,6 +205,11 @@ in a tag, or inside a delimiter of a text (`<%%`, `%%>`, a `%>` EJS drops). Insi
 delimiter slurps (the blanks before a `<%_` or after a `_%>`, the line break after a `-%>` or a
 `_%>`), the offset renders where the delimiter does.
 
+To insert where a character of a text renders, the offsets are the `renderedOffsets` of the text:
+an offset before a character renders the text before it, the last one after the whole text. Two of
+them are refused: inside an escaped delimiter, before the `%` of `<%%` or the `>` of `%%>`, where
+no insertion renders a text between the two characters it writes.
+
 The text is written as it is, its delimiters escaped (`<%%`, `%%>`), except where EJS would not
 render it as written, around which a tag is added:
 

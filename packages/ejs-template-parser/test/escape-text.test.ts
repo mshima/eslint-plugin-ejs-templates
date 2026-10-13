@@ -8,7 +8,7 @@
 
 import ejs from 'ejs';
 import { describe, expect, test } from 'vitest';
-import { escapeText } from '../src/index.js';
+import { buildTemplate, cleanupTemplate, escapeText } from '../src/index.js';
 
 /** The template with the text escaped inserted at the offset. */
 const insert = (template: string, offset: number, text: string) =>
@@ -248,6 +248,46 @@ describe('escapeText', () => {
         return undefined;
       }
     };
+
+    test('at the renderedOffsets of the texts, renders the text where they render', () => {
+      const failures: string[] = [];
+      for (const template of templates) {
+        const rendered = renderOrFail(template);
+        if (rendered === undefined) continue;
+        const built = buildTemplate(template);
+        try {
+          // The tags of these templates render nothing: the texts render the template, in order.
+          let place = 0;
+          for (const node of built.nodes) {
+            if (node.kind !== 'text') continue;
+            node.renderedOffsets.forEach((offset, index) => {
+              const name = `${JSON.stringify(template)} at ${String(offset)}`;
+              let escaped: string;
+              try {
+                escaped = escapeText(template, offset, 'x<%');
+              } catch (error) {
+                // Inside <%% or %%>, between the two characters it writes.
+                if (
+                  !/^The offset \d+ is inside the delimiter (<%%|%%>)$/.test(
+                    error instanceof Error ? error.message : '',
+                  )
+                ) {
+                  failures.push(`${name}: ${String(error)}`);
+                }
+                return;
+              }
+              const actual = ejs.render(template.slice(0, offset) + escaped + template.slice(offset));
+              const expected = rendered.slice(0, place + index) + 'x<%' + rendered.slice(place + index);
+              if (actual !== expected) failures.push(`${name}: ${JSON.stringify(actual)}`);
+            });
+            place += node.rendered.length;
+          }
+        } finally {
+          cleanupTemplate(built);
+        }
+      }
+      expect(failures).toEqual([]);
+    });
 
     test('renders the text where the offset renders, and the template around as before', { timeout: 60_000 }, () => {
       const failures: string[] = [];
