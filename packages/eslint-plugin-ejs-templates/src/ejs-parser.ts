@@ -2,7 +2,7 @@ import {
   type EjsClosingDelimiter,
   type EjsOpeningDelimiter,
   type EjsSyntaxNode,
-  getEjsTags,
+  type EjsTag,
   type RelativeJavascriptNode,
 } from 'ejs-template-parser';
 
@@ -195,9 +195,8 @@ function createDirectiveCommentBlock(params: {
 }
 
 /**
- * Extract each non-comment EJS tag from `text` as a {@link TagBlock},
- * plus supported ESLint directive comments written as EJS comments.
- * using tree-sitter-embedded-template for accurate parsing.
+ * Extract each non-comment EJS tag of a template, the `tags` of `buildTemplate()`, as a
+ * {@link TagBlock}, plus supported ESLint directive comments written as EJS comments.
  *
  * Each per-tag virtual block has the structure:
  * ```
@@ -220,7 +219,7 @@ function createDirectiveCommentBlock(params: {
  * - `-needs-indent`      – wrong brace-depth indentation (fixable by `indent`)
  * - `-not-standalone`    – slurp tag is inline (fixable by `slurp-newline`)
  */
-export function extractTagBlocks(nodes: EjsSyntaxNode[]): TagBlock[] {
+export function extractTagBlocks(tags: EjsTag[]): TagBlock[] {
   const blocks: TagBlock[] = [];
 
   let pendingNextLineDirective: {
@@ -236,7 +235,7 @@ export function extractTagBlocks(nodes: EjsSyntaxNode[]): TagBlock[] {
   } | null = null;
 
   // Each code tag parsed inside the blocks the tags before it left open, with the brace depths around it.
-  for (const tag of getEjsTags(nodes)) {
+  for (const tag of tags) {
     const { node, offset: tagOffset, length: tagLength, line: tagLine, column: tagColumn, isStandalone } = tag;
     const lineIndent = isStandalone ? tag.linePrefix : '';
 

@@ -21,6 +21,8 @@ import { noMultilineOutput } from './rules/no-multiline-output.js';
 import { preferEncoded } from './rules/prefer-encoded.js';
 import { outputSemi } from './rules/output-semi.js';
 import { preferOutput } from './rules/prefer-output.js';
+import { noStrayCloseDelimiter } from './rules/no-stray-close-delimiter.js';
+import { noCommentAcrossTags } from './rules/no-comment-across-tags.js';
 import { type Config, defineConfig } from 'eslint/config';
 import { type ESLint } from 'eslint';
 
@@ -53,6 +55,8 @@ const pluginCore = {
     'prefer-output': preferOutput,
     'prefer-encoded': preferEncoded,
     'output-semi': outputSemi,
+    'no-stray-close-delimiter': noStrayCloseDelimiter,
+    'no-comment-across-tags': noCommentAcrossTags,
   },
 } satisfies ESLint.Plugin;
 
@@ -122,6 +126,8 @@ const defaultRules = ({
       [`${pluginName}/no-multiline-output`]: 'error',
       [`${pluginName}/output-semi`]: 'error',
       [`${pluginName}/prefer-output`]: 'error',
+      [`${pluginName}/no-stray-close-delimiter`]: 'error',
+      [`${pluginName}/no-comment-across-tags`]: 'error',
 
       [`${pluginName}/prefer-single-line-tags`]: 'error',
       [`${pluginName}/slurp-newline`]: 'error',
@@ -226,4 +232,6 @@ export {
   preferEncoded,
   preferOutput,
   outputSemi,
+  noStrayCloseDelimiter,
+  noCommentAcrossTags,
 };

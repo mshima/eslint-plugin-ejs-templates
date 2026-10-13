@@ -7,13 +7,15 @@ EJS files are parsed by [ejs-template-parser](https://github.com/mshima/eslint-p
 ## Features
 
 - **EJS processor** – extracts each EJS tag into its own virtual JS block so standard ESLint rules can inspect the embedded JavaScript
-- **Autofix support** – most rules support autofix; run `eslint --fix` to apply fixes (`no-global-function-call` and `no-function-block` have no autofix)
+- **Autofix support** – most rules support autofix; run `eslint --fix` to apply fixes (`no-global-function-call`, `no-function-block`, `no-stray-close-delimiter` and `no-comment-across-tags` have no autofix)
 - **Autofix for built-in [`no-negated-condition`](#autofix-for-the-built-in-no-negated-condition-rule)** – supplies the fix ESLint itself cannot produce for EJS `if`/`else` tag pairs
+- [`ejs-templates/no-comment-across-tags`](#ejs-templatesno-comment-across-tags) – flags a block comment opened in a tag and closed in a later one, which comments out the template in between
 - [`ejs-templates/no-comment-empty-line`](#ejs-templatesno-comment-empty-line) – flags comment tags that leave an empty line (missing `-%>` close)
 - [`ejs-templates/no-complex-statements`](#ejs-templatesno-complex-statements) – disallows complex statements (try, while, switch, etc.) in templates to keep them simple
 - [`ejs-templates/no-function-block`](#ejs-templatesno-function-block) – disallows function/arrow statement blocks in templates to keep logic simple
 - [`ejs-templates/no-global-function-call`](#ejs-templatesno-global-function-call) – disallows direct function calls in EJS tags (with `include()` allowed by default)
 - [`ejs-templates/no-multiline-output`](#ejs-templatesno-multiline-output) – flags (and auto-fixes) output tags whose conditional renders multiple lines
+- [`ejs-templates/no-stray-close-delimiter`](#ejs-templatesno-stray-close-delimiter) – flags a close delimiter (`%>`, `-%>`, `_%>`) in the text, which EJS drops, with suggestions to write it literally or delete it
 - [`ejs-templates/output-semi`](#ejs-templatesoutput-semi) – enforces semicolon style for output tags (`<%= %>`, `<%- %>`) (default: `never`)
 - [`ejs-templates/prefer-encoded`](#ejs-templatespreferencoded) – flags `<%- … %>` and suggests `<%= … %>` (`always`, default), or flags `<%= … %>` and suggests `<%- … %>` (`never`)
 - [`ejs-templates/prefer-output`](#ejs-templatesprefer-output) – suggests (and auto-fixes) simple if-wrappers into output ternaries
@@ -147,11 +149,13 @@ npx eslint --fix "**/*.ejs"
 
 The following rules have no specific ordering requirement (they can appear in any position):
 
+- [`no-comment-across-tags`](#ejs-templatesno-comment-across-tags)
 - [`no-comment-empty-line`](#ejs-templatesno-comment-empty-line)
 - [`no-complex-statements`](#ejs-templatesno-complex-statements)
 - [`no-function-block`](#ejs-templatesno-function-block)
 - [`no-global-function-call`](#ejs-templatesno-global-function-call)
 - [`no-multiline-output`](#ejs-templatesno-multiline-output)
+- [`no-stray-close-delimiter`](#ejs-templatesno-stray-close-delimiter)
 - [`output-semi`](#ejs-templatesoutput-semi)
 
 Apply [`prefer-output`](#ejs-templatesprefer-output) before [`prefer-encoded`](#ejs-templatespreferencoded).
@@ -251,6 +255,36 @@ Consistent indentation improves readability of nested template logic.
   <%_ doWork(); _%>
 <%_ } _%>
 ```
+
+### `ejs-templates/no-comment-across-tags`
+
+Disallows a block comment opened in an EJS tag and closed in a later one. EJS compiles the template
+to one function, so the comment also comments out the template in between — its text and its other
+tags — and the blocks around it no longer read as written.
+
+|             |     |
+| ----------- | --- |
+| **Fixable** | No  |
+
+```ejs
+<!-- ✗ violation: the comment hides the text and the closing tag -->
+<%_ /* if (enabled) { _%>
+enabled
+<%_ } */ _%>
+
+<!-- ✓ allowed: a comment within one tag -->
+<%_ /* if (enabled) { */ _%>
+```
+
+There is no fix: only the author knows what the comment was meant to hide. The message is at the
+tag opening the comment.
+
+The rule reports the `comment-across-tags` diagnostics of
+[ejs-template-parser](https://github.com/mshima/eslint-plugin-ejs-templates/tree/main/packages/ejs-template-parser), which are in the coordinates of the
+template rather than of the virtual JavaScript: the processor reports them for the rule. A block
+directive comment anywhere in the template turns it off for that template,
+`<%# eslint-disable ejs-templates/no-comment-across-tags %>`, without an `eslint-enable` after it;
+`eslint-disable-next-line` and a range closed by `eslint-enable` cannot.
 
 ### `ejs-templates/no-comment-empty-line`
 
@@ -556,6 +590,47 @@ Replace either rule name with the built-in one:
   },
 }
 ```
+
+### `ejs-templates/no-stray-close-delimiter`
+
+Disallows a close delimiter (`%>`, `-%>`, `_%>`) in the text of a template, outside of any tag.
+EJS drops it from the output, along with the line break after a `-%>` or a `_%>` and the blanks
+after a `_%>`. It is usually a typo, a delimiter left behind by an edit; `%%>` writes a literal
+`%>`.
+
+|                 |                                  |
+| --------------- | -------------------------------- |
+| **Fixable**     | No                               |
+| **Suggestions** | Write it literally, or delete it |
+
+```ejs
+<!-- ✗ violation: EJS drops the %> -->
+CREATE INDEX ON `<%= bucket %>` %>(tokenDate);
+
+<!-- ✓ suggestion: write it literally, the output then has it -->
+CREATE INDEX ON `<%= bucket %>` %%>(tokenDate);
+
+<!-- ✓ suggestion: delete it, the output unchanged -->
+CREATE INDEX ON `<%= bucket %>` (tokenDate);
+```
+
+The two suggestions, written with `escapeText()` of ejs-template-parser from what EJS renders of the
+text:
+
+- **Write it literally**: `%>` becomes `%%>`, `-%>` `-%%>` and `_%>` `_%%>`; the output then has
+  the delimiter, and what EJS dropped along with it.
+- **Delete it, the output unchanged**: with what EJS removes along with it, the line break right
+  after a `-%>` or a `_%>`, and the blanks after a `_%>`. Blanks before it that a `<%_` after would
+  then slurp are kept, written as `<%- ' ' %>`.
+
+There is no fix: a stray delimiter is as often a typo to delete as a literal to escape.
+
+The rule reports the `stray-close-delimiter` diagnostics of
+[ejs-template-parser](https://github.com/mshima/eslint-plugin-ejs-templates/tree/main/packages/ejs-template-parser), which are in the text of the template,
+outside of the virtual JavaScript: the processor reports them for the rule. A block directive
+comment anywhere in the template turns it off for that template,
+`<%# eslint-disable ejs-templates/no-stray-close-delimiter %>`, without an `eslint-enable` after
+it; `eslint-disable-next-line` and a range closed by `eslint-enable` cannot.
 
 ### `ejs-templates/output-semi`
 

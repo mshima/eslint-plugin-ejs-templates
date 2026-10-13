@@ -6,15 +6,21 @@
 //
 //     http://www.apache.org/licenses/LICENSE-2.0
 
-import type { Linter } from 'eslint';
+import type { Linter, Rule } from 'eslint';
 import createDebug from 'debug';
 import {
-  type EjsSyntaxNode,
+  buildTemplate,
+  cleanupTemplate,
+  type EjsDiagnostic,
+  type EjsDiagnosticCode,
+  type EjsTemplate,
+  type EjsText,
+  escapeText,
   findErrorNode,
   getDirectiveCodeText,
-  getEjsNodes,
   parseJavaScript,
   type SyntaxNode,
+  validateTemplate,
 } from 'ejs-template-parser';
 import { EJS_MARKER_PREFIX, extractTagBlocks, type TagBlock } from './ejs-parser.js';
 
@@ -1115,13 +1121,17 @@ type VirtualBlockSegment = {
   endOffset: number;
 };
 
+/**
+ * The template of each file, from preprocess() to postprocess(), which frees its trees, the ones of the code of its
+ * tags (the `javascriptPartialNode`s of the blocks) included.
+ */
 const processedFilesMap = new Map<
   string,
   {
     sourceText: string;
-    ejsNodes: EjsSyntaxNode[];
+    template: EjsTemplate;
+    diagnostics: EjsDiagnostic[];
     javascriptVitualCode: VitualJavascriptCode;
-    cleanup: () => void;
   }
 >();
 
@@ -1165,7 +1175,37 @@ type VirtualCodeMetadata = {
   tagFormat: TagFormatState[];
   /** Index i is true when i-th non-directive slurp-multiline block needs content normalization. */
   needsNormalize: boolean[];
+  /** The diagnostics of the template, `validateTemplate()` of ejs-template-parser, in its coordinates. */
+  diagnostics: EjsDiagnostic[];
 };
+
+/**
+ * The rules reporting diagnostics of the template, with the code of their diagnostic. Their diagnostics are in the
+ * coordinates of the template, a stray close delimiter in a text the virtual JavaScript does not have: such a rule
+ * requests them with one message at the end of the virtual file, and postprocess() answers the request with them, in
+ * the template, with the severity and the `suppressions` of the request.
+ */
+export const DIAGNOSTIC_RULES = {
+  'ejs-templates/no-stray-close-delimiter': 'stray-close-delimiter',
+  'ejs-templates/no-comment-across-tags': 'comment-across-tags',
+} as const satisfies Record<string, EjsDiagnosticCode>;
+
+type DiagnosticRuleId = keyof typeof DIAGNOSTIC_RULES;
+
+const isDiagnosticRuleId = (ruleId: string | null): ruleId is DiagnosticRuleId =>
+  ruleId !== null && Object.hasOwn(DIAGNOSTIC_RULES, ruleId);
+
+/**
+ * Request the diagnostics of the code of a rule of `DIAGNOSTIC_RULES`, when the template has one: one message at the
+ * end of the virtual file, after every directive comment of the template, which postprocess() answers.
+ */
+export function requestDiagnostics(context: Rule.RuleContext, ruleId: DiagnosticRuleId, messageId: string): void {
+  const { sourceCode } = context;
+  const code = DIAGNOSTIC_RULES[ruleId];
+  if (!getVirtualCodeMetadata(sourceCode.text)?.diagnostics.some((diagnostic) => diagnostic.code === code)) return;
+  const { lines } = sourceCode;
+  context.report({ loc: { line: lines.length, column: lines[lines.length - 1].length }, messageId });
+}
 
 /**
  * Unified per-virtual-code metadata tracking.
@@ -1225,6 +1265,120 @@ function logVirtualCodeOnFatal(
   debug(
     `[ejs-templates] ESLint fatal error while processing ${filename}:\n${renderedErrors}\nVirtual code:\n${virtualCode}`,
   );
+}
+
+/**
+ * The suggestions of a stray close delimiter, from what EJS renders of the text it is in (`rendered`,
+ * `renderedOffsets`): deleted, the output unchanged, or written literally, the output then has what is deleted.
+ *
+ * What is deleted is the delimiter with what EJS drops along with it, up to the next character it renders (the blanks
+ * after a `_%>`, the line break after a `-%>` or a `_%>`), never past another close delimiter. Deleting it would join
+ * the blanks around it, which a `<%_` after or a `_%>` before could then slurp: the blanks and the delimiter are
+ * written again, by `escapeText()`, with what EJS rendered of the blanks, and the delimiter as written for the literal
+ * suggestion. A suggestion `escapeText()` cannot write (it throws a RangeError) is left out.
+ */
+function strayCloseDelimiterSuggestions(
+  diagnostic: EjsDiagnostic,
+  sourceText: string,
+  texts: EjsText[],
+): Linter.LintSuggestion[] {
+  const { offset, length } = diagnostic;
+  const end = offset + length;
+  const text = texts.find((t) => t.offset <= offset && end <= t.offset + t.length);
+  if (!text) return [];
+  const textEnd = text.offset + text.length;
+  const nextRendered = text.renderedOffsets.find((renderedOffset) => renderedOffset >= end) ?? end;
+  const nextDelimiter = /[-_]?%>/g;
+  nextDelimiter.lastIndex = end;
+  const deletedEnd = Math.min(nextRendered, nextDelimiter.exec(sourceText)?.index ?? nextRendered, textEnd);
+
+  // The blanks of the text around what is deleted, and what EJS renders of them.
+  let from = offset;
+  while (from > text.offset && (sourceText[from - 1] === ' ' || sourceText[from - 1] === '\t')) from--;
+  let to = deletedEnd;
+  while (to < textEnd && (sourceText[to] === ' ' || sourceText[to] === '\t')) to++;
+  const renderedIn = (start: number, stop: number) => {
+    let rendered = '';
+    for (let index = 0; index < text.rendered.length; index++) {
+      if (start <= text.renderedOffsets[index] && text.renderedOffsets[index] < stop) rendered += text.rendered[index];
+    }
+    return rendered;
+  };
+  const rest = sourceText.slice(0, from) + sourceText.slice(to);
+  const original = sourceText.slice(from, to);
+
+  /** The fix writing a text in place of the blanks and the delimiter, without what it leaves as it is. */
+  const fixOf = (replacement: string): Rule.Fix => {
+    let prefix = 0;
+    while (prefix < replacement.length && prefix < original.length && replacement[prefix] === original[prefix]) {
+      prefix++;
+    }
+    let suffix = 0;
+    while (
+      suffix < replacement.length - prefix &&
+      suffix < original.length - prefix &&
+      replacement[replacement.length - 1 - suffix] === original[original.length - 1 - suffix]
+    ) {
+      suffix++;
+    }
+    return {
+      range: [from + prefix, to - suffix],
+      text: replacement.slice(prefix, replacement.length - suffix),
+    };
+  };
+  const suggestions: Linter.LintSuggestion[] = [];
+  const suggest = (desc: string, written: string) => {
+    try {
+      suggestions.push({
+        desc,
+        fix: fixOf(escapeText(rest, from, renderedIn(from, offset) + written + renderedIn(deletedEnd, to))),
+      });
+    } catch (error) {
+      if (!(error instanceof RangeError)) throw error;
+    }
+  };
+  suggest('Write it literally, the output then has it', sourceText.slice(offset, deletedEnd));
+  suggest('Delete it, the output unchanged', '');
+  return suggestions;
+}
+
+/**
+ * Answer the requests of the rules reporting diagnostics of the template (see `DIAGNOSTIC_RULES`): one message by
+ * diagnostic of the code of the rule, in the template, with the severity and the `suppressions` of the request, which
+ * ESLint passes to postprocess() suppressed by a directive comment.
+ */
+function answerDiagnosticRequests(
+  requests: (Linter.LintMessage | Linter.SuppressedLintMessage)[],
+  diagnostics: EjsDiagnostic[],
+  sourceText: string,
+  texts: EjsText[],
+): Linter.LintMessage[] {
+  return requests.flatMap((request) => {
+    const { ruleId, severity } = request;
+    if (!isDiagnosticRuleId(ruleId)) return [];
+    const code = DIAGNOSTIC_RULES[ruleId];
+    return diagnostics
+      .filter((diagnostic) => diagnostic.code === code)
+      .map((diagnostic) => {
+        // ESLint columns are 1-based, the parser's 0-based; a tag may span lines.
+        const lines = sourceText.slice(diagnostic.offset, diagnostic.offset + diagnostic.length).split('\n');
+        const lastLine = lines[lines.length - 1];
+        const message: Linter.LintMessage | Linter.SuppressedLintMessage = {
+          ...('suppressions' in request && { suppressions: request.suppressions }),
+          ruleId,
+          severity,
+          message: diagnostic.message,
+          line: diagnostic.line,
+          column: diagnostic.column + 1,
+          endLine: diagnostic.line + lines.length - 1,
+          endColumn: (lines.length === 1 ? diagnostic.column + 1 : 1) + lastLine.length,
+        };
+        if (code === 'stray-close-delimiter') {
+          message.suggestions = strayCloseDelimiterSuggestions(diagnostic, sourceText, texts);
+        }
+        return message;
+      });
+  });
 }
 
 /**
@@ -1574,7 +1728,7 @@ export const processor: Linter.Processor = {
    * Preprocess: Convert EJS template to virtual JavaScript for ESLint linting.
    *
    * **Processing steps:**
-   * 1. Parse EJS template with tree-sitter to identify tag boundaries
+   * 1. Build the template (`buildTemplate()`), its tags and its diagnostics (`validateTemplate()`)
    * 2. Extract each EJS tag as a TagBlock with JS content and metadata
    * 3. Generate virtual JS code for each block (with type marker and optional wrapping)
    * 4. Build three virtual code variants (see Return section)
@@ -1594,24 +1748,36 @@ export const processor: Linter.Processor = {
    * - fileBlocksMap: stores segments for position-based message translation
    */
   preprocess(text: string, filename: string): (string | { text: string; filename: string })[] {
-    const ejsNodes = getEjsNodes(text);
-    const javascriptVitualCode = buildVirtualCode(ejsNodes);
-    const blocks = extractTagBlocks(ejsNodes);
-
-    processedFilesMap.set(filename, {
-      sourceText: text,
-      ejsNodes,
-      javascriptVitualCode,
-      cleanup: () => {
-        for (const block of blocks) {
-          block.javascriptPartialNode?.cleanup();
-        }
-      },
-    });
+    // One parse of the template: its tags, its diagnostics; postprocess() frees it.
+    const template = buildTemplate(text);
+    let blocks: TagBlock[];
+    let diagnostics: EjsDiagnostic[];
+    try {
+      blocks = extractTagBlocks(template.tags);
+      diagnostics = validateTemplate(template);
+      processedFilesMap.set(filename, {
+        sourceText: text,
+        template,
+        diagnostics,
+        javascriptVitualCode: buildVirtualCode(template.tags.map((tag) => tag.node)),
+      });
+    } catch (error) {
+      processedFilesMap.delete(filename);
+      cleanupTemplate(template);
+      throw error;
+    }
 
     if (blocks.length === 0) {
       fileBlocksMap.set(filename, { segments: [], nonDirectiveSegments: [], rawSegments: [] });
-      return [];
+      // No rule runs without a virtual file: the wrapper alone, for the rules to request the diagnostics of the
+      // template, a stray close delimiter the only one a template without blocks can have.
+      const reported = new Set<EjsDiagnosticCode>(Object.values(DIAGNOSTIC_RULES));
+      if (!diagnostics.some((diagnostic) => reported.has(diagnostic.code))) {
+        return [];
+      }
+      const virtualCode = `${GLOBAL_VIRTUAL_OPEN}${GLOBAL_VIRTUAL_CLOSE}`;
+      virtualCodeMetadataMap.set(virtualCode, { tagFormat: [], needsNormalize: [], diagnostics });
+      return [virtualCode];
     }
 
     // Track block positions for both wrapped (segments) and raw (rawSegments) virtual code variants.
@@ -1678,6 +1844,7 @@ export const processor: Linter.Processor = {
         const currentText = block.lineIndent + block.openDelim + block.codeContent + block.closeDelim;
         return normalizedText !== currentText;
       }),
+      diagnostics,
     });
 
     // Build the three virtual code variants for parallel ESLint validation passes.
@@ -1704,6 +1871,8 @@ export const processor: Linter.Processor = {
    * 6. Translate sentinel-based fixes for plugin rules (prefer-single-line-tags, etc)
    * 7. Translate general JS fixes (from rules like prefer-const) via offset mapping
    * 8. Clean up per-virtual-code metadata maps after processing
+   * 9. Answer the requests of the rules of `DIAGNOSTIC_RULES` with the diagnostics of the template
+   * 10. Free the template, in a `finally`
    *
    * **Validation fallback logic:**
    * If the main (wrapped) pass produces fatal `return` errors, the processor falls back
@@ -1715,300 +1884,313 @@ export const processor: Linter.Processor = {
     if (!processedFile) {
       throw new Error(`Unexpectedly did not find processed file data for ${filename}`);
     }
-    const sourceText = processedFile.sourceText;
-    const fullTree = parseJavaScript(processedFile.javascriptVitualCode.virtualCode);
-    if (fullTree.rootNode.hasError) {
-      const errorNode = findErrorNode(fullTree.rootNode);
-      if (!errorNode) {
-        throw new Error('Unexpectedly did not find error or missing node in tree with hasError=true');
-      }
-      const ejsErrorNode = processedFile.javascriptVitualCode.getPosition(errorNode.startIndex);
-      let line = 1;
-      let column = 1;
-      let endLine = 1;
-      let endColumn = 1;
-      if (ejsErrorNode) {
-        const { startPosition } = ejsErrorNode.node;
-        const { row: endPositionRow, column: endPositionColumn } = errorNode.endPosition;
-        line = startPosition.row + 1;
-        column = startPosition.column + errorNode.startPosition.column + 1;
-        endLine = startPosition.row + endPositionRow + 1;
-        endColumn = startPosition.column + endPositionColumn + 1;
+    try {
+      const sourceText = processedFile.sourceText;
+      const fullTree = parseJavaScript(processedFile.javascriptVitualCode.virtualCode);
+      if (fullTree.rootNode.hasError) {
+        const errorNode = findErrorNode(fullTree.rootNode);
+        if (!errorNode) {
+          throw new Error('Unexpectedly did not find error or missing node in tree with hasError=true');
+        }
+        const ejsErrorNode = processedFile.javascriptVitualCode.getPosition(errorNode.startIndex);
+        let line = 1;
+        let column = 1;
+        let endLine = 1;
+        let endColumn = 1;
+        if (ejsErrorNode) {
+          const { startPosition } = ejsErrorNode.node;
+          const { row: endPositionRow, column: endPositionColumn } = errorNode.endPosition;
+          line = startPosition.row + 1;
+          column = startPosition.column + errorNode.startPosition.column + 1;
+          endLine = startPosition.row + endPositionRow + 1;
+          endColumn = startPosition.column + endPositionColumn + 1;
+        }
+        fullTree.delete();
+        return [
+          {
+            fatal: true,
+            ruleId: null,
+            severity: 2,
+            message: `Failed to parse virtual JavaScript code generated from EJS template, ${errorNode.isError ? 'Unexpected' : 'Missing'} token: ${errorNode.text}`,
+            line,
+            column,
+            endLine,
+            endColumn,
+          },
+        ];
       }
       fullTree.delete();
-      return [
-        {
-          fatal: true,
-          ruleId: null,
-          severity: 2,
-          message: `Failed to parse virtual JavaScript code generated from EJS template, ${errorNode.isError ? 'Unexpected' : 'Missing'} token: ${errorNode.text}`,
-          line,
-          column,
-          endLine,
-          endColumn,
-        },
-      ];
-    }
-    fullTree.delete();
 
-    const { segments = [], rawSegments = [] } = fileBlocksMap.get(filename) ?? {};
-    fileBlocksMap.delete(filename);
-    const currentVirtualCode = `${GLOBAL_VIRTUAL_OPEN}${segments.map((s) => s.block.virtualCode).join('\n')}${GLOBAL_VIRTUAL_CLOSE}`;
-    virtualCodeMetadataMap.delete(currentVirtualCode);
+      const { segments = [], rawSegments = [] } = fileBlocksMap.get(filename) ?? {};
+      fileBlocksMap.delete(filename);
+      const currentVirtualCode = `${GLOBAL_VIRTUAL_OPEN}${segments.map((s) => s.block.virtualCode).join('\n')}${GLOBAL_VIRTUAL_CLOSE}`;
+      virtualCodeMetadataMap.delete(currentVirtualCode);
 
-    if (segments.length === 0) {
-      return [];
-    }
+      // The requests of the main pass; the third one lints the same virtual code, and its rules request again.
+      const answeredMessages = answerDiagnosticRequests(
+        (messages[0] ?? []).filter((msg) => isDiagnosticRuleId(msg.ruleId)),
+        processedFile.diagnostics,
+        sourceText,
+        processedFile.template.nodes.filter((node) => node.kind === 'text'),
+      );
 
-    // Even in a single incremental virtual file, each tag is still wrapped in
-    // its own function block for parseability/fix mapping.  This can trigger
-    // false positives for rules that require cross-tag flow/scope.
-    const suppressedRuleIds = new Set(['no-undef']);
-
-    const virtualMessages = messages[0] ?? [];
-    logVirtualCodeOnFatal(filename, virtualMessages, segments);
-    const hasIndentMessages = virtualMessages.some((msg) => msg.ruleId === 'ejs-templates/indent');
-
-    const mappedMessages = virtualMessages
-      .filter((msg) => !msg.fatal && !suppressedRuleIds.has(msg.ruleId ?? ''))
-      .flatMap((msg) => {
-        const normalizedMsg = normalizeUnusedDisableDirectiveMessage(msg, { ignoreEjsTemplateRules: false });
-        if (!normalizedMsg) {
-          return [];
-        }
-
-        const segmentIndex = segments.findIndex(
-          (s) => normalizedMsg.line >= s.startLine && normalizedMsg.line <= s.endLine,
-        );
-        if (segmentIndex === -1) {
-          return [];
-        }
-        const segment = segments[segmentIndex];
-
-        // The first line of each virtual block is the `//@ejs-tag:<type>` marker comment.
-        // It is generated code, not real JS — suppress lint errors from external rules
-        // reported on that line. ejs-templates rules and ESLint system messages (ruleId
-        // === null, e.g. unused-disable-directives) are intentional and kept intact.
-        if (
-          normalizedMsg.line === segment.startLine &&
-          normalizedMsg.ruleId !== null &&
-          !normalizedMsg.ruleId.startsWith('ejs-templates/')
-        ) {
-          return [];
-        }
-
-        // The `;` appended to an output tag's expression is generated too, and unlike the
-        // marker it shares a line with real code. A semicolon rule reporting on it is talking
-        // about a character the author never wrote — `@stylistic/semi` in `never` mode would
-        // otherwise flag every output tag for a semicolon that is not in the template.
-        if (isSyntheticSuffixMessage(normalizedMsg, segment)) {
-          return [];
-        }
-
-        // Convert global (combined-file) positions to per-block positions.
-        const localMsg: Linter.LintMessage = {
-          ...normalizedMsg,
-          line: normalizedMsg.line - segment.startLine + 1,
-          column: normalizedMsg.column,
-        };
-
-        if (normalizedMsg.endLine !== undefined) {
-          localMsg.endLine = normalizedMsg.endLine - segment.startLine + 1;
-          localMsg.endColumn = normalizedMsg.endColumn;
-        }
-
-        if (normalizedMsg.fix) {
-          const [start, end] = normalizedMsg.fix.range;
-          if (start >= segment.startOffset && end <= segment.endOffset) {
-            localMsg.fix = {
-              range: [start - segment.startOffset, end - segment.startOffset],
-              text: normalizedMsg.fix.text,
-            };
-          } else {
-            delete localMsg.fix;
-          }
-        }
-
-        const mapped = mapMessage(localMsg, segment.block);
-
-        if (mapped.fix) {
-          const blocks = segments.map((s) => s.block);
-          const unusedDirectiveFixResult = translateUnusedDirectiveFix(mapped, segment.block, blocks, segmentIndex);
-          if (unusedDirectiveFixResult) {
-            const result: Linter.LintMessage[] = [];
-            result.push({ ...mapped, fix: unusedDirectiveFixResult.disableFix });
-            // Handle enable directive fix in a separate message(s)
-            if (unusedDirectiveFixResult.enableBlock && unusedDirectiveFixResult.enableFix) {
-              // Find the virtual block range for the enable directive to calculate correct position
-              const enableBlockIndex = blocks.indexOf(unusedDirectiveFixResult.enableBlock);
-              if (enableBlockIndex !== -1) {
-                const enableSegment = segments[enableBlockIndex];
-                const enableMappedMsg = mapMessage(
-                  {
-                    ruleId: null,
-                    message: 'Unused eslint-disable directive',
-                    severity: 2,
-                    line: enableSegment.startLine + 1,
-                    column: 1,
-                  },
-                  unusedDirectiveFixResult.enableBlock,
-                );
-                result.push({ ...enableMappedMsg, fix: unusedDirectiveFixResult.enableFix });
-              }
-            }
-            return result;
-          }
-
-          const sentinel = mapped.fix.text;
-          // Sentinels whose fix spans more than the reporting tag get the following blocks
-          // handed to the translator; it re-checks their shape before using them.
-          let nextBlocks: TagBlock[] | undefined;
-          if (sentinel.startsWith(SENTINEL_PREFER_OUTPUT)) {
-            nextBlocks = blocks.slice(
-              segmentIndex + 1,
-              segmentIndex + 1 + (sentinel === SENTINEL_PREFER_OUTPUT_ELSE ? 2 : 1),
-            );
-          }
-          const translated = translateFix(mapped.fix, segment.block, sourceText, {
-            applyIndentForSingleLineTags: hasIndentMessages,
-            nextBlocks,
-          });
-          if (translated) {
-            return [{ ...mapped, fix: translated }];
-          }
-
-          // No translation available – drop the fix.
-          const result = { ...mapped };
-          delete result.fix;
-          return [result];
-        }
-
-        // Supply the fix core ESLint cannot produce itself. The report is already correct;
-        // only the edit is missing, so it is attached to the core rule's own message rather
-        // than duplicated into a plugin rule.
-        if (mapped.ruleId === CORE_NO_NEGATED_CONDITION) {
-          const followingBlocks = segments.slice(segmentIndex + 1).map((s) => s.block);
-          const negatedConditionFix = buildNegatedConditionFix(
-            segment.block,
-            followingBlocks,
-            sourceText,
-            offsetOfPosition(sourceText, mapped.line, mapped.column),
-          );
-          if (negatedConditionFix) {
-            return [{ ...mapped, fix: negatedConditionFix }];
-          }
-        }
-
-        return [mapped];
-      });
-
-    // ── Raw validation fallback logic ──────────────────────────────────────
-    // When EJS tags contain bare `return` statements, raw JS validation (pass 2)
-    // fails because `return` is only valid inside a function body. In this case,
-    // fall back to wrapped-raw validation (pass 3) which has the function wrapper.
-    // Note: rawSegments are used with raw messages, segments with wrapped messages.
-    const rawValidationMessages = messages[1] ?? [];
-    const wrappedRawValidationMessages = messages[2] ?? [];
-    const shouldFallbackToWrappedRaw = rawValidationMessages.some(
-      (msg) => msg.fatal && /\breturn\b/u.test(msg.message),
-    );
-    const finalValidationMessages = shouldFallbackToWrappedRaw ? wrappedRawValidationMessages : rawValidationMessages;
-    const finalValidationSegments = shouldFallbackToWrappedRaw ? segments : rawSegments;
-
-    const mappedRawValidationMessages = finalValidationMessages
-      .filter((msg) => !suppressedRuleIds.has(msg.ruleId ?? ''))
-      .flatMap((msg) => {
-        const normalizedMsg = normalizeUnusedDisableDirectiveMessage(msg, { ignoreEjsTemplateRules: true });
-        if (!normalizedMsg) {
-          return [];
-        }
-
-        const segment = finalValidationSegments.find(
-          (s) => normalizedMsg.line >= s.startLine && normalizedMsg.line <= s.endLine,
-        );
-        if (!segment) {
-          if (normalizedMsg.fatal) {
-            const lastSegment = segments[segments.length - 1];
-            const block = lastSegment.block;
-
-            let line = block.originalLine;
-            let column = block.originalColumn + 1;
-
-            for (const ch of block.codeContent) {
-              if (ch === '\n') {
-                line += 1;
-                column = 1;
-              } else {
-                column += 1;
-              }
-            }
-
-            const fatalMsg: Linter.LintMessage = {
-              ...normalizedMsg,
-              message: translateRawParserFatalMessage(normalizedMsg.message),
-              line,
-              column,
-            };
-            delete fatalMsg.fix;
-            return [fatalMsg];
-          }
-          return [];
-        }
-
-        // The first line of each virtual block is the `//@ejs-tag:<type>` marker comment.
-        // It is generated code, not real JS — suppress lint errors from external rules
-        // reported on that line. ejs-templates rules and ESLint system messages (ruleId
-        // === null, e.g. unused-disable-directives) are intentional and kept intact.
-        if (
-          normalizedMsg.line === segment.startLine &&
-          normalizedMsg.ruleId !== null &&
-          !normalizedMsg.ruleId.startsWith('ejs-templates/')
-        ) {
-          return [];
-        }
-
-        // Same for the synthetic `;`; this pass sees the blocks through `rawSegments`, so it
-        // needs the check as well — the wrapped pass alone would leave these messages standing.
-        if (isSyntheticSuffixMessage(normalizedMsg, segment)) {
-          return [];
-        }
-
-        const localMsg: Linter.LintMessage = {
-          ...normalizedMsg,
-          line: normalizedMsg.line - segment.startLine + 1,
-          column: normalizedMsg.column,
-        };
-
-        if (normalizedMsg.endLine !== undefined) {
-          localMsg.endLine = normalizedMsg.endLine - segment.startLine + 1;
-          localMsg.endColumn = normalizedMsg.endColumn;
-        }
-
-        delete localMsg.fix;
-        return [mapMessage(localMsg, segment.block)];
-      });
-
-    // Keep primary diagnostics and append only unique entries from raw validation.
-    const toKey = (msg: Linter.LintMessage): string =>
-      `${msg.ruleId ?? ''}|${String(msg.fatal ?? false)}|${String(msg.line)}|${String(msg.column)}|${msg.message}`;
-
-    const seen = new Set(mappedMessages.map(toKey));
-    const uniqueRawMessages = mappedRawValidationMessages.filter((msg) => {
-      const key = toKey(msg);
-      if (seen.has(key)) {
-        return false;
+      if (segments.length === 0) {
+        return answeredMessages;
       }
-      seen.add(key);
-      return true;
-    });
 
-    const formatMessages = mappedMessages.filter((msg) => msg.ruleId === 'ejs-templates/format');
-    const nonFormatMessages = mappedMessages.filter((msg) => msg.ruleId !== 'ejs-templates/format');
+      // Even in a single incremental virtual file, each tag is still wrapped in
+      // its own function block for parseability/fix mapping.  This can trigger
+      // false positives for rules that require cross-tag flow/scope.
+      const suppressedRuleIds = new Set(['no-undef']);
 
-    processedFile.cleanup();
-    // Keep `format` fixes last so all structural/semantic fixes and validations
-    // run first, and formatting is applied as a final normalization step.
-    return [...nonFormatMessages, ...uniqueRawMessages, ...formatMessages];
+      const virtualMessages = messages[0] ?? [];
+      logVirtualCodeOnFatal(filename, virtualMessages, segments);
+      const hasIndentMessages = virtualMessages.some((msg) => msg.ruleId === 'ejs-templates/indent');
+
+      const mappedMessages = virtualMessages
+        .filter((msg) => !msg.fatal && !suppressedRuleIds.has(msg.ruleId ?? '') && !isDiagnosticRuleId(msg.ruleId))
+        .flatMap((msg) => {
+          const normalizedMsg = normalizeUnusedDisableDirectiveMessage(msg, { ignoreEjsTemplateRules: false });
+          if (!normalizedMsg) {
+            return [];
+          }
+
+          const segmentIndex = segments.findIndex(
+            (s) => normalizedMsg.line >= s.startLine && normalizedMsg.line <= s.endLine,
+          );
+          if (segmentIndex === -1) {
+            return [];
+          }
+          const segment = segments[segmentIndex];
+
+          // The first line of each virtual block is the `//@ejs-tag:<type>` marker comment.
+          // It is generated code, not real JS — suppress lint errors from external rules
+          // reported on that line. ejs-templates rules and ESLint system messages (ruleId
+          // === null, e.g. unused-disable-directives) are intentional and kept intact.
+          if (
+            normalizedMsg.line === segment.startLine &&
+            normalizedMsg.ruleId !== null &&
+            !normalizedMsg.ruleId.startsWith('ejs-templates/')
+          ) {
+            return [];
+          }
+
+          // The `;` appended to an output tag's expression is generated too, and unlike the
+          // marker it shares a line with real code. A semicolon rule reporting on it is talking
+          // about a character the author never wrote — `@stylistic/semi` in `never` mode would
+          // otherwise flag every output tag for a semicolon that is not in the template.
+          if (isSyntheticSuffixMessage(normalizedMsg, segment)) {
+            return [];
+          }
+
+          // Convert global (combined-file) positions to per-block positions.
+          const localMsg: Linter.LintMessage = {
+            ...normalizedMsg,
+            line: normalizedMsg.line - segment.startLine + 1,
+            column: normalizedMsg.column,
+          };
+
+          if (normalizedMsg.endLine !== undefined) {
+            localMsg.endLine = normalizedMsg.endLine - segment.startLine + 1;
+            localMsg.endColumn = normalizedMsg.endColumn;
+          }
+
+          if (normalizedMsg.fix) {
+            const [start, end] = normalizedMsg.fix.range;
+            if (start >= segment.startOffset && end <= segment.endOffset) {
+              localMsg.fix = {
+                range: [start - segment.startOffset, end - segment.startOffset],
+                text: normalizedMsg.fix.text,
+              };
+            } else {
+              delete localMsg.fix;
+            }
+          }
+
+          const mapped = mapMessage(localMsg, segment.block);
+
+          if (mapped.fix) {
+            const blocks = segments.map((s) => s.block);
+            const unusedDirectiveFixResult = translateUnusedDirectiveFix(mapped, segment.block, blocks, segmentIndex);
+            if (unusedDirectiveFixResult) {
+              const result: Linter.LintMessage[] = [];
+              result.push({ ...mapped, fix: unusedDirectiveFixResult.disableFix });
+              // Handle enable directive fix in a separate message(s)
+              if (unusedDirectiveFixResult.enableBlock && unusedDirectiveFixResult.enableFix) {
+                // Find the virtual block range for the enable directive to calculate correct position
+                const enableBlockIndex = blocks.indexOf(unusedDirectiveFixResult.enableBlock);
+                if (enableBlockIndex !== -1) {
+                  const enableSegment = segments[enableBlockIndex];
+                  const enableMappedMsg = mapMessage(
+                    {
+                      ruleId: null,
+                      message: 'Unused eslint-disable directive',
+                      severity: 2,
+                      line: enableSegment.startLine + 1,
+                      column: 1,
+                    },
+                    unusedDirectiveFixResult.enableBlock,
+                  );
+                  result.push({ ...enableMappedMsg, fix: unusedDirectiveFixResult.enableFix });
+                }
+              }
+              return result;
+            }
+
+            const sentinel = mapped.fix.text;
+            // Sentinels whose fix spans more than the reporting tag get the following blocks
+            // handed to the translator; it re-checks their shape before using them.
+            let nextBlocks: TagBlock[] | undefined;
+            if (sentinel.startsWith(SENTINEL_PREFER_OUTPUT)) {
+              nextBlocks = blocks.slice(
+                segmentIndex + 1,
+                segmentIndex + 1 + (sentinel === SENTINEL_PREFER_OUTPUT_ELSE ? 2 : 1),
+              );
+            }
+            const translated = translateFix(mapped.fix, segment.block, sourceText, {
+              applyIndentForSingleLineTags: hasIndentMessages,
+              nextBlocks,
+            });
+            if (translated) {
+              return [{ ...mapped, fix: translated }];
+            }
+
+            // No translation available – drop the fix.
+            const result = { ...mapped };
+            delete result.fix;
+            return [result];
+          }
+
+          // Supply the fix core ESLint cannot produce itself. The report is already correct;
+          // only the edit is missing, so it is attached to the core rule's own message rather
+          // than duplicated into a plugin rule.
+          if (mapped.ruleId === CORE_NO_NEGATED_CONDITION) {
+            const followingBlocks = segments.slice(segmentIndex + 1).map((s) => s.block);
+            const negatedConditionFix = buildNegatedConditionFix(
+              segment.block,
+              followingBlocks,
+              sourceText,
+              offsetOfPosition(sourceText, mapped.line, mapped.column),
+            );
+            if (negatedConditionFix) {
+              return [{ ...mapped, fix: negatedConditionFix }];
+            }
+          }
+
+          return [mapped];
+        });
+
+      // ── Raw validation fallback logic ──────────────────────────────────────
+      // When EJS tags contain bare `return` statements, raw JS validation (pass 2)
+      // fails because `return` is only valid inside a function body. In this case,
+      // fall back to wrapped-raw validation (pass 3) which has the function wrapper.
+      // Note: rawSegments are used with raw messages, segments with wrapped messages.
+      const rawValidationMessages = messages[1] ?? [];
+      const wrappedRawValidationMessages = messages[2] ?? [];
+      const shouldFallbackToWrappedRaw = rawValidationMessages.some(
+        (msg) => msg.fatal && /\breturn\b/u.test(msg.message),
+      );
+      const finalValidationMessages = shouldFallbackToWrappedRaw ? wrappedRawValidationMessages : rawValidationMessages;
+      const finalValidationSegments = shouldFallbackToWrappedRaw ? segments : rawSegments;
+
+      const mappedRawValidationMessages = finalValidationMessages
+        .filter((msg) => !suppressedRuleIds.has(msg.ruleId ?? '') && !isDiagnosticRuleId(msg.ruleId))
+        .flatMap((msg) => {
+          const normalizedMsg = normalizeUnusedDisableDirectiveMessage(msg, { ignoreEjsTemplateRules: true });
+          if (!normalizedMsg) {
+            return [];
+          }
+
+          const segment = finalValidationSegments.find(
+            (s) => normalizedMsg.line >= s.startLine && normalizedMsg.line <= s.endLine,
+          );
+          if (!segment) {
+            if (normalizedMsg.fatal) {
+              const lastSegment = segments[segments.length - 1];
+              const block = lastSegment.block;
+
+              let line = block.originalLine;
+              let column = block.originalColumn + 1;
+
+              for (const ch of block.codeContent) {
+                if (ch === '\n') {
+                  line += 1;
+                  column = 1;
+                } else {
+                  column += 1;
+                }
+              }
+
+              const fatalMsg: Linter.LintMessage = {
+                ...normalizedMsg,
+                message: translateRawParserFatalMessage(normalizedMsg.message),
+                line,
+                column,
+              };
+              delete fatalMsg.fix;
+              return [fatalMsg];
+            }
+            return [];
+          }
+
+          // The first line of each virtual block is the `//@ejs-tag:<type>` marker comment.
+          // It is generated code, not real JS — suppress lint errors from external rules
+          // reported on that line. ejs-templates rules and ESLint system messages (ruleId
+          // === null, e.g. unused-disable-directives) are intentional and kept intact.
+          if (
+            normalizedMsg.line === segment.startLine &&
+            normalizedMsg.ruleId !== null &&
+            !normalizedMsg.ruleId.startsWith('ejs-templates/')
+          ) {
+            return [];
+          }
+
+          // Same for the synthetic `;`; this pass sees the blocks through `rawSegments`, so it
+          // needs the check as well — the wrapped pass alone would leave these messages standing.
+          if (isSyntheticSuffixMessage(normalizedMsg, segment)) {
+            return [];
+          }
+
+          const localMsg: Linter.LintMessage = {
+            ...normalizedMsg,
+            line: normalizedMsg.line - segment.startLine + 1,
+            column: normalizedMsg.column,
+          };
+
+          if (normalizedMsg.endLine !== undefined) {
+            localMsg.endLine = normalizedMsg.endLine - segment.startLine + 1;
+            localMsg.endColumn = normalizedMsg.endColumn;
+          }
+
+          delete localMsg.fix;
+          return [mapMessage(localMsg, segment.block)];
+        });
+
+      // Keep primary diagnostics and append only unique entries from raw validation.
+      const toKey = (msg: Linter.LintMessage): string =>
+        `${msg.ruleId ?? ''}|${String(msg.fatal ?? false)}|${String(msg.line)}|${String(msg.column)}|${msg.message}`;
+
+      const seen = new Set(mappedMessages.map(toKey));
+      const uniqueRawMessages = mappedRawValidationMessages.filter((msg) => {
+        const key = toKey(msg);
+        if (seen.has(key)) {
+          return false;
+        }
+        seen.add(key);
+        return true;
+      });
+
+      const formatMessages = mappedMessages.filter((msg) => msg.ruleId === 'ejs-templates/format');
+      const nonFormatMessages = mappedMessages.filter((msg) => msg.ruleId !== 'ejs-templates/format');
+
+      // Keep `format` fixes last so all structural/semantic fixes and validations
+      // run first, and formatting is applied as a final normalization step.
+      return [...nonFormatMessages, ...uniqueRawMessages, ...answeredMessages, ...formatMessages];
+    } finally {
+      // On every path: the trees of the template, the ones of the code of its tags included.
+      processedFilesMap.delete(filename);
+      cleanupTemplate(processedFile.template);
+    }
   },
 
   supportsAutofix: true,
