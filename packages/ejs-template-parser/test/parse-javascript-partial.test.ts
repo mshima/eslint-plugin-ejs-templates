@@ -180,6 +180,33 @@ describe('parseJavaScriptPartial', () => {
     });
   });
 
+  describe('brace counts, from the tokens', () => {
+    test.each([
+      ['a statement after the brace a callback opens', 'x.forEach((f) => {\n  const u = f;', [1, 0]],
+      [
+        'statements after the braces of blocks',
+        'for (r of rs) {\n  if (a) {\n    x.forEach((f) => {\n      const u = 1;',
+        [3, 0],
+      ],
+      ['the braces of a callback and of blocks closed', '});\n  }\n}', [0, 3]],
+      ['a block closed before the one left open', 'if (a) { b(); } else {', [1, 0]],
+      ['a continuation', '} else {', [1, 1]],
+      ['a brace in a string', "x('{'); if (a) {", [1, 0]],
+      ['the substitution of a template string', 'x(`${a}`); if (b) {', [1, 0]],
+      // The braces of a comment across tags count as the ones of the code it comments out.
+      ['a comment the code opens and a later tag closes', '/* if (x) {', [1, 0]],
+      ['a comment an earlier tag opens and the code closes', '} */', [0, 1]],
+      ['a comment opened with a statement after its brace', 'a(); /* x.forEach((f) => {\n  const u = f;', [1, 0]],
+    ] as const)('%s', (_label, code, [open, close]) => {
+      const result = parseJavaScriptPartial(code);
+      try {
+        expect([result.missingCloseBracesCount, result.missingOpenBracesCount]).toEqual([open, close]);
+      } finally {
+        result.cleanup();
+      }
+    });
+  });
+
   describe('incrementalCode fallback', () => {
     test('incrementalCode is used when brace-counting wrapper still has errors', () => {
       // Code that closes a chain opened by incrementalCode

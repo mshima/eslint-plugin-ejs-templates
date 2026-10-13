@@ -153,6 +153,8 @@ const TEMPLATES: string[] = [
   '<%_if(a){_%>\n      <%_ b() _%>\n<%_ } _%>\n',
   '<%_ if (a) {\n  b();\n  c();\n} _%>\n',
   '<%_ if (a) { _%>\n<%_ if (b) { _%>\nx\n<%_ } } _%>\n',
+  // prefer-single-line-tags: the close of a callback whose tag opens it before a statement, a block in between
+  '<%_ if (a) {\n  x.forEach((f) => {\n    const u = f;\n_%>\n<%_ if (u) { _%>\nu\n<%_ } _%>\n<%_ });\n} _%>\n',
   '<%_ if (a) { _%>\n    <%_\n      b();\n        c();\n    _%>\n<%_ } _%>\n',
   'a <%= x\n%> b\n',
   // output-semi
@@ -203,12 +205,12 @@ describe('autofix: what EJS renders', () => {
       ).length;
     expect(Object.fromEntries(RUNS.map((run) => [run.name, fixedCount(run)]))).toMatchInlineSnapshot(`
       {
-        "configs.customize()": 18,
+        "configs.customize()": 19,
         "experimental-prefer-slurp-multiline": 2,
-        "format": 6,
-        "indent": 5,
+        "format": 7,
+        "indent": 6,
         "javascript rules": 2,
-        "layout rules together": 14,
+        "layout rules together": 15,
         "no-comment-empty-line": 1,
         "no-multiline-output": 1,
         "no-negated-condition": 1,
@@ -217,7 +219,7 @@ describe('autofix: what EJS renders', () => {
         "prefer-encoded always": 5,
         "prefer-encoded never": 4,
         "prefer-output": 2,
-        "prefer-single-line-tags": 2,
+        "prefer-single-line-tags": 3,
         "prefer-slurping-codeonly": 3,
         "slurp-newline": 1,
       }
