@@ -67,7 +67,10 @@ A node of the tree is one of:
     partial template, whose tags close blocks another template opens.
   - A code or output tag also has `parsedCode` — `code` without the line break or the blank
     separating it from the closing delimiter — and `javascript`, the best-guess parse of
-    `parsedCode` (see `parseJavaScriptPartial`).
+    `parsedCode` (see `parseJavaScriptPartial`); `shape`, how it renders the blanks around it, as
+    eslint-plugin-ejs-templates classifies it (`slurp` for `<%_` or `_%>`, `code-slurpable` for a
+    `<% %>` opening no block, `code`, or the type of an output tag); and `expectedIndent`, the
+    indentation of a slurp tag on a line of its own, two blanks for each block it is in.
 - **`EjsBlock`** — `{ kind: 'block', branches, close }`: tags opening and closing braces.
   - `branches` — `{ open, statement, children }` each: the tag opening the branch (`<% if (a) { %>`,
     or the continuation `<% } else { %>` of the branch before), the tree-sitter type of its

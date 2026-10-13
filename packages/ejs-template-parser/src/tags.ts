@@ -55,8 +55,22 @@ type EjsTagBase = {
 
 export type EjsCommentTag = EjsTagBase & { type: 'comment' };
 
+/**
+ * How a code or output tag renders the blanks around it, as eslint-plugin-ejs-templates classifies it: an output
+ * tag by its delimiter; `slurp`, a tag opened by `<%_` or closed by `_%>`, which slurps the blanks before it and the
+ * line break after it; `code-slurpable`, a `<% %>` tag whose code opens and closes no block, which `<%_ _%>` slurps
+ * as safely; `code`, any other code tag: one opening or closing a block, or closed by `-%>`.
+ */
+export type EjsTagShape = 'escaped-output' | 'raw-output' | 'slurp' | 'code' | 'code-slurpable';
+
 export type EjsCodeTag = EjsTagBase & {
   type: Exclude<EjsTagType, 'comment'>;
+  shape: EjsTagShape;
+  /**
+   * The indentation of the tag: for a slurp tag on a line of its own, two blanks for each block it is in (the
+   * depth the line of a `} else {` is at); for any other tag, the one it has (none when text precedes it).
+   */
+  expectedIndent: string;
   /**
    * The code the JavaScript parser reads: `code` without the line break (and the indentation after it), or
    * the one blank, separating it from the closing delimiter, which changes nothing of its JavaScript.
@@ -72,6 +86,17 @@ export type EjsCodeTag = EjsTagBase & {
 export type EjsTag = EjsCommentTag | EjsCodeTag;
 
 const TAG_NODE_TYPES = ['comment_directive', 'code', 'directive', 'output_directive'];
+
+/** The indentation of a block level. */
+const INDENT_UNIT = '  ';
+
+const shapeOf = (openDelim: EjsOpeningDelimiter, closeDelim: EjsClosingDelimiter, balanced: boolean): EjsTagShape => {
+  if (openDelim === '<%=') return 'escaped-output';
+  if (openDelim === '<%-') return 'raw-output';
+  if (openDelim === '<%_' || closeDelim === '_%>') return 'slurp';
+  if (closeDelim === '-%>') return 'code';
+  return balanced ? 'code-slurpable' : 'code';
+};
 
 const OUTPUT_TAG_TYPES: Partial<Record<EjsOpeningDelimiter, EjsCodeTag['type']>> = {
   '<%=': 'escaped-output',
@@ -218,9 +243,15 @@ export function getEjsTags(nodes: readonly EjsSyntaxNode[]): EjsTag[] {
       if (incrementalCode) incrementalCode += '\n';
     }
 
+    const shape = shapeOf(openDelim, closeDelim, !contentNode.hasError);
+    // The depth of the line of the tag: the lowest one, before or after it, the blocks it closes closed.
+    const lowerDepth = Math.max(0, Math.min(depthBefore - javascript.missingOpenBracesCount, braceDepth));
+    const lineIndent = base.isStandalone ? linePrefix : '';
     tags.push({
       ...base,
       type: OUTPUT_TAG_TYPES[openDelim] ?? 'code',
+      shape,
+      expectedIndent: base.isStandalone && shape === 'slurp' ? INDENT_UNIT.repeat(lowerDepth) : lineIndent,
       // tree-sitter gives us precise position info directly.
       codeLine: codeNode ? codeNode.startPosition.row + 1 : line,
       codeColumn: codeNode ? codeNode.startPosition.column : column + openDelim.length,

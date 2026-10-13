@@ -98,7 +98,7 @@ The parser, in `packages/ejs-template-parser/`:
 src/
   index.ts              – the public API
   template.ts           – parseTemplate: the tree of texts, tags and blocks
-  tags.ts               – getEjsTags: the tags, each code tag parsed in its brace context
+  tags.ts               – getEjsTags: the tags, each code tag parsed in its brace context, shaped
   ejs-parser.ts         – getEjsNodes, the delimiters, the absorbed `_%>` of an output tag
   javascript-parser.ts  – parseJavaScriptPartial: best-guess parse of unbalanced JS snippets
   ts-parser.ts          – web-tree-sitter setup (parseEjs, parseJavaScript, findErrorNode)
@@ -318,6 +318,14 @@ asserting that doubling a template does not much more than double them; it delib
 not assert wall-clock time, which flakes in CI. The plugin's `extractTagBlocks()` reads each tag
 of `getEjsTags()` once: re-parsing there the code of the tags before the current one brings the
 quadratic case back.
+
+### The conventions of the tags, shared
+
+The parser classifies each code tag as eslint-plugin-ejs-templates does (`shape`: `slurp`,
+`code-slurpable`, `code`, or an output tag's) and gives the indentation of a slurp tag at its depth
+of blocks (`expectedIndent`); the plugin's `extractTagBlocks()` builds its tag types on them. A
+change to how the plugin classifies a tag belongs to the parser's `getEjsTags()`, checked against
+the templates of generator-jhipster, which lint clean.
 
 ### The parsed code of a tag
 

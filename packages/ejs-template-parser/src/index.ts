@@ -19,7 +19,15 @@ export {
   getEjsNodes,
   hasAbsorbedSlurpClose,
 } from './ejs-parser.js';
-export { type EjsCodeTag, type EjsCommentTag, type EjsTag, type EjsTagType, getEjsTags, isTagNode } from './tags.js';
+export {
+  type EjsCodeTag,
+  type EjsCommentTag,
+  type EjsTag,
+  type EjsTagShape,
+  type EjsTagType,
+  getEjsTags,
+  isTagNode,
+} from './tags.js';
 export {
   type EjsBlock,
   type EjsBranch,

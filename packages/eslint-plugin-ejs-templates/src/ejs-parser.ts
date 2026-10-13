@@ -126,8 +126,6 @@ export type TagBlock = {
   isDirectiveComment: boolean;
 };
 
-const INDENT_UNIT = '  ';
-
 function extractEslintDirectiveFromEjsComment(commentText: string): string | null {
   const content = commentText
     .replace(/^<%#/u, '')
@@ -295,18 +293,18 @@ export function extractTagBlocks(nodes: EjsSyntaxNode[]): TagBlock[] {
       continue;
     }
 
+    // The shape of the tag and its indentation at its depth of blocks, as ejs-template-parser classifies them.
     const {
       openDelim,
       closeDelim,
       code: codeContent,
       parsedCode: lintCodeContent,
       javascript: javascriptPartialNode,
-      depthBefore: oldBraceDepth,
-      depthAfter: braceDepth,
+      shape: baseType,
+      expectedIndent,
       codeLine: originalLine,
       codeColumn: originalColumn,
     } = tag;
-    const { contentNode } = javascriptPartialNode;
 
     if (pendingNextLineDirective) {
       blocks.push(
@@ -325,27 +323,7 @@ export function extractTagBlocks(nodes: EjsSyntaxNode[]): TagBlock[] {
       );
     }
 
-    const lowerBraceDepth = Math.max(
-      0,
-      Math.min(oldBraceDepth - javascriptPartialNode.missingOpenBracesCount, braceDepth),
-    );
-    // ── Base tag type ─────────────────────────────────────────────────────
-    let baseType: EjsBaseTagType;
-    if (openDelim === '<%=') {
-      baseType = 'escaped-output';
-    } else if (openDelim === '<%-') {
-      baseType = 'raw-output';
-    } else if (openDelim === '<%_' || closeDelim === '_%>') {
-      baseType = 'slurp';
-    } else if (closeDelim === '-%>') {
-      baseType = 'code';
-    } else {
-      baseType = contentNode.hasError ? 'code' : 'code-slurpable';
-    }
-
-    // ── Expected indent (for standalone <%_ _%> tags only) ────────────────
     const isSlurpTag = baseType === 'slurp';
-    const expectedIndent = isStandalone && isSlurpTag ? INDENT_UNIT.repeat(lowerBraceDepth) : lineIndent;
 
     // ── Multiline detection ────────────────────────────────────────────────
     const isMultiline = codeContent.includes('\n');
