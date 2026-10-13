@@ -9,4 +9,13 @@ export default defineConfig({
       'ejs-template-parser': fileURLToPath(new URL('./packages/ejs-template-parser/src/index.ts', import.meta.url)),
     },
   },
+  test: {
+    coverage: {
+      provider: 'v8',
+      include: ['packages/*/src/**/*.ts'],
+      reporter: ['text', 'html', 'lcov'],
+      // Just under what the tests cover: `npm run coverage` fails when a change lowers it.
+      thresholds: { statements: 92, branches: 84, functions: 98, lines: 92 },
+    },
+  },
 });

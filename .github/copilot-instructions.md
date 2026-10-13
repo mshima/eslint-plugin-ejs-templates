@@ -52,6 +52,7 @@ release, 0.5.0, is in `.release-please-manifest.json`) and giving its dependency
 ```sh
 npm run build      # each package, in order: tsc -p tsconfig.build.json -> dist/
 npm test           # vitest run   (pretest: prettier --check && eslint .; posttest: typecheck)
+npm run coverage   # vitest run --coverage (v8): text summary, coverage/ (html, lcov), thresholds
 npm run typecheck  # tsc --noEmit  (whole repo: every package's src and test, config files)
 npm run lint       # eslint .
 npm run fix        # prettier --write && eslint --fix
