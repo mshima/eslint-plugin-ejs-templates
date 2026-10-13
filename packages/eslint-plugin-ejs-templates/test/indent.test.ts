@@ -125,6 +125,13 @@ describe('autofix: indent', () => {
     );
   });
 
+  // The fix rewrites the line from its start: a tag with text before it on its line would lose that text.
+  test('leaves the content of a multiline tag with text before it on its line', () => {
+    const input = '<%_ if (x) { _%>\nb + <%_ }\n        y();\n_%>\n';
+    expect(lint(input, { 'ejs-templates/indent': 'error' })).toEqual([]);
+    expect(applyFix(input, { 'ejs-templates/indent': 'error' })).toBe(input);
+  });
+
   test('normalizes content of already-correctly-indented multiline tag when normalizeContent=true', () => {
     const input = '<%_ if (x) { _%>\n  <%_\n  doWork();\n  doMore();\n  _%>\n<%_ } _%>';
     expect(applyFix(input, { 'ejs-templates/indent': ['error', { normalizeContent: true }] })).toBe(

@@ -157,6 +157,9 @@ const TEMPLATES: string[] = [
   '<%_ if (a) {\n  x.forEach((f) => {\n    const u = f;\n_%>\n<%_ if (u) { _%>\nu\n<%_ } _%>\n<%_ });\n} _%>\n',
   '<%_ if (a) { _%>\n    <%_\n      b();\n        c();\n    _%>\n<%_ } _%>\n',
   'a <%= x\n%> b\n',
+  // indent: a tag spanning lines with text before it on its line, alone and after the other rules of the layout
+  '<%_ if (x) { _%>\nb + <%_ }\n        y();\n_%>\n',
+  'a(<%\n  if (b) { %>B(<% } else\n  if (c) { %>C(<% } else\n  if (d) { %>D(<% } %>x\n',
   // output-semi
   '<%= x; %> <%- y %>\n',
   // slurp-newline, prefer-slurping-codeonly, experimental-prefer-slurp-multiline, no-comment-empty-line
@@ -205,12 +208,12 @@ describe('autofix: what EJS renders', () => {
       ).length;
     expect(Object.fromEntries(RUNS.map((run) => [run.name, fixedCount(run)]))).toMatchInlineSnapshot(`
       {
-        "configs.customize()": 19,
-        "experimental-prefer-slurp-multiline": 2,
-        "format": 7,
+        "configs.customize()": 21,
+        "experimental-prefer-slurp-multiline": 3,
+        "format": 8,
         "indent": 6,
         "javascript rules": 2,
-        "layout rules together": 15,
+        "layout rules together": 17,
         "no-comment-empty-line": 1,
         "no-multiline-output": 1,
         "no-negated-condition": 1,
@@ -219,7 +222,7 @@ describe('autofix: what EJS renders', () => {
         "prefer-encoded always": 5,
         "prefer-encoded never": 4,
         "prefer-output": 2,
-        "prefer-single-line-tags": 3,
+        "prefer-single-line-tags": 4,
         "prefer-slurping-codeonly": 3,
         "slurp-newline": 1,
       }
