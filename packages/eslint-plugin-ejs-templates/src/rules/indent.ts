@@ -13,8 +13,7 @@ import {
   getDiagnosticBlocks,
   getVirtualCodeMetadata,
 } from '../processor.js';
-import { getTagTypeComments } from '../utils.js';
-import { isRecord } from '../utils.js';
+import { getTagTypeComments, isRecord, type VirtualMarkerComment } from '../utils.js';
 
 /**
  * ESLint rule: enforce brace-depth–based indentation on standalone
@@ -51,7 +50,8 @@ export const indent: Rule.RuleModule = {
       url: 'https://github.com/mshima/eslint-plugin-ejs-templates/blob/main/packages/eslint-plugin-ejs-templates/README.md#indent',
     },
     messages: {
-      indent: 'Incorrect indentation for EJS tag; expected {{expected}} spaces, got {{actual}} spaces.',
+      indent: 'Incorrect indentation for EJS tag; expected {{expected}}, got {{actual}}.',
+      indentContent: 'The lines of an EJS tag spanning lines are not indented with the tag.',
     },
     schema: [
       {
@@ -65,33 +65,41 @@ export const indent: Rule.RuleModule = {
   },
 
   create(context) {
+    /** Blanks as the message tells them: `2 spaces`, `1 tab`, `0 spaces`. */
+    const describe = (blanks: string): string => {
+      const spaces = blanks.match(/ /gu)?.length ?? 0;
+      const tabs = blanks.match(/\t/gu)?.length ?? 0;
+      const count = (n: number, unit: string) => `${String(n)} ${unit}${n === 1 ? '' : 's'}`;
+      if (tabs === 0) return count(spaces, 'space');
+      return spaces === 0 ? count(tabs, 'tab') : `${count(spaces, 'space')} and ${count(tabs, 'tab')}`;
+    };
     const option: unknown = context.options[0];
     const normalizeContent = !isRecord(option) || option.normalizeContent !== false;
 
     return {
       Program() {
         const sourceCode = context.sourceCode;
-        const comments = getDiagnosticBlocks(context, 'indent').map(({ comment }) => comment);
+        const reports: { comment: VirtualMarkerComment; data?: Record<string, string> }[] = [];
+        // The indentation of the tag, against the one of its depth of blocks.
+        for (const { block, comment } of getDiagnosticBlocks(context, 'indent')) {
+          reports.push({
+            comment,
+            data: { expected: describe(block.expectedIndent), actual: describe(block.lineIndent) },
+          });
+        }
         if (normalizeContent) {
           // Indexed as the marker comments: the i-th non-directive block.
           const needsNormalizeByTag = getVirtualCodeMetadata(sourceCode.text)?.needsNormalize;
           for (const [tagIndex, { comment, tagType }] of getTagTypeComments(sourceCode.text).entries()) {
-            if (tagType === 'slurp-multiline' && needsNormalizeByTag?.[tagIndex] === true) comments.push(comment);
+            if (tagType === 'slurp-multiline' && needsNormalizeByTag?.[tagIndex] === true) reports.push({ comment });
           }
         }
 
-        for (const comment of comments) {
+        for (const { comment, data } of reports) {
           const { range = [0, 0] } = comment;
           context.report({
             loc: comment.loc ?? { line: 0, column: 0 },
-            messageId: 'indent',
-            data: {
-              // The exact indent values are not available in the virtual
-              // code; use generic placeholders so the message is still
-              // meaningful.
-              expected: '?',
-              actual: '?',
-            },
+            ...(data ? { messageId: 'indent', data } : { messageId: 'indentContent' }),
             fix(fixer) {
               // Sentinel fix — the processor's postprocess translates this
               // to replacing the line-prefix whitespace before the tag.
