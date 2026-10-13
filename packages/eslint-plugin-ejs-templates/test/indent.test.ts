@@ -35,6 +35,23 @@ describe('rule: ejs-templates/indent', () => {
     expect(msgs.map(({ ruleId, line, column }) => [ruleId, line, column])).toEqual([['ejs-templates/indent', 2, 4]]);
   });
 
+  test.each([
+    ['blanks', '<%_ if (x) { _%>\n    <%_ doWork(); _%>\n<%_ } _%>\n', 'expected 2 spaces, got 4 spaces'],
+    ['a tab', '<%_ if (x) { _%>\n\t<%_ doWork(); _%>\n<%_ } _%>\n', 'expected 2 spaces, got 1 tab'],
+    ['none, at a depth of 0', '  <%_ doWork(); _%>\n', 'expected 0 spaces, got 2 spaces'],
+  ])('tells the indentation expected and the one written: %s', (_label, input, values) => {
+    expect(lint(input, { 'ejs-templates/indent': 'error' }).map(({ message }) => message)).toEqual([
+      `Incorrect indentation for EJS tag; ${values}.`,
+    ]);
+  });
+
+  test('tells the lines of a tag spanning lines not indented with it', () => {
+    const input = '<%_ if (x) { _%>\n  <%_\n  doWork();\n  doMore();\n  _%>\n<%_ } _%>';
+    expect(lint(input, { 'ejs-templates/indent': 'error' }).map(({ line, message }) => [line, message])).toEqual([
+      [2, 'The lines of an EJS tag spanning lines are not indented with the tag.'],
+    ]);
+  });
+
   test('does not flag tags with correct brace-depth indentation', () => {
     const input = '<%_ if (x) { _%>\n  <%_ doWork(); _%>\n<%_ } _%>';
     const msgs = lint(input, { 'ejs-templates/indent': 'error' });
