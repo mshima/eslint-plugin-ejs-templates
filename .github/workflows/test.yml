@@ -40,6 +40,10 @@ jobs:
       - name: Test
         run: npm test
 
+      - name: Coverage
+        if: matrix.node-version == '24'
+        run: npm run coverage
+
   check-tests:
     permissions:
       contents: none

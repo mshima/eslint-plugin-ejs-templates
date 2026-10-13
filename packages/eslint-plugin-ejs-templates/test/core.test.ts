@@ -440,6 +440,53 @@ describe('processor position mapping', () => {
     expect(fixed).not.toContain('eqeqeq');
   });
 
+  test("reportUnusedDisableDirectives='error': autofix keeps an eslint-enable without rule list", () => {
+    const input = '<%# eslint-disable no-var, eqeqeq %>\n<% var x = 1; %>\n<%# eslint-enable %>\n';
+    const rules = { 'no-var': 'error', eqeqeq: 'error' } as const;
+    expect(lintWithUnusedDisableDirectivesError(input, rules)).toEqual([
+      {
+        ruleId: null,
+        message: "Unused eslint-disable directive (no problems were reported from 'eqeqeq').",
+        line: 1,
+        column: 0,
+        severity: 2,
+        fix: { range: [0, 36], text: '<%# eslint-disable no-var %>' },
+      },
+    ]);
+    expect(applyFixWithUnusedDisableDirectivesError(input, rules)).toMatchInlineSnapshot(`
+      "<%# eslint-disable no-var %>
+      <% var x = 1; %>
+      <%# eslint-enable %>
+      "
+    `);
+  });
+
+  test('reports a parsing error the JavaScript parser of ESLint finds in a tag', () => {
+    expect(lint('<% let a = 1; let a = 2; %>\n')).toEqual([
+      {
+        ruleId: null,
+        fatal: true,
+        severity: 2,
+        message: "Parsing error: Identifier 'a' has already been declared",
+        line: 1,
+        column: 19,
+      },
+    ]);
+  });
+
+  test('reports a parsing error after a bare return at its tag', () => {
+    expect(lint('<% return; %>\n<% let a = 1; let a = 2; %>\n')).toEqual([
+      {
+        ruleId: null,
+        fatal: true,
+        severity: 2,
+        message: "Parsing error: Identifier 'a' has already been declared",
+        line: 2,
+        column: 19,
+      },
+    ]);
+  });
+
   test('reports parse error at EOF when closing brace is missing', () => {
     const ejsText = '<% if (x) { %>\n<div>body</div>';
     const msgs = lint(ejsText, { 'no-var': 'error' });
@@ -506,6 +553,21 @@ describe('plugin shape', () => {
     const configs = plugin.configs.customize({});
     expect(configs[1].rules?.['ejs-templates/prefer-encoded']).toEqual(['error', 'always']);
     expect(configs[2].rules?.['ejs-templates/prefer-encoded']).toEqual(['error', 'never']);
+  });
+
+  test('customize enables experimental-prefer-slurp-multiline with experimental', () => {
+    const [config] = plugin.configs.customize({ experimental: true });
+    expect(config.rules?.['ejs-templates/experimental-prefer-slurp-multiline']).toBe('error');
+  });
+
+  test('customize turns off the stylistic rules of the blocklist with stylisticBlocklist', () => {
+    const [config] = plugin.configs.customize({ stylisticBlocklist: true });
+    expect(config.rules?.['@stylistic/eol-last']).toBe('off');
+  });
+
+  test('customize turns off prettier/prettier with prettierBlocklist', () => {
+    const [config] = plugin.configs.customize({ prettierBlocklist: true });
+    expect(config.rules?.['prettier/prettier']).toBe('off');
   });
 
   test('customize should generate a config with correct rules', () => {

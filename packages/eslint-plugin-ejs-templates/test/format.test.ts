@@ -42,6 +42,13 @@ describe('rule: ejs-templates/format', () => {
 // ---------------------------------------------------------------------------
 
 describe('autofix: format', () => {
+  test('reduces the blanks of an empty tag to one', () => {
+    expect(applyFix('<%  %>\n<%   %>', { 'ejs-templates/format': 'error' })).toMatchInlineSnapshot(`
+      "<% %>
+      <% %>"
+    `);
+  });
+
   test('adds a single space around single-line content', () => {
     expect(applyFix('<%foo%>', { 'ejs-templates/format': 'error' })).toBe('<% foo %>');
   });
