@@ -143,9 +143,19 @@ export function parseJavaScriptPartial(text: string, incrementalCode = ''): Rela
   const contentStart = wrapperPrefix.length;
   const contentEnd = wrapperPrefix.length + text.length;
   const bracesDelta = missingCloseBracesCount - missingOpenBracesCount;
-  const nodes = collectNodesStartingInRange((contentTreeBestGuess ?? contentTree).rootNode, contentStart, contentEnd);
+  // The nodes are collected when read: walking a tree marshals each of its nodes out of WASM, and most tags never need
+  // them.
+  let collected: SyntaxNode[] | undefined;
+  const nodesOf = (): SyntaxNode[] =>
+    (collected ??= collectNodesStartingInRange(
+      (contentTreeBestGuess ?? contentTree).rootNode,
+      contentStart,
+      contentEnd,
+    ));
   return {
-    nodes,
+    get nodes() {
+      return nodesOf();
+    },
     contentNode: contentTree.rootNode,
     start: contentStart,
     multilineOriginal: text.includes('\n'),
@@ -153,9 +163,11 @@ export function parseJavaScriptPartial(text: string, incrementalCode = ''): Rela
     missingCloseBracesCount,
     missingOpenBracesCount,
     bracesDelta,
-    hasStructuralBraces: nodes.some(
-      (n) => n.type === 'statement_block' || missingCloseBracesCount > 0 || missingOpenBracesCount > 0,
-    ),
+    get hasStructuralBraces() {
+      return nodesOf().some(
+        (n) => n.type === 'statement_block' || missingCloseBracesCount > 0 || missingOpenBracesCount > 0,
+      );
+    },
     cleanup: () => {
       contentTreeBestGuess?.delete();
       contentTree.delete();
@@ -182,7 +194,7 @@ export function parseJavaScriptPartial(text: string, incrementalCode = ''): Rela
       };
 
       let cursor = 0;
-      for (const n of nodes) {
+      for (const n of nodesOf()) {
         let lastCursor = cursor;
         if (STATEMENT_OPEN_IN_SINGLE_LINE.some((statementType) => statementType === n.type)) {
           // else if (foo) {

@@ -85,12 +85,20 @@ const openedNodes = (tag: EjsCodeTag): SyntaxNode[] => {
 /** A text of the template, between the tags `before` and `after` (none at the start or the end of the template). */
 const textOf = (node: EjsSyntaxNode, before?: EjsTag, after?: EjsTag): EjsText => {
   const text = { offset: node.startIndex, text: node.text };
+  // What EJS renders of the text, rendered when read: most texts are never.
+  let rendering: EjsRenderedText | undefined;
+  const render = (): EjsRenderedText => (rendering ??= renderText(text, before?.closeDelim, after?.openDelim));
   return {
     kind: 'text',
     offset: text.offset,
     length: node.endIndex - node.startIndex,
     text: text.text,
-    ...renderText(text, before?.closeDelim, after?.openDelim),
+    get rendered() {
+      return render().rendered;
+    },
+    get renderedOffsets() {
+      return render().renderedOffsets;
+    },
   };
 };
 
