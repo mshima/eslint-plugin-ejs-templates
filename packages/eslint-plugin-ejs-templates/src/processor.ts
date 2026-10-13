@@ -8,15 +8,15 @@
 
 import type { Linter } from 'eslint';
 import createDebug from 'debug';
-import { findErrorNode, parseJavaScript, type SyntaxNode } from './ts-parser.js';
 import {
-  EJS_MARKER_PREFIX,
   type EjsSyntaxNode,
-  extractTagBlocks,
+  findErrorNode,
   getDirectiveCodeText,
   getEjsNodes,
-  type TagBlock,
-} from './ejs-parser.js';
+  parseJavaScript,
+  type SyntaxNode,
+} from 'ejs-template-parser';
+import { EJS_MARKER_PREFIX, extractTagBlocks, type TagBlock } from './ejs-parser.js';
 
 type VitualJavascriptCode = {
   virtualCode: string;

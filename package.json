@@ -1,7 +1,7 @@
 {
   "name": "eslint-plugin-ejs-templates-monorepo",
   "private": true,
-  "description": "eslint-plugin-ejs-templates and the packages it is built on",
+  "description": "eslint-plugin-ejs-templates and ejs-template-parser, the parser it is built on",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/mshima/eslint-plugin-ejs-templates.git"
@@ -9,6 +9,7 @@
   "license": "Apache-2.0",
   "type": "module",
   "workspaces": [
+    "packages/ejs-template-parser",
     "packages/eslint-plugin-ejs-templates"
   ],
   "scripts": {

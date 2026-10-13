@@ -1,7 +1,10 @@
-import { parseJavaScriptPartial, type RelativeJavascriptNode } from './javascript-parser.js';
-import { findErrorNode, parseEjs, type SyntaxNode } from './ts-parser.js';
-
-export type EjsSyntaxNode = SyntaxNode & { linePrefix: string };
+import {
+  type EjsClosingDelimiter,
+  type EjsOpeningDelimiter,
+  type EjsSyntaxNode,
+  getEjsTags,
+  type RelativeJavascriptNode,
+} from 'ejs-template-parser';
 
 export const EJS_MARKER_PREFIX = '@ejs-tag:';
 
@@ -33,37 +36,6 @@ const EJS_TAG_TYPES: readonly EjsTagType[] = [
   ..._TAG_TYPES,
   ..._TAG_TYPES_WITH_MULTILINE.map((base): EjsTagType => `${base}-multiline`),
 ];
-
-const EJS_OPENING_DELIMS = ['<%=', '<%-', '<%_', '<%#', '<%'] as const;
-const EJS_CLOSING_DELIMS = ['-%>', '_%>', '%>'] as const;
-type EjsOpeningDelimiter = (typeof EJS_OPENING_DELIMS)[number];
-type EjsClosingDelimiter = (typeof EJS_CLOSING_DELIMS)[number];
-
-/**
- * Whether tree-sitter absorbed the `_` of a `_%>` close delimiter into this tag's code node.
- *
- * tree-sitter-embedded-template ends an output tag's code node one character too late when the
- * tag closes with `_%>`, leaving `%>` as the delimiter and a stray `_` at the end of the code
- * (tree-sitter/tree-sitter-embedded-template#46). Left uncorrected the `_` reaches the
- * JavaScript parser and makes the whole file fail to lint.
- */
-export const hasAbsorbedSlurpClose = (node: SyntaxNode): boolean =>
-  node.type === 'output_directive' &&
-  node.text.endsWith('_%>') &&
-  node.children[node.childCount - 1]?.text === '%>' &&
-  (node.children[1]?.text.endsWith('_') ?? false);
-
-/**
- * Code text of a directive tag, with an absorbed `_` close-delimiter marker removed.
- *
- * Every consumer of a tag's code must go through this: the virtual JavaScript and the tag
- * blocks are built from the same nodes, so correcting only one of them leaves the other
- * carrying the stray `_`.
- */
-export const getDirectiveCodeText = (node: SyntaxNode): string => {
-  const codeText = node.children[1]?.text ?? '';
-  return hasAbsorbedSlurpClose(node) ? codeText.slice(0, -1) : codeText;
-};
 
 /** A single extracted EJS tag together with its position in the original file. */
 export type TagBlock = {
@@ -156,54 +128,6 @@ export type TagBlock = {
 
 const INDENT_UNIT = '  ';
 
-function normalizeLintCodeContent(codeContent: string): string {
-  // Remove a single trailing empty line (optionally with indentation).
-  if (/(?:\r?\n)[ \t]*$/u.test(codeContent)) {
-    return codeContent.replace(/(?:\r?\n)[ \t]*$/u, '');
-  }
-
-  // Otherwise remove a single trailing blank character.
-  if (/[ \t]$/u.test(codeContent)) {
-    return codeContent.slice(0, -1);
-  }
-
-  return codeContent;
-}
-
-/**
- * Parse an EJS template and extract syntax nodes for tag block extraction.
- *
- * Uses tree-sitter-embedded-template for accurate EJS parsing. If parsing fails,
- * throws a detailed error with line/column position and the offending token.
- *
- * Each returned node is augmented with a `linePrefix` property containing the
- * whitespace/indentation before the node on its line. This is used during
- * tag block extraction to preserve original indentation.
- *
- * @throws Error if the EJS template has syntax errors
- */
-export const getEjsNodes = (text: string): EjsSyntaxNode[] => {
-  const tree = parseEjs(text);
-  if (tree.rootNode.hasError) {
-    const errorNode = findErrorNode(tree.rootNode);
-    if (!errorNode) {
-      throw new Error('Unexpectedly did not find error node in tree with hasError=true');
-    }
-    throw Object.assign(
-      new Error(
-        `Failed to parse EJS template at line ${String(errorNode.startPosition.row + 1)}, column ${String(errorNode.startPosition.column + 1)}: unexpected token '${text.slice(errorNode.startIndex, errorNode.endIndex)}'`,
-      ),
-      { line: errorNode.startPosition.row + 1, column: errorNode.startPosition.column + 1 },
-    );
-  }
-
-  return tree.rootNode.children.map((node) =>
-    Object.assign(node, {
-      linePrefix: text.slice(node.startIndex - node.startPosition.column, node.startIndex),
-    }),
-  );
-};
-
 function extractEslintDirectiveFromEjsComment(commentText: string): string | null {
   const content = commentText
     .replace(/^<%#/u, '')
@@ -213,20 +137,6 @@ function extractEslintDirectiveFromEjsComment(commentText: string): string | nul
     return content;
   }
   return null;
-}
-
-/**
- * Extract the close delimiter from an EJS comment tag text.
- * Supported delimiters: `%>`, `-%>`, `_%>`
- */
-function extractCloseDelimFromEjsComment(commentText: string): EjsClosingDelimiter {
-  const delimiters = EJS_CLOSING_DELIMS;
-  for (const delim of delimiters) {
-    if (commentText.endsWith(delim)) {
-      return delim;
-    }
-  }
-  return '%>'; // fallback
 }
 
 function createDirectiveCommentBlock(params: {
@@ -306,25 +216,6 @@ function createDirectiveCommentBlock(params: {
 export function extractTagBlocks(nodes: EjsSyntaxNode[]): TagBlock[] {
   const blocks: TagBlock[] = [];
 
-  let braceDepth = 0;
-  /**
-   * Still-open brace context preceding the current tag, as a stack rather than a
-   * flat accumulating string.
-   *
-   * Only unbalanced (error) content is recorded here, so every entry exists purely
-   * to give tree-sitter the enclosing block structure a later tag needs — e.g. the
-   * `if (a) {` that makes a subsequent `<% } %>` parse as a close rather than an
-   * error. Once a block closes, its context can no longer affect any following tag,
-   * so the entry is dropped.
-   *
-   * Each entry remembers the brace depth it was pushed at; a tag that nets a close
-   * prunes every entry at or above the new depth. Keeping this pruned bounds the
-   * context by nesting depth instead of template length, which is what keeps
-   * `extractTagBlocks` linear — an ever-growing string made tag N re-parse all
-   * preceding tags, giving O(n²) bytes through the parser.
-   */
-  const openContext: { depth: number; code: string; isContinuation: boolean }[] = [];
-  let incrementalCode = '';
   let pendingNextLineDirective: {
     disableText: string;
     enableText: string;
@@ -337,25 +228,15 @@ export function extractTagBlocks(nodes: EjsSyntaxNode[]): TagBlock[] {
     closeDelim: EjsClosingDelimiter;
   } | null = null;
 
-  for (const node of nodes) {
-    // Skip content nodes.
-    if (!['comment_directive', 'code', 'directive', 'output_directive'].includes(node.type)) continue;
+  // Each code tag parsed inside the blocks the tags before it left open, with the brace depths around it.
+  for (const tag of getEjsTags(nodes)) {
+    const { node, offset: tagOffset, length: tagLength, line: tagLine, column: tagColumn, isStandalone } = tag;
+    const lineIndent = isStandalone ? tag.linePrefix : '';
 
-    const tagOffset = node.startIndex;
-    const tagLength = node.endIndex - node.startIndex;
-    const tagLine = node.startPosition.row + 1;
-    const tagColumn = node.startPosition.column;
-    const linePrefix = node.linePrefix;
-    // ── Standalone detection ──────────────────────────────────────────────
-    // A tag is "standalone" when everything before it on the same line is
-    // whitespace (i.e. `tagColumn` characters of pure whitespace).
-    const isStandalone = /^\s*$/u.test(linePrefix);
-    const lineIndent = isStandalone ? linePrefix : '';
-
-    if (node.type === 'comment_directive') {
+    if (tag.type === 'comment') {
       const directiveText = extractEslintDirectiveFromEjsComment(node.text);
       if (!directiveText) {
-        const closeDelim = extractCloseDelimFromEjsComment(node.text);
+        const { closeDelim } = tag;
         if (isStandalone && closeDelim !== '-%>') {
           blocks.push({
             ejsNode: node,
@@ -393,7 +274,7 @@ export function extractTagBlocks(nodes: EjsSyntaxNode[]): TagBlock[] {
           tagColumn,
           lineIndent,
           isStandalone,
-          closeDelim: extractCloseDelimFromEjsComment(node.text),
+          closeDelim: tag.closeDelim,
         };
         continue;
       }
@@ -408,76 +289,24 @@ export function extractTagBlocks(nodes: EjsSyntaxNode[]): TagBlock[] {
           tagColumn,
           lineIndent,
           isStandalone,
-          closeDelim: extractCloseDelimFromEjsComment(node.text),
+          closeDelim: tag.closeDelim,
         }),
       );
       continue;
     }
 
-    // Extract opening/closing delimiters and code content from tree-sitter nodes.
-    const openDelimText = node.children[0]?.text;
-    const closeDelimText = node.children[node.childCount - 1]?.text;
-    const openDelim = EJS_OPENING_DELIMS.find((delim) => delim === openDelimText) ?? '<%';
-    const parsedCloseDelim = EJS_CLOSING_DELIMS.find((delim) => delim === closeDelimText) ?? '%>';
-    const codeNode = node.namedChildren.find((c) => c.type === 'code');
-    const parsedCodeContent: string = codeNode?.text ?? '';
-
-    // Correcting the delimiter here, rather than by rewriting the source and re-parsing, keeps
-    // the tag's real `_%>` so rules and fixes that rebuild a tag from its delimiters do not
-    // quietly drop the newline-slurping the author asked for.
-    const absorbedSlurpClose = hasAbsorbedSlurpClose(node);
-    const closeDelim: EjsClosingDelimiter = absorbedSlurpClose ? '_%>' : parsedCloseDelim;
-    const codeContent: string = absorbedSlurpClose ? parsedCodeContent.slice(0, -1) : parsedCodeContent;
-    const lintCodeContent = normalizeLintCodeContent(codeContent);
-    const javascriptPartialNode = parseJavaScriptPartial(lintCodeContent, incrementalCode);
+    const {
+      openDelim,
+      closeDelim,
+      code: codeContent,
+      parsedCode: lintCodeContent,
+      javascript: javascriptPartialNode,
+      depthBefore: oldBraceDepth,
+      depthAfter: braceDepth,
+      codeLine: originalLine,
+      codeColumn: originalColumn,
+    } = tag;
     const { contentNode } = javascriptPartialNode;
-
-    // ── Brace-depth tracking (for indent) ─────────────────────────────────
-    // Updated for EVERY non-comment tag so structural `<% if %>` / `<% } %>`
-    // tags are included in the depth count even though we won't indent them.
-    const oldBraceDepth = braceDepth;
-    // If contentNode doesn't have errors, its a balanced snippet we can just use current depth.
-    if (contentNode.hasError) {
-      braceDepth += javascriptPartialNode.bracesDelta;
-      const { missingOpenBracesCount, missingCloseBracesCount, bracesDelta } = javascriptPartialNode;
-      // A continuation both closes the previous branch and opens the next one
-      // (`<% } else if (c) { %>`, `<% } catch (e) { %>`, `<% } finally { %>`), so it is
-      // self-balancing: the branch it opens is closed by the next continuation at the
-      // same depth. That makes the earlier continuation droppable — the survivor's `}`
-      // still pairs with the chain head's `{`, so the context stays textually coherent
-      // and the enclosing structure a later tag parses inside is unchanged. Without
-      // this, a long `else if` ladder never prunes (its delta is 0) and the context
-      // grows with the chain, which is the remaining quadratic case.
-      const isContinuation = bracesDelta === 0 && missingOpenBracesCount > 0 && missingCloseBracesCount > 0;
-      if (isContinuation) {
-        const superseded = openContext.findIndex((entry) => entry.depth === oldBraceDepth && entry.isContinuation);
-        if (superseded !== -1) {
-          openContext.splice(superseded, 1);
-        }
-      }
-      openContext.push({ depth: oldBraceDepth, code: lintCodeContent, isContinuation });
-      if (bracesDelta < 0) {
-        // This tag closed one or more blocks. Their context is now unreachable for
-        // any following tag, so drop it — including this tag's own entry when it
-        // sits at or above the depth we just returned to. A tag that opens or merely
-        // continues a block (`<% } else { %>`, delta 0) keeps its context, since the
-        // next tag still parses inside it.
-        const keepBelow = Math.max(braceDepth, 0);
-        let keep = openContext.length;
-        while (keep > 0 && openContext[keep - 1].depth >= keepBelow) {
-          keep--;
-        }
-        openContext.length = keep;
-      }
-      incrementalCode = openContext.map((entry) => entry.code).join('\n');
-      if (incrementalCode) incrementalCode += '\n';
-    }
-
-    // tree-sitter gives us precise position info directly.
-    const codeStartRow = codeNode ? codeNode.startPosition.row + 1 : tagLine;
-    const codeStartCol = codeNode ? codeNode.startPosition.column : tagColumn + openDelim.length;
-    const originalLine = codeStartRow;
-    const originalColumn = codeStartCol;
 
     if (pendingNextLineDirective) {
       blocks.push(

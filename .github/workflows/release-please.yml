@@ -68,4 +68,20 @@ jobs:
           package-manager-cache: false
       - run: npm ci
       - name: Publish with provenance
-        run: npm publish --workspace packages/eslint-plugin-ejs-templates --provenance --access public
+        # The parser before the plugin, which depends on the version it releases. A version already
+        # on npm (the first one of a package, published by hand) is skipped.
+        env:
+          PATHS_RELEASED: ${{ needs.release-please.outputs.paths_released }}
+        run: |
+          for path in packages/ejs-template-parser packages/eslint-plugin-ejs-templates; do
+            if ! echo "$PATHS_RELEASED" | grep -q "\"$path\""; then
+              continue
+            fi
+            name=$(node -p "require('./$path/package.json').name")
+            version=$(node -p "require('./$path/package.json').version")
+            if [ "$(npm view "$name@$version" version 2> /dev/null)" = "$version" ]; then
+              echo "$name@$version is already on npm"
+            else
+              npm publish --workspace "$path" --provenance --access public
+            fi
+          done

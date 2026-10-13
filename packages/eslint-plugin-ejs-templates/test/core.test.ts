@@ -11,7 +11,8 @@ import stylistic from '@stylistic/eslint-plugin';
 import { Linter } from 'eslint';
 import plugin from '../src/index.js';
 import { lint, applyFix, makeLinter, makeConfig } from './helpers.js';
-import { extractTagBlocks, getEjsNodes } from '../src/ejs-parser.js';
+import { extractTagBlocks } from '../src/ejs-parser.js';
+import { getEjsNodes } from 'ejs-template-parser';
 import { type Config } from 'eslint/config';
 
 type RuleConfigMap = Record<string, Linter.RuleSeverityAndOptions | Linter.RuleSeverity>;

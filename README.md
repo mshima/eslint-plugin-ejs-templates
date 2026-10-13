@@ -1,10 +1,11 @@
 # eslint-plugin-ejs-templates
 
-Linting for [EJS](https://ejs.co/) (Embedded JavaScript) templates.
+Linting and parsing of [EJS](https://ejs.co/) (Embedded JavaScript) templates.
 
-| Package                                                             | Description                                               |
-| ------------------------------------------------------------------- | --------------------------------------------------------- |
-| [eslint-plugin-ejs-templates](packages/eslint-plugin-ejs-templates) | An ESLint plugin: a processor and rules for EJS templates |
+| Package                                                             | Description                                                                                      |
+| ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| [eslint-plugin-ejs-templates](packages/eslint-plugin-ejs-templates) | An ESLint plugin: a processor and rules for EJS templates                                        |
+| [ejs-template-parser](packages/ejs-template-parser)                 | The parser of the plugin: the tags of a template, their code, and the blocks they open and close |
 
 ## Development
 

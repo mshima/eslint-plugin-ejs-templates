@@ -29,25 +29,18 @@
   },
   "types": "dist/index.d.ts",
   "files": [
-    "web-tree-sitter.d.ts",
     "dist",
-    "wasm",
     "LICENSE",
     "README.md"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json && cpy ../../node_modules/tree-sitter-embedded-template/tree-sitter-embedded_template.wasm ../../node_modules/tree-sitter-javascript/tree-sitter-javascript.wasm wasm --flat",
+    "build": "tsc -p tsconfig.build.json",
     "dev": "tsc -p tsconfig.build.json --watch",
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
     "debug": "^4.4.3",
-    "web-tree-sitter": "^0.26.13"
-  },
-  "devDependencies": {
-    "cpy-cli": "^7.0.0",
-    "tree-sitter-embedded-template": "0.25.0",
-    "tree-sitter-javascript": "0.25.0"
+    "ejs-template-parser": "^0.0.0"
   },
   "peerDependencies": {
     "eslint": ">=9.0.0"
