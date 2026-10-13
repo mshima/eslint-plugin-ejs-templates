@@ -49,9 +49,9 @@ release, 0.5.0, is in `.release-please-manifest.json`) and giving its dependency
 
 The version of a release comes from its commits: before 1.0, a `feat` bumps the minor version, and a
 breaking change too (`bump-minor-pre-major`). `release-as` in the config of a package forces the
-version of its next release instead: the parser has `"release-as": "0.1.1"`, for a release its
-`feat` commits would make 0.2.0. Remove it once that release is published, or the next release
-would be made at the same version again.
+version of its next release instead, as for the 0.1.1 of the parser, which its `feat` commits would
+have made 0.2.0. It is removed once that release is published, or the next release would be made at
+the same version again.
 
 ## Commands
 

@@ -5,8 +5,7 @@
   "packages": {
     "packages/ejs-template-parser": {
       "include-component-in-tag": true,
-      "initial-version": "0.1.0",
-      "release-as": "0.1.1"
+      "initial-version": "0.1.0"
     }
   },
   "plugins": ["node-workspace"]
