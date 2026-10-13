@@ -1207,3 +1207,18 @@ describe('synthetic semicolon in virtual code', () => {
     }
   });
 });
+
+describe('processor preprocess', () => {
+  test('reports a template that does not parse at the line and column of its syntax error', () => {
+    expect(lint('a\n<%= b')).toEqual([
+      {
+        ruleId: null,
+        fatal: true,
+        severity: 2,
+        message: "Preprocessing error: Failed to parse EJS template at line 2, column 6: unexpected token ''",
+        line: 2,
+        column: 6,
+      },
+    ]);
+  });
+});

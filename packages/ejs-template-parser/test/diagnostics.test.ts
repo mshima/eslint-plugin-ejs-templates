@@ -7,7 +7,8 @@
 //     http://www.apache.org/licenses/LICENSE-2.0
 
 import { describe, test, expect } from 'vitest';
-import { buildTemplate, cleanupTemplate, validateTemplate } from '../src/template.js';
+import { EjsSyntaxError } from '../src/ejs-parser.js';
+import { buildTemplate, cleanupTemplate, diagnoseTemplate, validateTemplate } from '../src/template.js';
 
 /** The diagnostics of a template, by code, severity and the text they are about, its trees freed. */
 const diagnosticsOf = (text: string) => {
@@ -56,10 +57,26 @@ describe('validateTemplate', () => {
       try {
         buildTemplate('a\n<%= b');
       } catch (error) {
-        return error;
+        if (error instanceof EjsSyntaxError) return error;
       }
+      throw new Error('buildTemplate throws an EjsSyntaxError');
     })();
-    expect(thrown).toMatchObject({ diagnostic: { code: 'syntax-error', severity: 'error', line: 2, column: 5 } });
+    const { message, line, column, lineNumber, diagnostic } = thrown;
+    expect({ message, line, column, lineNumber, diagnostic }).toEqual({
+      message: "Failed to parse EJS template at line 2, column 6: unexpected token ''",
+      line: 2,
+      column: 6,
+      lineNumber: 2,
+      diagnostic: {
+        code: 'syntax-error',
+        severity: 'error',
+        message: "Failed to parse EJS template at line 2, column 6: unexpected token ''",
+        offset: 7,
+        length: 0,
+        line: 2,
+        column: 5,
+      },
+    });
   });
 
   test('validates a template before it is freed, the JavaScript of its tags read', () => {
@@ -123,5 +140,35 @@ describe('validateTemplate', () => {
 
   test('leaves alone an ESLint directive comment, which the plugin reads as a directive', () => {
     expect(diagnosticsOf('<%# eslint-disable ejs-templates/indent %>\nb\n')).toEqual([]);
+  });
+});
+
+describe('diagnoseTemplate', () => {
+  test('gives the diagnostics of a template that parses', () => {
+    expect(diagnoseTemplate('a\n<% b() %>\n')).toEqual([
+      {
+        code: 'prefer-slurping-codeonly',
+        severity: 'warning',
+        message: 'A code tag opening no block slurps its blanks and its line break as <%_ … _%>',
+        offset: 2,
+        length: 9,
+        line: 2,
+        column: 0,
+      },
+    ]);
+  });
+
+  test('gives the syntax-error diagnostic of a template that does not parse, without throwing', () => {
+    expect(diagnoseTemplate('a\n<%= b')).toEqual([
+      {
+        code: 'syntax-error',
+        severity: 'error',
+        message: "Failed to parse EJS template at line 2, column 6: unexpected token ''",
+        offset: 7,
+        length: 0,
+        line: 2,
+        column: 5,
+      },
+    ]);
   });
 });

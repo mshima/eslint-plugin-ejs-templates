@@ -11,7 +11,7 @@ import { parseJavaScript, type SyntaxNode } from './ts-parser.js';
 
 /**
  * What a diagnostic tells. Errors, what EJS fails on or renders otherwise than written:
- * - `syntax-error`: the template does not parse, a tag left open (on the error buildTemplate throws);
+ * - `syntax-error`: the template does not parse, a tag left open (on the EjsSyntaxError buildTemplate throws);
  * - `javascript-error`: the JavaScript EJS compiles the template to does not parse, at this tag;
  * - `comment-across-tags`: a block comment opened in a tag and closed in a later one, which comments out what
  *   is in between, and confuses the blocks;
