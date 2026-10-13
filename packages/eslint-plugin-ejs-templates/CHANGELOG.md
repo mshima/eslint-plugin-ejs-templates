@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.6.0](https://github.com/mshima/eslint-plugin-ejs-templates/compare/v0.5.0...v0.6.0) (2026-10-13)
+
+
+### Features
+
+* ejs-template-parser, the parser of the plugin as a package of its own ([d990df9](https://github.com/mshima/eslint-plugin-ejs-templates/commit/d990df95b9836d9523d194588380ed07486d67a5))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * ejs-template-parser bumped from ^0.0.0 to ^1.0.0
+
 ## [0.5.0](https://github.com/mshima/eslint-plugin-ejs-templates/compare/v0.4.7...v0.5.0) (2026-08-29)
 
 ### ⚠ BREAKING CHANGES
