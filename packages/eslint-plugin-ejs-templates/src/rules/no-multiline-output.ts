@@ -36,7 +36,7 @@ export const noMultilineOutput: Rule.RuleModule = {
     fixable: 'code',
     docs: {
       description: 'Disallow output tags whose conditional renders multiple lines',
-      url: 'https://github.com/mshima/eslint-plugin-ejs-templates#no-multiline-output',
+      url: 'https://github.com/mshima/eslint-plugin-ejs-templates/blob/main/packages/eslint-plugin-ejs-templates/README.md#no-multiline-output',
     },
     messages: {
       noMultilineOutput:

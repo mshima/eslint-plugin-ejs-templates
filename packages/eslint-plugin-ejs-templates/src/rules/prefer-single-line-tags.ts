@@ -24,7 +24,7 @@ export const preferSingleLineTags: Rule.RuleModule = {
     fixable: 'code',
     docs: {
       description: 'Collapse multiline EJS tags onto a single line (ports ejsCollapseMultiline)',
-      url: 'https://github.com/mshima/eslint-plugin-ejs-templates#prefer-single-line-tags',
+      url: 'https://github.com/mshima/eslint-plugin-ejs-templates/blob/main/packages/eslint-plugin-ejs-templates/README.md#prefer-single-line-tags',
     },
     messages: {
       preferSingleLineTags: 'EJS tag content spans multiple lines; collapse to a single line.',

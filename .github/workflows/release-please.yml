@@ -68,4 +68,4 @@ jobs:
           package-manager-cache: false
       - run: npm ci
       - name: Publish with provenance
-        run: npm publish --provenance --access public
+        run: npm publish --workspace packages/eslint-plugin-ejs-templates --provenance --access public

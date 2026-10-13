@@ -38,7 +38,7 @@ export const slurpNewline: Rule.RuleModule = {
     fixable: 'whitespace',
     docs: {
       description: 'Ensure `<%_ … _%>` slurp tags are on their own line',
-      url: 'https://github.com/mshima/eslint-plugin-ejs-templates#slurp-newline',
+      url: 'https://github.com/mshima/eslint-plugin-ejs-templates/blob/main/packages/eslint-plugin-ejs-templates/README.md#slurp-newline',
     },
     messages: {
       slurpNewline: '`<%_ … _%>` slurp tag must be on its own line; insert a newline before the tag.',

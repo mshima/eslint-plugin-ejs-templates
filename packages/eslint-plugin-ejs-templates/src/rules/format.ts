@@ -23,7 +23,7 @@ export const format: Rule.RuleModule = {
     docs: {
       description:
         'Normalize EJS tag formatting by ensuring spacing around content and optionally moving multiline close tag to its own aligned line',
-      url: 'https://github.com/mshima/eslint-plugin-ejs-templates#format',
+      url: 'https://github.com/mshima/eslint-plugin-ejs-templates/blob/main/packages/eslint-plugin-ejs-templates/README.md#format',
     },
     messages: {
       format: 'EJS tag formatting should use a space around content.',

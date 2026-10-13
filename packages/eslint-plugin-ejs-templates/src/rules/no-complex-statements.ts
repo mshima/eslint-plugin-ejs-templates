@@ -30,7 +30,7 @@ export const noComplexStatements: Rule.RuleModule = {
     type: 'suggestion',
     docs: {
       description: 'Disallow complex statements (try, while, switch, etc.) in EJS tags to keep templates simple',
-      url: 'https://github.com/mshima/eslint-plugin-ejs-templates#no-complex-statements',
+      url: 'https://github.com/mshima/eslint-plugin-ejs-templates/blob/main/packages/eslint-plugin-ejs-templates/README.md#no-complex-statements',
     },
     messages: {
       forbiddenTry: 'Try statements are forbidden in templates. Handle errors in the controller.',

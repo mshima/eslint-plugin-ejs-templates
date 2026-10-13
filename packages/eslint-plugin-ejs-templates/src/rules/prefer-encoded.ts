@@ -29,7 +29,7 @@ export const preferEncoded: Rule.RuleModule = {
     fixable: 'code',
     docs: {
       description: 'Prefer `<%=` (HTML-encoded) or `<%-` (raw) output tags consistently',
-      url: 'https://github.com/mshima/eslint-plugin-ejs-templates#prefer-encoded',
+      url: 'https://github.com/mshima/eslint-plugin-ejs-templates/blob/main/packages/eslint-plugin-ejs-templates/README.md#prefer-encoded',
     },
     messages: {
       preferEncoded: 'Prefer `<%=` (HTML-encoded output) over `<%-` (raw / unescaped output).',

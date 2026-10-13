@@ -25,7 +25,7 @@ export const noCommentEmptyLine: Rule.RuleModule = {
     fixable: 'code',
     docs: {
       description: 'Require EJS comment tags to use `-%>` to avoid leaving empty lines in output',
-      url: 'https://github.com/mshima/eslint-plugin-ejs-templates#no-comment-empty-line',
+      url: 'https://github.com/mshima/eslint-plugin-ejs-templates/blob/main/packages/eslint-plugin-ejs-templates/README.md#no-comment-empty-line',
     },
     messages: {
       noCommentEmptyLine:
