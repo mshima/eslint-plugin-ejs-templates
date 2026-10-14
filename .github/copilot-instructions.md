@@ -214,9 +214,11 @@ has no virtual file, so no rule would run on it: when it has a diagnostic of the
 ### Tag types
 
 Base types: `escaped-output` (`<%=`), `raw-output` (`<%-`), `slurp` (`<%_`/`_%>`), `code`,
-`code-slurpable`, `slurp-needs-indent`.
+`code-slurpable`: the `shape` of the parser.
 
-Standalone types: `directive-comment`, `comment-empty-line`, `slurp-not-standalone`.
+Standalone types: `directive-comment`, `comment-empty-line` (a comment tag with the parser's
+`no-comment-empty-line` diagnostic, the one comment tag with a block of its own). A type tells no
+other convention a tag breaks: those are the diagnostics of the parser.
 
 Base types additionally take a **`-multiline` suffix** when the content spans lines — for
 example `code-multiline`, not `multiline-code`. See `EjsTagType` in `src/ejs-parser.ts`.
@@ -414,9 +416,10 @@ The parser's warnings `prefer-slurping-codeonly`, `slurp-newline`, `indent`,
 names report: each rule reports the tags of its diagnostic (`getDiagnosticBlocks()`), on the
 marker of their block, with its sentinel fix. Their conditions live in `conventionsOf()` of the
 parser's `src/diagnostics.ts` alone, so a change to when one of these rules reports is made there,
-and it is a change of the parser. What stays in the plugin is how they fix, chosen by the tag
-types, and the `normalizeContent` part of `indent` (a `<%_ _%>` tag spanning lines whose content
-needs re-indenting), which the parser does not diagnose. Compare the messages and fixes of the
+and it is a change of the parser. What stays in the plugin is how they fix, which `translateFix()`
+does for a block with the diagnostic of the rule (`options.diagnostics`), and the
+`normalizeContent` part of `indent` (a `<%_ _%>` tag spanning lines whose content needs
+re-indenting), which the parser does not diagnose. Compare the messages and fixes of the
 plugin on the templates of generator-jhipster, before and after, for any change there.
 
 ### The parsed code of a tag

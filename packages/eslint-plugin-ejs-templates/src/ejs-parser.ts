@@ -1,5 +1,6 @@
 import {
   type EjsClosingDelimiter,
+  type EjsDiagnostic,
   type EjsOpeningDelimiter,
   type EjsSyntaxNode,
   type EjsTag,
@@ -18,15 +19,8 @@ export const getTagTypeFromLine = (line: string): EjsTagType | null => {
   return EJS_TAG_TYPES.find((known) => known === tagType) ?? null;
 };
 
-const _TAG_TYPES_WITH_MULTILINE = [
-  'escaped-output',
-  'raw-output',
-  'slurp',
-  'code',
-  'code-slurpable',
-  'slurp-needs-indent',
-] as const;
-const _TAG_TYPES = ['directive-comment', 'comment-empty-line', 'slurp-not-standalone'] as const;
+const _TAG_TYPES_WITH_MULTILINE = ['escaped-output', 'raw-output', 'slurp', 'code', 'code-slurpable'] as const;
+const _TAG_TYPES = ['directive-comment', 'comment-empty-line'] as const;
 type EjsBaseTagType = (typeof _TAG_TYPES_WITH_MULTILINE)[number];
 type EjsTagType = EjsBaseTagType | (typeof _TAG_TYPES)[number] | `${EjsBaseTagType}-multiline`;
 
@@ -214,13 +208,19 @@ function createDirectiveCommentBlock(params: {
  * - `code`            – `<% … %>` that cannot be promoted to slurping
  * - `code-slurpable`  – `<% … %>` that can be safely promoted to `<%_ … _%>`
  *
- * Violation suffixes (appended to the base type):
- * - `-multiline`         – content contains newlines (fixable by `prefer-single-line-tags`)
- * - `-needs-indent`      – wrong brace-depth indentation (fixable by `indent`)
- * - `-not-standalone`    – slurp tag is inline (fixable by `slurp-newline`)
+ * A base type takes the `-multiline` suffix when the content spans lines. The conventions a tag breaks are the
+ * diagnostics of ejs-template-parser (`validateTemplate()`), which the rules report and fix by: of the comment tags,
+ * only the ones leaving an empty line (`no-comment-empty-line`) have a block, `comment-empty-line`, for the rule to
+ * report on.
+ *
+ * @param tags the tags of the template
+ * @param diagnostics the diagnostics of the template, which tell the comment tags leaving an empty line
  */
-export function extractTagBlocks(tags: EjsTag[]): TagBlock[] {
+export function extractTagBlocks(tags: EjsTag[], diagnostics: readonly EjsDiagnostic[] = []): TagBlock[] {
   const blocks: TagBlock[] = [];
+  const emptyLineComments = new Set(
+    diagnostics.filter(({ code }) => code === 'no-comment-empty-line').map(({ offset }) => offset),
+  );
 
   let pendingNextLineDirective: {
     disableText: string;
@@ -243,7 +243,7 @@ export function extractTagBlocks(tags: EjsTag[]): TagBlock[] {
       const directiveText = extractEslintDirectiveFromEjsComment(node.text);
       if (!directiveText) {
         const { closeDelim } = tag;
-        if (isStandalone && closeDelim !== '-%>') {
+        if (emptyLineComments.has(tagOffset)) {
           blocks.push({
             ejsNode: node,
             virtualCode: '//@ejs-comment-empty-line',
@@ -332,24 +332,9 @@ export function extractTagBlocks(tags: EjsTag[]): TagBlock[] {
       );
     }
 
-    const isSlurpTag = baseType === 'slurp';
-
     // ── Multiline detection ────────────────────────────────────────────────
     const isMultiline = codeContent.includes('\n');
-
-    // ── Final tag type (with violation suffixes) ───────────────────────────
-    let tagType: EjsTagType = baseType;
-    if (isStandalone && isSlurpTag && lineIndent !== expectedIndent) {
-      tagType = isMultiline ? 'slurp-needs-indent-multiline' : 'slurp-needs-indent';
-    } else if (isMultiline) {
-      // Built from `baseType` rather than appended to `tagType`: `+=` widens the result to
-      // `string`, which is what previously needed an assertion to narrow back.
-      tagType = `${baseType}-multiline`;
-    } else if (isSlurpTag && !isStandalone) {
-      // Slurp tag that is inline (not at the start of its own line).
-      // The `slurp-newline` rule will move it to its own line.
-      tagType = 'slurp-not-standalone';
-    }
+    const tagType: EjsTagType = isMultiline ? `${baseType}-multiline` : baseType;
 
     // ── Virtual body extras (void-expression wrapping) ────────────────────
     // For output tags: append `;` so the expression is a valid statement in

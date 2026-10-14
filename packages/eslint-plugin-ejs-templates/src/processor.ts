@@ -811,8 +811,14 @@ function translateFix(
     applyIndentForSingleLineTags?: boolean;
     /** The template, for the fixes spanning several tags: its blocks, and what EJS renders of its texts. */
     template?: EjsTemplate;
+    /** The diagnostics of the template, the conventions its tags break, which the rules reporting them fix. */
+    diagnostics?: EjsDiagnostic[];
   },
 ): { range: [number, number]; text: string } | null {
+  /** Whether ejs-template-parser diagnoses the tag of the block with a code. */
+  const diagnosed = (code: EjsDiagnosticCode): boolean =>
+    options.diagnostics?.some((diagnostic) => diagnostic.code === code && diagnostic.offset === block.tagOffset) ??
+    false;
   // no-comment-empty-line sentinel: handled before the javascriptPartialNode guard
   // because comment-empty-line blocks have no javascriptPartialNode.
   if (fix.range[0] === 0 && fix.text === SENTINEL_COMMENT_EMPTY_LINE) {
@@ -843,7 +849,7 @@ function translateFix(
     return null;
   } else if (fix.text === SENTINEL_SLURP_NEWLINE) {
     // slurp-newline: insert a newline before a non-standalone slurp tag
-    if (block.tagType === 'slurp-not-standalone') {
+    if (diagnosed('slurp-newline')) {
       return {
         range: [block.tagOffset, block.tagOffset],
         text: '\n',
@@ -852,8 +858,8 @@ function translateFix(
     return null;
   } else if (fix.text === SENTINEL_INDENT) {
     // indent: fix standalone <%_ _%> indentation (single-line and multiline). The fix replaces
-    // from the start of the line, so the tag must be alone on it.
-    if (block.tagType.startsWith('slurp-needs-indent') && block.isStandalone) {
+    // from the start of the line, which a tag the parser diagnoses is alone on.
+    if (diagnosed('indent')) {
       // Replace from line start through full tag; in default mode only the
       // start/end boundaries are adjusted for multiline content.
       const indentStart = block.tagOffset - block.tagColumn;
@@ -865,7 +871,7 @@ function translateFix(
     return null;
   } else if (fix.text === SENTINEL_INDENT_NORMALIZE) {
     // indent (normalizeContent=true): normalize multiline content indentation too.
-    if (block.isStandalone && (block.tagType.startsWith('slurp-needs-indent') || block.tagType === 'slurp-multiline')) {
+    if (block.isStandalone && (diagnosed('indent') || block.tagType === 'slurp-multiline')) {
       const indentStart = block.tagOffset - block.tagColumn;
       const normalizedText = buildIndentedTag(block, { normalizeContent: true });
       const currentText = block.lineIndent + block.openDelim + block.codeContent + block.closeDelim;
@@ -1643,8 +1649,8 @@ export const processor: Linter.Processor = {
     let blocks: TagBlock[];
     let diagnostics: EjsDiagnostic[];
     try {
-      blocks = extractTagBlocks(template.tags);
       diagnostics = validateTemplate(template);
+      blocks = extractTagBlocks(template.tags, diagnostics);
       processedFilesMap.set(filename, {
         sourceText: text,
         template,
@@ -1694,6 +1700,7 @@ export const processor: Linter.Processor = {
 
     const virtualCode = `${GLOBAL_VIRTUAL_OPEN}${blocks.map((b) => b.virtualCode).join('\n')}${GLOBAL_VIRTUAL_CLOSE}`;
     const nonDirectiveBlocks = blocks.filter((block) => !block.isDirectiveComment);
+    const misindented = new Set(diagnostics.filter(({ code }) => code === 'indent').map(({ offset }) => offset));
     virtualCodeMetadataMap.set(virtualCode, {
       tagFormat: nonDirectiveBlocks.map((block) => {
         const originalText = block.openDelim + block.codeContent + block.closeDelim;
@@ -1704,8 +1711,10 @@ export const processor: Linter.Processor = {
       }),
       needsNormalize: nonDirectiveBlocks.map((block) => {
         // A tag alone on its line: the fix rewrites the line from its start, which holds the
-        // text before the tag otherwise.
-        if (block.tagType !== 'slurp-multiline' || !block.isStandalone) return false;
+        // text before the tag otherwise. A tag the parser diagnoses as indented otherwise is
+        // reported for its indentation, and fixed with its content.
+        if (block.tagType !== 'slurp-multiline' || !block.isStandalone || misindented.has(block.tagOffset))
+          return false;
         // Only normalize when the close delimiter is already on its own line
         // (last codeContent segment is all whitespace). If the close is on the
         // same line as the last content line, normalizing it would conflict with
@@ -1870,6 +1879,7 @@ export const processor: Linter.Processor = {
             const translated = translateFix(mapped.fix, segment.block, {
               applyIndentForSingleLineTags: hasIndentMessages,
               template: processedFile.template,
+              diagnostics: processedFile.diagnostics,
             });
             if (translated) {
               return [{ ...mapped, fix: translated }];
