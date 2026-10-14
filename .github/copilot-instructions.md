@@ -254,22 +254,23 @@ fixer.replaceTextRange([comment.range[0], comment.range[1]], SENTINEL_XXX);
 `translateFix()` in `src/processor.ts` recognises the sentinel and produces the real edit
 against the EJS source, using the `TagBlock` metadata. All sentinel fixes start at offset 0 of
 the virtual block; anything else falls through to the general JS-fix mapping used by ordinary
-ESLint rules.
+ESLint rules. The rules of the conventions ejs-template-parser diagnoses (see "The conventions of
+the tags, shared") report with `reportConventions()`, whose sentinel names the code of the
+diagnostic: `translateFix()` gives the fix `fixOf()` of the parser gives it, for a tag with that
+diagnostic.
 
-| Constant                                  | Rule                                  | Effect                               |
-| ----------------------------------------- | ------------------------------------- | ------------------------------------ |
-| `SENTINEL_PREFER_SLURP_MULTILINE`         | `experimental-prefer-slurp-multiline` | `<% → <%_`, `%> → _%>`               |
-| `SENTINEL_PREFER_SINGLE_LINE_TAGS_BRACES` | `prefer-single-line-tags`             | split-brace multiline → single-line  |
-| `SENTINEL_SLURP_NEWLINE`                  | `slurp-newline`                       | insert newline before slurp tag      |
-| `SENTINEL_INDENT`                         | `indent`                              | adjust leading whitespace            |
-| `SENTINEL_INDENT_NORMALIZE`               | `indent`                              | normalize + indent                   |
-| `SENTINEL_FORMAT`                         | `format`                              | normalize tag spacing                |
-| `SENTINEL_FORMAT_MULTILINE_CLOSE`         | `format`                              | move close delimiter to new line     |
-| `SENTINEL_COMMENT_EMPTY_LINE`             | `no-comment-empty-line`               | `%> → -%>` on comment close          |
-| `SENTINEL_OUTPUT_SEMI_ADD` / `_REMOVE`    | `output-semi`                         | add / remove trailing `;`            |
-| `SENTINEL_PREFER_OUTPUT`                  | `prefer-output`                       | if-wrapper → output ternary          |
-| `SENTINEL_PREFER_OUTPUT_ELSE`             | `prefer-output`                       | if/else wrapper → output ternary     |
-| `''` (empty string)                       | most single-delimiter rules           | generic: fix determined by `tagType` |
+| Constant                               | Rule                                  | Effect                                |
+| -------------------------------------- | ------------------------------------- | ------------------------------------- |
+| `conventionSentinel(code)`             | the rules of the conventions          | the fix `fixOf()` of the parser gives |
+| `SENTINEL_PREFER_SLURP_MULTILINE`      | `experimental-prefer-slurp-multiline` | `<% → <%_`, `%> → _%>`                |
+| `SENTINEL_INDENT_NORMALIZE`            | `indent`                              | normalize + indent                    |
+| `SENTINEL_FORMAT`                      | `format`                              | normalize tag spacing                 |
+| `SENTINEL_FORMAT_MULTILINE_CLOSE`      | `format`                              | move close delimiter to new line      |
+| `SENTINEL_OUTPUT_SEMI_ADD` / `_REMOVE` | `output-semi`                         | add / remove trailing `;`             |
+| `SENTINEL_PREFER_OUTPUT`               | `prefer-output`                       | if-wrapper → output ternary           |
+| `SENTINEL_PREFER_OUTPUT_ELSE`          | `prefer-output`                       | if/else wrapper → output ternary      |
+| `SENTINEL_NO_MULTILINE_OUTPUT`         | `no-multiline-output`                 | output ternary → if wrapper           |
+| `''` (empty string)                    | `prefer-encoded`                      | `<%= ↔ <%-`                           |
 
 Rules without autofix (`no-function-block`, `no-global-function-call`) do not use sentinels.
 
@@ -351,8 +352,8 @@ EJS-specific and core does not report it at all.
    default severity in `defaultRules` (inside `customize`), and re-export it at the bottom.
    Opinionated rules default to `'off'`.
 4. If it needs a new sentinel, export the constant from `src/processor.ts` and add a branch in
-   `translateFix()`. Handlers for tag types without a `javascriptPartialNode` (such as
-   `comment-empty-line`) must come before the code that assumes one.
+   `translateFix()`. Handlers for comment tags, which have no `javascriptPartialNode`, must come
+   before the code that assumes one, as the one of `conventionSentinel()` does.
 5. If the fix spans multiple tags, find them in the tree of the template, `options.template` (see
    "Fixes spanning several tags"). If the pattern is one core ESLint already reports, attach a fix to its message instead of adding a
    rule at all (see "Relationship to core ESLint rules").
@@ -430,11 +431,11 @@ of blocks (`expectedIndent`); the plugin's `extractTagBlocks()` builds its tag t
 
 The parser's warnings `prefer-slurping-codeonly`, `slurp-newline`, `indent`,
 `prefer-single-line-tags` and `no-comment-empty-line` are what the plugin's rules of the same
-names report: each rule reports the tags of its diagnostic (`getDiagnosticBlocks()`), on the
-marker of their block, with its sentinel fix. Their conditions live in `conventionsOf()` of the
-parser's `src/diagnostics.ts` alone, so a change to when one of these rules reports is made there,
-and it is a change of the parser. Their fixes live there too, `fixOf()` of `src/fixes.ts`, which
-`translateFix()` calls for a block with the diagnostic of the rule (`options.diagnostics`). What
+names report: each rule reports the tags of its diagnostic (`reportConventions()`), on the
+marker of their block, with the sentinel of its code (`conventionSentinel()`). Their conditions
+live in `conventionsOf()` of the parser's `src/diagnostics.ts` alone, so a change to when one of
+these rules reports is made there, and it is a change of the parser. Their fixes live there too, `fixOf()` of `src/fixes.ts`, which
+`translateFix()` calls for a block with the diagnostic of the sentinel (`options.diagnostics`). What
 stays in the plugin is when to ask: the `normalizeContent` part of `indent` (a `<%_ _%>` tag
 spanning lines whose content needs re-indenting, which the parser does not diagnose, `fixOf()` of
 `indent` with `normalizeContent` telling whether it does) and whether `prefer-single-line-tags`

@@ -8,8 +8,8 @@
 
 import type { Rule } from 'eslint';
 import {
-  SENTINEL_INDENT,
   SENTINEL_INDENT_NORMALIZE,
+  conventionSentinel,
   getDiagnosticBlocks,
   getTagBlocks,
   getVirtualCodeMetadata,
@@ -24,8 +24,7 @@ import { isRecord, type VirtualMarkerComment } from '../utils.js';
  * ejs-template-parser tracks brace depth across all EJS tags and reports any
  * standalone `<%_ _%>` tag whose actual line-prefix whitespace does not
  * match the expected `brace-depth × 2-space` indentation with its `indent`
- * diagnostic (`validateTemplate()`); the processor marks those tags with the
- * `slurp-needs-indent` tag type, which picks the fix.  With `normalizeContent`
+ * diagnostic (`validateTemplate()`), whose fix `fixOf()` of the parser gives.  With `normalizeContent`
  * (the default), the rule also reports the `<%_ _%>` tags spanning lines whose
  * content needs re-indenting, which the parser does not report.
  *
@@ -106,7 +105,7 @@ export const indent: Rule.RuleModule = {
               // to replacing the line-prefix whitespace before the tag.
               return fixer.replaceTextRange(
                 [range[0], range[1]],
-                normalizeContent ? SENTINEL_INDENT_NORMALIZE : SENTINEL_INDENT,
+                normalizeContent ? SENTINEL_INDENT_NORMALIZE : conventionSentinel('indent'),
               );
             },
           });

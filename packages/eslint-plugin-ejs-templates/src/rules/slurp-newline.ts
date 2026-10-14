@@ -7,7 +7,7 @@
 //     http://www.apache.org/licenses/LICENSE-2.0
 
 import type { Rule } from 'eslint';
-import { getDiagnosticBlocks, SENTINEL_SLURP_NEWLINE } from '../processor.js';
+import { reportConventions } from '../processor.js';
 
 /**
  * ESLint rule: ensure `<%_ … _%>` tags are on their own line.
@@ -50,19 +50,7 @@ export const slurpNewline: Rule.RuleModule = {
   create(context) {
     return {
       Program() {
-        for (const { comment } of getDiagnosticBlocks(context, 'slurp-newline')) {
-          const { range } = comment;
-          context.report({
-            loc: comment.loc,
-            messageId: 'slurpNewline',
-            fix(fixer) {
-              // Use a distinct sentinel text so that `translateFix` in the
-              // processor can identify this as a slurp-newline fix and insert
-              // a newline before the tag in the original EJS source.
-              return fixer.replaceTextRange([range[0], range[1]], SENTINEL_SLURP_NEWLINE);
-            },
-          });
-        }
+        reportConventions(context, 'slurp-newline', () => 'slurpNewline');
       },
     };
   },

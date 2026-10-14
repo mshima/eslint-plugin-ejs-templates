@@ -7,7 +7,7 @@
 //     http://www.apache.org/licenses/LICENSE-2.0
 
 import type { Rule } from 'eslint';
-import { SENTINEL_PREFER_SINGLE_LINE_TAGS_BRACES, getDiagnosticBlocks } from '../processor.js';
+import { reportConventions } from '../processor.js';
 
 /**
  * ESLint rule: collapse multiline EJS tags onto a single line.
@@ -36,21 +36,13 @@ export const preferSingleLineTags: Rule.RuleModule = {
   create(context) {
     return {
       Program() {
-        for (const { block, comment } of getDiagnosticBlocks(context, 'prefer-single-line-tags')) {
-          // A single-line tag is reported when it carries more than one brace boundary —
-          // `<%_ } } _%>` closes two blocks at once, so neither `indent` nor a reader can place
-          // it at a single depth. The fix puts each boundary in its own tag, as it does for the
-          // multiline case; only the message differs.
-          const isMultiline = block.tagType.includes('-multiline');
-          const { range } = comment;
-          context.report({
-            loc: comment.loc,
-            messageId: isMultiline ? 'preferSingleLineTags' : 'oneBraceBoundaryPerTag',
-            fix(fixer) {
-              return fixer.replaceTextRange([range[0], range[1]], SENTINEL_PREFER_SINGLE_LINE_TAGS_BRACES);
-            },
-          });
-        }
+        // A single-line tag is reported when it carries more than one brace boundary —
+        // `<%_ } } _%>` closes two blocks at once, so neither `indent` nor a reader can place
+        // it at a single depth. The fix puts each boundary in its own tag, as it does for the
+        // multiline case; only the message differs.
+        reportConventions(context, 'prefer-single-line-tags', (block) =>
+          block.tagType.includes('-multiline') ? 'preferSingleLineTags' : 'oneBraceBoundaryPerTag',
+        );
       },
     };
   },

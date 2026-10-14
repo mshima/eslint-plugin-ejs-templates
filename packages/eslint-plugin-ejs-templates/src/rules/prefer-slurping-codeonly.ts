@@ -7,7 +7,7 @@
 //     http://www.apache.org/licenses/LICENSE-2.0
 
 import type { Rule } from 'eslint';
-import { getDiagnosticBlocks } from '../processor.js';
+import { reportConventions } from '../processor.js';
 
 /**
  * ESLint rule: prefer `<%_ … _%>` (whitespace-slurping) over `<% … %>`
@@ -35,19 +35,7 @@ export const preferSlurpingCodeonly: Rule.RuleModule = {
   create(context) {
     return {
       Program() {
-        for (const { comment } of getDiagnosticBlocks(context, 'prefer-slurping-codeonly')) {
-          const { range } = comment;
-          context.report({
-            loc: comment.loc,
-            messageId: 'preferSlurpingCodeonly',
-            fix(fixer) {
-              // Provide a sentinel fix. The processor's postprocess replaces
-              // this with the correct range in the original EJS source
-              // (replacing the whole `<% … %>` tag with `<%_ … _%>`).
-              return fixer.replaceTextRange([range[0], range[1]], '');
-            },
-          });
-        }
+        reportConventions(context, 'prefer-slurping-codeonly', () => 'preferSlurpingCodeonly');
       },
     };
   },
