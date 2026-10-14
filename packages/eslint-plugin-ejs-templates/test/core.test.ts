@@ -938,6 +938,7 @@ describe('plugin shape', () => {
         ],
         "ejs-templates/no-multiline-output": "error",
         "ejs-templates/no-stray-close-delimiter": "error",
+        "ejs-templates/output-close": "error",
         "ejs-templates/output-semi": "error",
         "ejs-templates/prefer-encoded": [
           "error",
@@ -964,6 +965,7 @@ describe('plugin shape', () => {
           'ejs-templates/no-complex-statements': 'off',
           'ejs-templates/no-function-block': 'off',
           'ejs-templates/no-global-function-call': 'off',
+          'ejs-templates/output-close': 'off',
           'ejs-templates/output-semi': 'off',
           'ejs-templates/prefer-encoded': 'off',
           'ejs-templates/prefer-output': 'off',

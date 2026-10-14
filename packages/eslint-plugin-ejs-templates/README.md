@@ -16,6 +16,7 @@ EJS files are parsed by [ejs-template-parser](https://github.com/mshima/eslint-p
 - [`ejs-templates/no-global-function-call`](#ejs-templatesno-global-function-call) – disallows direct function calls in EJS tags (with `include()` allowed by default)
 - [`ejs-templates/no-multiline-output`](#ejs-templatesno-multiline-output) – flags (and auto-fixes) output tags whose conditional renders multiple lines
 - [`ejs-templates/no-stray-close-delimiter`](#ejs-templatesno-stray-close-delimiter) – flags a close delimiter (`%>`, `-%>`, `_%>`) in the text, which EJS drops, with suggestions to write it literally or delete it
+- [`ejs-templates/output-close`](#ejs-templatesoutput-close) – closes output tags with `%>`, an `include(…)` aside
 - [`ejs-templates/output-semi`](#ejs-templatesoutput-semi) – enforces semicolon style for output tags (`<%= %>`, `<%- %>`) (default: `never`)
 - [`ejs-templates/prefer-encoded`](#ejs-templatespreferencoded) – flags `<%- … %>` and suggests `<%= … %>` (`always`, default), or flags `<%= … %>` and suggests `<%- … %>` (`never`)
 - [`ejs-templates/prefer-output`](#ejs-templatesprefer-output) – suggests (and auto-fixes) simple if-wrappers into output ternaries
@@ -60,6 +61,7 @@ export default defineConfig([
       'ejs-templates/no-global-function-call': 'error',
       'ejs-templates/no-multiline-output': 'error',
       'ejs-templates/no-stray-close-delimiter': 'error',
+      'ejs-templates/output-close': 'error',
       'ejs-templates/output-semi': ['error', 'never'],
       'ejs-templates/prefer-output': 'error',
       'ejs-templates/prefer-encoded': 'error', // 'always' (default) or 'never'
@@ -191,6 +193,7 @@ The following rules have no specific ordering requirement (they can appear in an
 - [`no-global-function-call`](#ejs-templatesno-global-function-call)
 - [`no-multiline-output`](#ejs-templatesno-multiline-output)
 - [`no-stray-close-delimiter`](#ejs-templatesno-stray-close-delimiter)
+- [`output-close`](#ejs-templatesoutput-close)
 - [`output-semi`](#ejs-templatesoutput-semi)
 
 Apply [`prefer-output`](#ejs-templatesprefer-output) before [`prefer-encoded`](#ejs-templatespreferencoded).
@@ -741,6 +744,50 @@ outside of the virtual JavaScript: the processor reports them for the rule. A bl
 comment anywhere in the template turns it off for that template,
 `<%# eslint-disable ejs-templates/no-stray-close-delimiter %>`, without an `eslint-enable` after
 it; `eslint-disable-next-line` and a range closed by `eslint-enable` cannot.
+
+### `ejs-templates/output-close`
+
+Closes an output tag (`<%= … %>`, `<%- … %>`) with `%>`. An output tag cannot trim what is before
+it — `<%_` opens a code tag alone — so a close trimming what is after it, `-%>` (the line break
+that follows) or `_%>` (the blanks that follow and the line break), trims one side of the tag
+alone.
+
+Two output tags are left alone:
+
+- one whose code has an `include(…)`: the output of a partial ends with a line break, which a
+  `-%>` keeps from doubling the line break of the template;
+- one ending the template, nothing after it but its final line break, which a `-%>` keeps out of
+  the output of the template, a partial.
+
+|             |                                                        |
+| ----------- | ------------------------------------------------------ |
+| **Fixable** | Yes — `eslint --fix` writes `%>`, the output unchanged |
+
+```ejs
+<!-- ✗ violation: the -%> removes nothing -->
+<%- attributes -%>/>
+
+<!-- ✓ fixed -->
+<%- attributes %>/>
+
+<!-- ✗ violation: the -%> removes the line break -->
+<%= name -%>
+text
+
+<!-- ✓ fixed, the line joined -->
+<%= name %>text
+
+<!-- ✓ allowed: the output of an include -->
+<%- include('partial') -%>
+
+<!-- ✓ allowed: the end of a partial, its final line break kept out of its output -->
+<%- result -%>
+```
+
+The fix keeps the output: it writes `%>`, and removes from the text what the close removed after
+it — the line break after a `-%>`, the blanks and the line break after a `_%>` — the next line then
+joining the line of the tag. Before a `<%%`, which writes without clearing what the next text
+loses, the tag is reported without a fix.
 
 ### `ejs-templates/output-semi`
 

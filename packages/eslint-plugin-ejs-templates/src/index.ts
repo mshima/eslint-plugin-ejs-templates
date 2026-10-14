@@ -20,6 +20,7 @@ import { noComplexStatements } from './rules/no-complex-statements.js';
 import { noCommentEmptyLine } from './rules/no-comment-empty-line.js';
 import { noMultilineOutput } from './rules/no-multiline-output.js';
 import { preferEncoded } from './rules/prefer-encoded.js';
+import { outputClose } from './rules/output-close.js';
 import { outputSemi } from './rules/output-semi.js';
 import { preferOutput } from './rules/prefer-output.js';
 import { noStrayCloseDelimiter } from './rules/no-stray-close-delimiter.js';
@@ -56,6 +57,7 @@ const pluginCore = {
     'no-multiline-output': noMultilineOutput,
     'prefer-output': preferOutput,
     'prefer-encoded': preferEncoded,
+    'output-close': outputClose,
     'output-semi': outputSemi,
     'no-stray-close-delimiter': noStrayCloseDelimiter,
     'no-comment-across-tags': noCommentAcrossTags,
@@ -142,6 +144,7 @@ const defaultRules = ({
       [`${pluginName}/no-complex-statements`]: 'error',
       [`${pluginName}/no-comment-empty-line`]: 'error',
       [`${pluginName}/no-multiline-output`]: 'error',
+      [`${pluginName}/output-close`]: 'error',
       [`${pluginName}/output-semi`]: 'error',
       [`${pluginName}/prefer-output`]: 'error',
       [`${pluginName}/no-stray-close-delimiter`]: 'error',
@@ -256,6 +259,7 @@ export {
   noMultilineOutput,
   preferEncoded,
   preferOutput,
+  outputClose,
   outputSemi,
   noStrayCloseDelimiter,
   noCommentAcrossTags,

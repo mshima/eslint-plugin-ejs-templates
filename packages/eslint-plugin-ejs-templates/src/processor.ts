@@ -95,6 +95,12 @@ export const SENTINEL_OUTPUT_SEMI_ADD = 'OUTPUT_SEMI_ADD';
 export const SENTINEL_OUTPUT_SEMI_REMOVE = 'OUTPUT_SEMI_REMOVE';
 
 /**
+ * Sentinel text written by the `output-close` fix: the `-%>` or `_%>` of an output tag written `%>` when it removes
+ * nothing.
+ */
+export const SENTINEL_OUTPUT_CLOSE = 'OUTPUT_CLOSE';
+
+/**
  * Sentinel text written by the `prefer-output` fix.
  */
 export const SENTINEL_PREFER_OUTPUT = 'PREFER_OUTPUT';
@@ -736,6 +742,16 @@ function translateFix(
       }
     }
     return null;
+  } else if (fix.text === SENTINEL_OUTPUT_CLOSE) {
+    // output-close: the `-%>` or `_%>` of an output tag written `%>`, what it removed after it removed from the text,
+    // the next line joining the line of the tag (editTemplate()). Not before a `<%%`, which writes without clearing what
+    // the next text loses (docs/ejs.md, the truncation), and which editTemplate() does not follow there.
+    const end = block.tagOffset + block.tagLength;
+    if (!isOutputTagType(block.tagType) || options.template.text.startsWith('<%%', end)) return null;
+    const source = options.template.text.slice(block.tagOffset, end - block.closeDelim.length);
+    return editFix(options.template, [
+      { offset: block.tagOffset, length: block.tagLength, text: [{ tag: `${source}%>` }] },
+    ]);
   } else if (fix.text === SENTINEL_PREFER_OUTPUT || fix.text === SENTINEL_PREFER_OUTPUT_ELSE) {
     // prefer-output: convert wrapper conditionals to output ternary:
     // `<% if (cond) { %>a<% } %>` => `<%= cond ? 'a' : '' %>`
@@ -964,6 +980,11 @@ type VirtualCodeMetadata = {
    * of `indent-content`: a block needing it with `greaterOrEqual` needs it with `greater`, which leaves fewer lines as written.
    */
   needsNormalize: Record<'greater' | 'greaterOrEqual', boolean[]>;
+  /**
+   * Index i is true when the i-th non-directive block ends the template: nothing after it but blanks and a line break,
+   * the final one, which a `-%>` or `_%>` keeps out of the output of a partial.
+   */
+  endsTemplate: boolean[];
   /** The diagnostics of the template, `validateTemplate()` of ejs-template-parser, in its coordinates. */
   diagnostics: EjsDiagnostic[];
 };
@@ -1421,6 +1442,7 @@ export const processor: Linter.Processor = {
       virtualCodeMetadataMap.set(virtualCode, {
         tagFormat: [],
         needsNormalize: { greater: [], greaterOrEqual: [] },
+        endsTemplate: [],
         diagnostics,
       });
       return [virtualCode];
@@ -1460,6 +1482,10 @@ export const processor: Linter.Processor = {
           isFormattedDefault: originalText === buildFormattedTag(block, { multilineCloseOnNewLine: false }),
           isFormattedMultilineClose: originalText === buildFormattedTag(block, { multilineCloseOnNewLine: true }),
         };
+      }),
+      endsTemplate: codeBlocks.map((block) => {
+        const after = text.slice(block.tagOffset + block.tagLength);
+        return after.trim() === '' && /[\r\n]/u.test(after);
       }),
       needsNormalize: (() => {
         const greater: boolean[] = [];
