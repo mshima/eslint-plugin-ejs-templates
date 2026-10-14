@@ -78,8 +78,7 @@ on the templates of generator-jhipster v8.11.0: a change making the lint more th
 fails `check-tests`. The tests guard the scaling of the parser (see "Performance invariant"); this
 guards the time of a lint as a whole, which a fix built for each message of a template can make
 grow without changing a result: the fixes of `prefer-output` and `no-multiline-output` written
-through `editTemplate()`, which prepares the whole template on each call, made it 1.9 times slower
-until they were reverted.
+through `editTemplate()`, when it read the whole template on each call, made it 1.9 times slower.
 
 ### Coverage
 
@@ -313,6 +312,16 @@ than skipping a link to pair the `if` with an `else` further down the chain.
 
 The texts of a branch are its `children`; what EJS renders of them is their `rendered`, which a fix
 writing them into a string must use rather than their source (`renderedOf()`).
+
+A fix replacing tags with others writes them through `editTemplate()` of the parser (`editFix()`):
+the tags it writes and the texts between them, which it escapes so that they render as written, and
+the rest of the template rendering as before, what the tags it deletes slurped and dropped around
+them included. `prefer-output`, `no-multiline-output` and the suggestions of
+`no-stray-close-delimiter` do. The fix of `no-negated-condition` does not: it moves the bodies of the
+branches as they are written, their tags with them, and the delimiters around them. The fix is
+built from the `replacements` `editTemplate()` gives, never by comparing the template with the
+template edited: a fix is built for each message, and `editTemplate()` costs what it writes again on
+a template built already, which the benchmark of a pull request checks (see "Benchmark").
 
 ---
 
