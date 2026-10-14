@@ -11,9 +11,9 @@ import { describe, test, expect, vi } from 'vitest';
 /**
  * Total characters handed to the JavaScript parser, accumulated by the mock below.
  *
- * Building a template parses the code of each tag alone, then the program of the template
- * once (`EjsProgram`), so the amount of text reaching the parser grows with the template. A
- * tag parsed again with the code of the tags before it, as the parser did until it built the
+ * Building a template parses its program once (`EjsProgram`), and the code of a tag alone when
+ * its tree is read, so the amount of text reaching the parser grows with the template. A tag
+ * parsed again with the code of the tags before it, as the parser did until it built the
  * program, re-parses everything before it and the total goes quadratic — which is the
  * regression these tests exist to catch.
  *
@@ -120,6 +120,23 @@ describe('buildTemplate parses the JavaScript of a template once', () => {
       const output = built.tags.find((tag) => tag.type === 'escaped-output');
       expect(output?.type === 'escaped-output' && output.javascript.contentNode.type).toBe('program');
       expect([programOnly, parsed.calls]).toEqual([1, 2]);
+    } finally {
+      cleanupTemplate(built);
+    }
+  });
+
+  // A program with an error, or a comment across tags, is read all the same; the one of a partial template is parsed
+  // again, its blocks balanced.
+  test.each([
+    ['a program with an error', '<% a b %>\n<% if (c) { %>x<% } %>\n', 1],
+    ['a comment across tags', '<% /* %>x<% */ %>\n<% if (c) { %>x<% } %>\n', 1],
+    ['a partial template', 'A\n<% } %>\n<% if (c) { %>x<% } %>\n', 2],
+  ])('%s', (_label, text, parses) => {
+    parsed.calls = 0;
+    const built = buildTemplate(text);
+    try {
+      validateTemplate(built);
+      expect(parsed.calls).toBe(parses);
     } finally {
       cleanupTemplate(built);
     }

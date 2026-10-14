@@ -303,8 +303,7 @@ escaped alone, and the errors tell what EJS would not render.
 - `getEjsNodes(text)` — the top-level tree-sitter nodes of a template, each with its `linePrefix`;
   throws the `EjsSyntaxError` of a template that does not parse.
 - `getEjsTags(nodes)` — the tags of those nodes, each code tag read in the program of the template,
-  parsed once, inside the blocks the tags before it left open; parsed alone when its tree is read,
-  or when the program has an error or a comment across tags.
+  parsed once, inside the blocks the tags before it left open; parsed alone when its tree is read.
 - `parseJavaScriptPartial(code, context)` — a best-guess parse of a snippet of JavaScript with
   unbalanced braces: the braces it leaves open (`missingCloseBracesCount`) and the ones it closes
   (`missingOpenBracesCount`), its nodes, and `splitStatements()`.

@@ -15,8 +15,13 @@ import {
   getCommentCloseDelimiter,
   hasAbsorbedSlurpClose,
 } from './ejs-parser.js';
-import { collectNodesInRanges, parseTagCode, readTagCode, type RelativeJavascriptNode } from './javascript-parser.js';
-import { parseJavaScript, type SyntaxNode, type Tree } from './ts-parser.js';
+import {
+  type CodeInTree,
+  collectNodesInRanges,
+  readTagCode,
+  type RelativeJavascriptNode,
+} from './javascript-parser.js';
+import { errorNodes, parseJavaScript, type SyntaxNode, type Tree } from './ts-parser.js';
 
 /** What an EJS tag is, by its opening delimiter: `<%#`, `<%=`, `<%-`, or any other (`<%`, `<%_`). */
 export type EjsTagType = 'comment' | 'escaped-output' | 'raw-output' | 'code';
@@ -132,7 +137,7 @@ export type EjsProgram = {
   source: string;
   /** The range of each code tag in `source`: its code, an output tag's in its `__append(…)`. */
   ranges: { tag: EjsCodeTag; start: number; end: number }[];
-  /** The root of its tree, parsed when read; freed with the last tag freed. */
+  /** The root of its tree, freed with the last tag freed. */
   readonly root: SyntaxNode;
 };
 
@@ -248,17 +253,17 @@ function programSource(
 type CodeRead = { braces: { open: number; close: number }; parsesAlone: boolean };
 
 /**
- * The code of each code tag read in the program of its template, when the program has no error and no comment across
- * its tags, which leave the program telling what the tags parsed alone would: undefined otherwise.
+ * The code of each code tag read in the program of its template.
  *
  * Its braces are its `{`, `${` and `}` tokens in order, a `}` closing the brace before it or, without one, a block
- * the code does not open. It parses alone when they balance, and no node of the program crosses an edge of its code:
- * a `case 1:`, whose case goes on in the next tags, or an `else x();`, whose `if` begins in a tag before, do not. The
- * blanks around the code, and the `;` EJS ends it with, are not in it: `const a = 1`, whose statement ends with that
- * `;`, parses alone.
+ * the code does not open: not the braces of a comment, even of one across tags, which comments out the code of the
+ * tags between, nor the ones tree-sitter adds to recover from an error. It parses alone when they balance, no error of
+ * the program is in it (or after it, before the next code), and no node of the program crosses an edge of its code: a
+ * `case 1:`, whose case goes on in the next tags, an `else x();`, whose `if` begins in a tag before, and the code of
+ * a tag in a comment across tags, which is the comment's, do not. The blanks around the code, and the `;` EJS ends it
+ * with, are not in it: `const a = 1`, whose statement ends with that `;`, parses alone.
  */
-function readInProgram(root: SyntaxNode, source: string, codes: CodeInProgram[]): CodeRead[] | undefined {
-  if (root.hasError) return undefined;
+function readInProgram(root: SyntaxNode, source: string, codes: CodeInProgram[]): CodeRead[] {
   /** The index of the code an offset of the program is in, -1 for none. */
   const codeAt = (offset: number): number => {
     let low = 0;
@@ -270,28 +275,30 @@ function readInProgram(root: SyntaxNode, source: string, codes: CodeInProgram[])
     }
     return low < codes.length && codes[low].codeStart <= offset ? low : -1;
   };
-  for (const comment of root.descendantsOfType('comment')) {
-    const index = codeAt(comment.startIndex);
-    if (index === -1 || comment.endIndex > codes[index].codeStart + codes[index].code.length) return undefined;
-  }
   const read: CodeRead[] = codes.map(() => ({ braces: { open: 0, close: 0 }, parsesAlone: true }));
   for (const brace of root.descendantsOfType(['{', '}', '${'])) {
-    // The braces of the function of the program are in no code.
-    const index = codeAt(brace.startIndex);
+    // The braces of the function of the program are in no code, and the ones tree-sitter adds are none.
+    const index = brace.isMissing ? -1 : codeAt(brace.startIndex);
     if (index === -1) continue;
     const { braces } = read[index];
     if (brace.type !== '}') braces.open++;
     else if (braces.open > 0) braces.open--;
     else braces.close++;
   }
+  // The code of each error: the one it is in, or the one before it, as validateTemplate reports it.
+  const broken = new Set(errorNodes(root).map((node) => codes.findLastIndex(({ start }) => start <= node.startIndex)));
   for (const [index, { codeStart, code }] of codes.entries()) {
     const { braces } = read[index];
-    read[index].parsesAlone = braces.open === 0 && braces.close === 0 && !crossesCode(root, source, codeStart, code);
+    read[index].parsesAlone =
+      braces.open === 0 && braces.close === 0 && !broken.has(index) && !crossesCode(root, source, codeStart, code);
   }
   return read;
 }
 
-/** Whether a node of a program crosses an edge of some code of it, the blanks around and the `;` after it aside. */
+/**
+ * Whether a node of a program crosses an edge of some code of it, the blanks around and the `;` after it aside: one
+ * ending in it, one starting in it, or a token around it, a comment or a template string across tags.
+ */
 function crossesCode(root: SyntaxNode, source: string, codeStart: number, code: string): boolean {
   const start = codeStart + code.length - code.trimStart().length;
   const end = codeStart + code.trimEnd().length;
@@ -299,7 +306,9 @@ function crossesCode(root: SyntaxNode, source: string, codeStart: number, code: 
   let limit = end;
   while (limit < source.length && /\s/u.test(source[limit])) limit++;
   if (source[limit] === ';') limit++;
-  for (let node = root.descendantForIndex(start); node; node = node.parent) {
+  const first = root.descendantForIndex(start);
+  if (first?.childCount === 0 && first.startIndex < start && first.endIndex > limit) return true;
+  for (let node: SyntaxNode | null = first; node; node = node.parent) {
     if (node.startIndex < start && node.endIndex > start && node.endIndex <= limit) return true;
   }
   for (let node = root.descendantForIndex(end - 1); node; node = node.parent) {
@@ -309,122 +318,100 @@ function crossesCode(root: SyntaxNode, source: string, codeStart: number, code: 
 }
 
 /**
+ * The program of a template parsed, and the code of each code tag read there; none without a code tag. The program of
+ * a partial template is parsed again, once its braces are read: the blocks its tags close without opening opened
+ * before them, and the ones they leave open closed after them.
+ */
+function readProgram(
+  nodes: readonly EjsSyntaxNode[],
+  written: WrittenTag[],
+): { source: string; codes: CodeInProgram[]; tree: Tree; read: CodeRead[] } | undefined {
+  const plain = programSource(nodes, written, 0, 0);
+  if (plain.codes.length === 0) return undefined;
+  const tree = parseJavaScript(plain.source);
+  const read = readInProgram(tree.rootNode, plain.source, plain.codes);
+  /** The depth after the codes, and the lowest one they reach: the blocks they close without opening, below 0. */
+  let depth = 0;
+  let lowest = 0;
+  for (const { braces } of read) {
+    lowest = Math.min(lowest, depth - braces.close);
+    depth += braces.open - braces.close;
+  }
+  if (lowest === 0 && depth === 0) return { ...plain, tree, read };
+  tree.delete();
+  const blocks = programSource(nodes, written, -lowest, depth - lowest);
+  const blocksTree = parseJavaScript(blocks.source);
+  return { ...blocks, tree: blocksTree, read: readInProgram(blocksTree.rootNode, blocks.source, blocks.codes) };
+}
+
+/**
  * The tags of a template, from the nodes {@link getEjsNodes} gives, each code tag read in the program of the template
  * ({@link EjsProgram}), parsed once, inside the blocks the tags before it left open: a `<% } %>` closes the block of
  * an `if` there rather than being an error. Its braces and whether it parses alone are read there, and its nodes, when
- * it does not parse alone; otherwise its code is parsed alone when its nodes, or its `contentNode`, are read. A program
- * with an error, or a comment across tags, which reads otherwise than the tags alone, has each code tag parsed alone
- * instead, as do the braces of a block comment across tags: they count, as the ones of the code it comments out. Free
+ * it does not parse alone; otherwise its code is parsed alone when its nodes, or its `contentNode`, are read. The code
+ * a comment across tags comments out is a comment there, as EJS compiles it: its braces open and close no block. Free
  * the trees of the code tags with `tag.javascript.cleanup()`; the program is freed with the last of them.
  */
 export function getEjsTags(nodes: readonly EjsSyntaxNode[]): EjsTag[] {
   const written = nodes.filter((node) => isTagNode(node)).map((node) => writtenTagOf(node));
-  const plain = programSource(nodes, written, 0, 0);
+  const parsed = readProgram(nodes, written);
 
-  // The trees of the program, freed with the last code tag freed.
-  let live = plain.codes.length;
-  let plainTree: Tree | undefined = live > 0 ? parseJavaScript(plain.source) : undefined;
-  let blocksTree: Tree | undefined;
+  // The tree of the program, freed with the last code tag freed.
+  let tree = parsed?.tree;
+  let live = parsed?.codes.length ?? 0;
   const release = (): void => {
     if (--live > 0) return;
-    plainTree?.delete();
-    blocksTree?.delete();
-    plainTree = undefined;
-    blocksTree = undefined;
+    tree?.delete();
+    tree = undefined;
   };
-  const read = plainTree ? readInProgram(plainTree.rootNode, plain.source, plain.codes) : undefined;
-
-  // The program the tags read their nodes in: the plain one when it tells what they parse as; otherwise, built once
-  // their braces are known, the one with the blocks they close without opening, and leave open.
-  let program = plain;
-  let programTree = (): Tree => {
-    plainTree ??= parseJavaScript(plain.source);
-    return plainTree;
+  const root = (): SyntaxNode => {
+    if (!tree) throw new Error('The program of the template is freed: read it before the code of its tags is freed');
+    return tree.rootNode;
   };
-  /** The ranges of the code of the tags reading their nodes in the program. */
+  const ejsProgram: EjsProgram = {
+    source: parsed?.source ?? '',
+    ranges: [],
+    get root() {
+      return root();
+    },
+  };
+  /** The ranges of the code of the tags not parsing alone, whose nodes are read in the program, in one walk. */
   const unbalanced: { start: number; end: number }[] = [];
   let unbalancedNodes: Map<number, SyntaxNode[]> | undefined;
-  const nodesAt = (start: number): SyntaxNode[] =>
-    (unbalancedNodes ??= collectNodesInRanges(programTree().rootNode, unbalanced)).get(start) ?? [];
-  /** Where the code of each code tag starts in the program, by its index among the tags. */
-  const codeStarts = new Map<number, { start: number }>();
-  const inProgram = (index: number) => {
-    const codeStart = { start: 0 };
-    codeStarts.set(index, codeStart);
-    return () => ({ start: codeStart.start, nodes: () => nodesAt(codeStart.start) });
-  };
-
-  const javascripts = new Map<number, RelativeJavascriptNode>();
-  for (const [codeIndex, { index }] of plain.codes.entries()) {
-    const tag = written[index];
-    if (tag.type === 'comment') continue;
-    const { parsedCode } = tag;
-    javascripts.set(
-      index,
-      read
-        ? readTagCode(parsedCode, read[codeIndex], inProgram(index), release)
-        : parseTagCode(parsedCode, inProgram(index), release),
-    );
-  }
+  const inProgram = (start: number) => (): CodeInTree => ({
+    start,
+    nodes: () => (unbalancedNodes ??= collectNodesInRanges(root(), unbalanced)).get(start) ?? [],
+  });
 
   const tags: EjsTag[] = [];
   let braceDepth = 0;
-  /** The lowest depth the tags reach: the blocks they close without opening, below 0. */
-  let lowestDepth = 0;
-  for (const [index, tag] of written.entries()) {
+  let codeIndex = 0;
+  for (const tag of written) {
     if (tag.type === 'comment') {
       tags.push({ ...tag, depthBefore: braceDepth, depthAfter: braceDepth });
       continue;
     }
-    const javascript = javascripts.get(index);
-    if (!javascript) throw new Error('Unexpectedly did not find the code of a code tag');
-    // Updated for EVERY non-comment tag so structural `<% if %>` / `<% } %>` tags are included in the depth count.
+    if (!parsed) throw new Error('Unexpectedly did not find the program of a code tag');
+    const { start, end, codeStart } = parsed.codes[codeIndex];
+    const javascript = readTagCode(tag.parsedCode, parsed.read[codeIndex++], inProgram(codeStart), release);
     const depthBefore = braceDepth;
-    if (!javascript.parsesAlone) {
-      lowestDepth = Math.min(lowestDepth, depthBefore - javascript.missingOpenBracesCount);
-      braceDepth += javascript.bracesDelta;
-    }
+    braceDepth += javascript.bracesDelta;
     const shape = shapeOf(tag.openDelim, tag.closeDelim, javascript.parsesAlone);
     // The depth of the line of the tag: the lowest one, before or after it, the blocks it closes closed.
     const lowerDepth = Math.max(0, Math.min(depthBefore - javascript.missingOpenBracesCount, braceDepth));
     const lineIndent = tag.isStandalone ? tag.linePrefix : '';
-    tags.push({
+    const codeTag: EjsCodeTag = {
       ...tag,
       shape,
       expectedIndent: tag.isStandalone && shape === 'slurp' ? INDENT_UNIT.repeat(lowerDepth) : lineIndent,
       javascript,
       depthBefore,
       depthAfter: braceDepth,
-    });
-  }
-
-  const unopened = -lowestDepth;
-  const unclosed = Math.max(0, unopened + braceDepth);
-  if (!read && (unopened > 0 || unclosed > 0)) {
-    // The blocks the tags close without opening opened before them, the ones they leave open closed after them.
-    const blocks = programSource(nodes, written, unopened, unclosed);
-    program = blocks;
-    programTree = () => {
-      blocksTree ??= parseJavaScript(blocks.source);
-      return blocksTree;
     };
+    tags.push(codeTag);
+    ejsProgram.ranges.push({ tag: codeTag, start, end });
+    programs.set(codeTag, ejsProgram);
+    if (!javascript.parsesAlone) unbalanced.push({ start: codeStart, end: codeStart + tag.parsedCode.length });
   }
-  const ejsProgram: EjsProgram = {
-    source: program.source,
-    ranges: [],
-    get root() {
-      return programTree().rootNode;
-    },
-  };
-  for (const { index, start, end, codeStart } of program.codes) {
-    const tag = tags[index];
-    if (tag.type === 'comment') continue;
-    ejsProgram.ranges.push({ tag, start, end });
-    programs.set(tag, ejsProgram);
-    const slot = codeStarts.get(index);
-    if (slot) slot.start = codeStart;
-    if (!tag.javascript.parsesAlone) unbalanced.push({ start: codeStart, end: codeStart + tag.parsedCode.length });
-  }
-
   return tags;
 }

@@ -8,7 +8,7 @@
 
 import { describe, test, expect } from 'vitest';
 import { getEjsNodes } from '../src/ejs-parser.js';
-import { type EjsTag, getEjsTags } from '../src/tags.js';
+import { type EjsTag, getEjsTags, programOf } from '../src/tags.js';
 
 /**
  * The tags of `text`, with their trees freed: the fields the tests read stay valid, and leaking the trees
@@ -195,18 +195,71 @@ describe('getEjsTags', () => {
     ['a statement without its semicolon', '<% const a = 1 %>\nx\n', 0, true, 'code-slurpable'],
     ['a case of a switch', '<% switch (k) { %><% case 1: %>one<% } %>', 1, false, 'code'],
     ['an if opening a block', '<% if (a) { %>A<% } %>', 0, false, 'code'],
+    ['a tag in a template string across tags', '<% const s = `%>x<% a %>y<%` %>', 1, false, 'code'],
   ])('whether a tag parses alone, read in the program: %s', (_label, text, index, alone, shape) => {
     const tag = tagsOf(text)[index];
     expect(tag.type === 'comment' ? undefined : [tag.javascript.parsesAlone, tag.shape]).toEqual([alone, shape]);
   });
 
-  // The program of a template with a comment across tags comments out the code between: each tag is parsed alone
-  // instead, and the braces of the code the comment comments out count.
-  test('counts the braces of the code a comment across tags comments out', () => {
-    expect(tagsOf('<% /* %><% if (a) { %>A<% } */ %>').map((tag) => [tag.depthBefore, tag.depthAfter])).toEqual([
-      [0, 0],
-      [0, 1],
-      [1, 0],
+  // The code a comment across tags comments out is a comment of the program, as EJS compiles it: its braces open and
+  // close no block, and the code of the tags it covers, which is the comment's, does not parse alone.
+  test('the braces of the code a comment across tags comments out open no block', () => {
+    expect(
+      tagsOf('<% /* %><% if (a) { %>A<% } */ %>').map((tag) => [
+        tag.depthBefore,
+        tag.depthAfter,
+        tag.type !== 'comment' && tag.javascript.parsesAlone,
+      ]),
+    ).toEqual([
+      [0, 0, false],
+      [0, 0, false],
+      [0, 0, false],
     ]);
+  });
+
+  // A program with an error is read as tree-sitter recovers it: the braces it adds to recover are none, and a tag with
+  // an error does not parse alone.
+  test.each([
+    [
+      'a brace tree-sitter adds',
+      '<% x(() => { %>A<% ) %>',
+      [
+        [0, 1, false, 'code'],
+        [1, 1, false, 'code'],
+      ],
+    ],
+    [
+      'an error in a tag',
+      '<% a b %>\n<% c %>\n',
+      [
+        [0, 0, false, 'code'],
+        [0, 0, true, 'code-slurpable'],
+      ],
+    ],
+  ])('a template whose program has an error: %s', (_label, text, expected) => {
+    expect(
+      tagsOf(text).map((tag) =>
+        tag.type === 'comment' ? undefined : [tag.depthBefore, tag.depthAfter, tag.javascript.parsesAlone, tag.shape],
+      ),
+    ).toEqual(expected);
+  });
+
+  // A partial template is read in its program once the blocks its tags close without opening are opened before them,
+  // and the ones they leave open closed after them.
+  test('a partial template is read in its program, its blocks balanced', () => {
+    const tags = tagsOf('A\n<%_ } _%>\nB\n<% c %>\n<% if (d) { %>\n');
+    expect(
+      tags.map((tag) =>
+        tag.type === 'comment' ? undefined : [tag.depthBefore, tag.depthAfter, tag.javascript.parsesAlone, tag.shape],
+      ),
+    ).toEqual([
+      [0, -1, false, 'slurp'],
+      [-1, -1, true, 'code-slurpable'],
+      [-1, 0, false, 'code'],
+    ]);
+    const [first] = tags;
+    expect(first.type !== 'comment' && programOf(first)?.source).toBe(
+      'function __ejs_template__() {\n{\n;__append(0)\n; } \n;__append(0)\n; c \n;__append(0)\n; if (d) { \n;__append(0)\n}\n}\n',
+    );
   });
 });
