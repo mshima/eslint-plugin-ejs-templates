@@ -208,6 +208,37 @@ rule of the plugin that reports it (the plugin's rules take them from here):
 - `no-comment-empty-line` — a comment tag on a line of its own not closed by `-%>`, which leaves an
   empty line.
 
+### Fixing a convention
+
+`fixOf(template, diagnostic, options?)` gives the fix of a convention of a tag, `{ offset, length,
+text }`, the text replacing a range of the template, for a template `buildTemplate` built, before
+`cleanupTemplate` frees it. The diagnostic is one `validateTemplate` gives, or any code and tag
+offset: the fix is then `undefined` when it changes nothing. The plugin fixes its rules with it.
+
+- `no-comment-empty-line` — the close delimiter of the comment written `-%>`.
+- `slurp-newline` — a line break before the tag.
+- `prefer-slurping-codeonly` — the tag written `<%_ … _%>`, its code trimmed.
+- `indent` — the line of the tag at the indentation of its depth; with `normalizeContent`, the
+  lines of its code too, at the depth of their own blocks.
+- `prefer-single-line-tags` — the tag split, a tag a statement: side by side after text, a line
+  each otherwise; with `indentSplitTags`, each line at the depth of its blocks.
+
+The fixes of the slurp tags and of the comment tags change the blanks and the line breaks the
+template renders, what these conventions are about; the fixes of `indent` and
+`prefer-single-line-tags` keep what it renders.
+
+```ts
+const template = buildTemplate(text);
+try {
+  for (const diagnostic of validateTemplate(template)) {
+    const fix = fixOf(template, diagnostic);
+    if (fix) console.log(diagnostic.code, fix);
+  }
+} finally {
+  cleanupTemplate(template);
+}
+```
+
 ### Inserting a text
 
 `escapeText(template, offset, text)` gives what to insert at an offset of a template so that EJS

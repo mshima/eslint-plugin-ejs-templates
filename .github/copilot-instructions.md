@@ -122,6 +122,7 @@ src/
   javascript-parser.ts  – readTagCode: the code of a tag read in its program, its braces, nodes, statements
   escape-text.ts        – escapeText: a text to insert in a template, rendered literally (EJS 6 and 7)
   edit-template.ts      – editTemplate: edits of a template, the rest rendering as before (EJS 6 and 7)
+  fixes.ts              – fixOf: the fix of a convention of a tag, the one of a diagnostic
   ts-parser.ts          – web-tree-sitter setup (parseEjs, parseJavaScript, findErrorNode)
 test/
   template.test.ts      – the tree of a template
@@ -129,6 +130,7 @@ test/
   diagnostics.test.ts   – validateTemplate, the nodes of a template
   escape-text.test.ts   – escapeText, checked against ejs itself
   edit-template.test.ts – editTemplate, checked against ejs itself
+  fixes.test.ts         – fixOf, checked against ejs itself where a fix keeps the output
   performance.test.ts   – scaling guard (see "Performance invariant")
   esm.test.ts           – the built package loads in Node as a plain ES module
 ```

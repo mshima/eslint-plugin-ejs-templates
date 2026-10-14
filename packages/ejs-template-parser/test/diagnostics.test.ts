@@ -83,16 +83,14 @@ describe('validateTemplate', () => {
     const template = buildTemplate('<%= a %>');
     cleanupTemplate(template);
     expect(() => validateTemplate(template)).toThrow(
-      'validateTemplate validates a template before cleanupTemplate frees it',
+      'validateTemplate reads a template before cleanupTemplate frees it',
     );
   });
 
   test('validates a template buildTemplate built', () => {
     const template = buildTemplate('<%= a %>');
     try {
-      expect(() => validateTemplate({ ...template })).toThrow(
-        'validateTemplate validates a template buildTemplate built',
-      );
+      expect(() => validateTemplate({ ...template })).toThrow('validateTemplate reads a template buildTemplate built');
     } finally {
       cleanupTemplate(template);
     }
@@ -102,7 +100,7 @@ describe('validateTemplate', () => {
     const template = buildTemplate('<%= a %>');
     template[Symbol.dispose]();
     expect(() => validateTemplate(template)).toThrow(
-      'validateTemplate validates a template before cleanupTemplate frees it',
+      'validateTemplate reads a template before cleanupTemplate frees it',
     );
     // Freed already: nothing to free again.
     cleanupTemplate(template);
