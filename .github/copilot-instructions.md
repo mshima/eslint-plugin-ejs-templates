@@ -74,7 +74,7 @@ node benchmark/lint.ts --templates <dir> --rounds 3 --max-ratio 1.2 base=<checko
 ```
 
 Each pull request runs it in a job of the matrix of `test.yml`, `base` its base and `head` its head,
-on a corpus of real templates at a fixed release: a change making the lint more than 1.2 times slower
+on the templates of generator-jhipster v8.11.0: a change making the lint more than 1.2 times slower
 fails `check-tests`. The templates whose fixes ESLint finds circular (`ESLintCircularFixesWarning`,
 rules fixing what others fixed until it gives up after 10 passes) are listed once in its summary,
 by build, rather than warned at each lint. The tests guard the scaling of the parser (see "Performance invariant"); this
@@ -494,7 +494,7 @@ needs re-indenting, which the parser does not diagnose, `fixOf()` of `indent` wi
 `normalizeContent` and `indentTag: false` telling whether it does, the tag where it is) and whether
 `prefer-single-line-tags` indents the tags it splits (`indentSplitTags`, when `indent-tag` reports
 too). Compare the messages and
-fixes of the plugin on a corpus of real templates, before and after, for any change there.
+fixes of the plugin on the templates of generator-jhipster, before and after, for any change there.
 
 The fix of `indent-content` accepts the line where the right operand of a binary
 expression starts, apart from its left one, indented more than the line the expression starts on,
@@ -657,8 +657,8 @@ and `);` split into tags of their own, which EJS joins with a `;`.
 
 `test/ejs-output.test.ts` fixes a list of templates with each rule alone and compares `ejsOutput`
 before and after at the rule's level. Two runs apply rules together, since fixes interact on the same
-tags across passes: the rules of the layout together at `whitespace`, and a whole configuration, every
-rule of the plugin with the recommended JavaScript rules and `@stylistic`, at `compiles`. A snapshot counts the templates each run fixes, so that none stops
+tags across passes: the rules of the layout together at `whitespace`, and a whole configuration like
+generator-jhipster's at `compiles`. A snapshot counts the templates each run fixes, so that none stops
 being exercised. A new fixing rule gets a run there, at the strictest level it keeps, and a
 template of the list it fixes.
 
@@ -671,7 +671,7 @@ after it, which its delimiters slurp and drop; a fix in the code of a tag, the t
 tag, with the whole tag. `conditionalParts()` writes its condition as one variable (negated before a
 fix of `no-negated-condition`, which swaps the branches), and `renderBranches()` renders the part
 with that variable true, then false, every other variable a `Proxy` standing for anything. The
-whole configuration enables `no-negated-condition` too: some of its fixes only
+configuration like generator-jhipster's enables `no-negated-condition` too: some of its fixes only
 come after the fixes of other rules. EJS 7 copies the data it renders with into an object of its
 own, so that the `Proxy` is only seen with `unsafePrototypeLocals: true` among the options of
 `ejs.compile`. A part that does not render alone (an `include`) is left unchecked, as is a ternary
@@ -679,12 +679,12 @@ in the code of a tag that outputs nothing; a second snapshot counts the fixes of
 so that none is. The restructuring fixes render their templates with `ejs.render` in their own tests
 as well (`test/prefer-output.test.ts`, `test/no-negated-condition.test.ts`).
 
-The same runs check any directory of templates, skipped otherwise. Run them on a corpus of real
-templates, current and released ones, for any change to a fix, the processor's fix translation or the
-conventions of the parser:
+The same runs check any directory of templates, skipped otherwise. Run them on the templates of
+generator-jhipster, current and released ones (`git archive v8.11.0 generators`), for any change to a
+fix, the processor's fix translation or the conventions of the parser:
 
 ```sh
-EJS_TEMPLATES=/path/to/templates npx vitest run packages/eslint-plugin-ejs-templates/test/ejs-output.test.ts
+EJS_TEMPLATES=/path/to/generator-jhipster/generators npx vitest run packages/eslint-plugin-ejs-templates/test/ejs-output.test.ts
 ```
 
 ---
