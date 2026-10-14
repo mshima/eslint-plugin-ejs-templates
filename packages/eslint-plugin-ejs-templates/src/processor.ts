@@ -153,37 +153,64 @@ function isSyntheticSuffixMessage(msg: Linter.LintMessage, segment: VirtualBlock
   return msg.line === suffixLine && msg.column >= suffixColumn;
 }
 
-function mapMessage(msg: Linter.LintMessage, block: TagBlock): Linter.LintMessage {
+/** The range of the tag of a block in the template, in 1-based columns as ESLint's. */
+const tagRangeOf = (block: TagBlock, sourceText: string) =>
+  rangeOf(
+    { offset: block.tagOffset, length: block.tagLength, line: block.tagLine, column: block.tagColumn },
+    sourceText,
+  );
+
+/**
+ * Where a position of the virtual code of a block is in the template, its line counted in the block, the marker comment
+ * the first: a position in the code of the tag, where its character is; on the marker, before the code, the start of the
+ * tag; past the code (the lines the processor adds, the wrapper), the end of the tag for the end of a range, its start
+ * otherwise.
+ */
+function mapPosition(
+  block: TagBlock,
+  sourceText: string,
+  position: { line: number; column: number },
+  edge: 'start' | 'end',
+): { line: number; column: number } {
   // Line 1 is the marker comment; code starts on line 2.
-  const codeStartLine = 2;
-
-  if (msg.line < codeStartLine) {
-    return { ...msg, line: block.tagLine, column: block.tagColumn };
-  }
-
-  const codeLineIndex = msg.line - codeStartLine;
-
+  const codeLineIndex = position.line - 2;
   // How many lines does codeContent occupy?  A trailing '\n' does not add an
   // extra logical line — it just means the next character (the wrapper close
   // or synthetic suffix) starts on a new line.
   const codeLineCount = block.codeContent.split('\n').length - (block.codeContent.endsWith('\n') ? 1 : 0);
-
-  if (codeLineIndex >= codeLineCount) {
-    // Message is on a virtualBodyExtraLine, synthetic suffix, or wrapper-close
-    // line; map to tag position.
-    return { ...msg, line: block.tagLine, column: block.tagColumn };
+  if (codeLineIndex >= 0 && codeLineIndex < codeLineCount) {
+    return {
+      line: block.originalLine + codeLineIndex,
+      column: codeLineIndex === 0 ? position.column + block.originalColumn : position.column,
+    };
   }
+  const tag = tagRangeOf(block, sourceText);
+  return codeLineIndex >= 0 && edge === 'end'
+    ? { line: tag.endLine, column: tag.endColumn }
+    : { line: tag.line, column: tag.column };
+}
 
-  const originalLine = block.originalLine + codeLineIndex;
-  const originalColumn = codeLineIndex === 0 ? msg.column + block.originalColumn : msg.column;
-  const mapped: Linter.LintMessage = { ...msg, line: originalLine, column: originalColumn };
-
+/**
+ * A message of the virtual code in the template, its lines counted in the block it starts in, and for its end in
+ * `endBlock`, the block it ends in: a later one for a node across tags. A message on the marker of a tag alone, as the
+ * rules of the conventions report, covers the tag.
+ */
+function mapMessage(
+  msg: Linter.LintMessage,
+  block: TagBlock,
+  sourceText: string,
+  endBlock: TagBlock = block,
+): Linter.LintMessage {
+  if (msg.line < 2 && endBlock === block && (msg.endLine ?? 1) < 2) {
+    const tag = tagRangeOf(block, sourceText);
+    return msg.endLine === undefined ? { ...msg, line: tag.line, column: tag.column } : { ...msg, ...tag };
+  }
+  const mapped: Linter.LintMessage = { ...msg, ...mapPosition(block, sourceText, msg, 'start') };
   if (msg.endLine !== undefined) {
-    const endCodeLineIndex = msg.endLine - codeStartLine;
-    mapped.endLine = block.originalLine + endCodeLineIndex;
-    mapped.endColumn = endCodeLineIndex === 0 ? (msg.endColumn ?? 0) + block.originalColumn : msg.endColumn;
+    const end = mapPosition(endBlock, sourceText, { line: msg.endLine, column: msg.endColumn ?? 1 }, 'end');
+    mapped.endLine = end.line;
+    mapped.endColumn = end.column;
   }
-
   return mapped;
 }
 
@@ -1359,9 +1386,9 @@ function strayCloseDelimiterSuggestions(diagnostic: EjsDiagnostic, template: Ejs
  */
 /** The range of a diagnostic of ejs-template-parser in an ESLint message: 1-based columns, a tag spanning lines. */
 function rangeOf(
-  diagnostic: EjsDiagnostic,
+  diagnostic: Pick<EjsDiagnostic, 'offset' | 'length' | 'line' | 'column'>,
   sourceText: string,
-): Pick<Linter.LintMessage, 'line' | 'column' | 'endLine' | 'endColumn'> {
+): { line: number; column: number; endLine: number; endColumn: number } {
   const lines = sourceText.slice(diagnostic.offset, diagnostic.offset + diagnostic.length).split('\n');
   const lastLine = lines[lines.length - 1];
   return {
@@ -1808,15 +1835,21 @@ export const processor: Linter.Processor = {
             return [];
           }
 
-          // Convert global (combined-file) positions to per-block positions.
+          // Convert global (combined-file) positions to per-block positions: the end in the block it is in, a later one
+          // for a node across tags, the last one past them (in the wrapper).
+          const { endLine } = normalizedMsg;
+          const endSegment =
+            endLine === undefined
+              ? segment
+              : (segments.find((s) => endLine >= s.startLine && endLine <= s.endLine) ?? segments[segments.length - 1]);
           const localMsg: Linter.LintMessage = {
             ...normalizedMsg,
             line: normalizedMsg.line - segment.startLine + 1,
             column: normalizedMsg.column,
           };
 
-          if (normalizedMsg.endLine !== undefined) {
-            localMsg.endLine = normalizedMsg.endLine - segment.startLine + 1;
+          if (endLine !== undefined) {
+            localMsg.endLine = endLine - endSegment.startLine + 1;
             localMsg.endColumn = normalizedMsg.endColumn;
           }
 
@@ -1832,7 +1865,7 @@ export const processor: Linter.Processor = {
             }
           }
 
-          const mapped = mapMessage(localMsg, segment.block);
+          const mapped = mapMessage(localMsg, segment.block, sourceText, endSegment.block);
 
           if (mapped.fix) {
             const blocks = segments.map((s) => s.block);
@@ -1869,6 +1902,7 @@ export const processor: Linter.Processor = {
                       column: 1,
                     },
                     unusedDirectiveFixResult.enableBlock,
+                    sourceText,
                   );
                   result.push({ ...enableMappedMsg, fix: unusedDirectiveFixResult.enableFix });
                 }
@@ -1954,7 +1988,7 @@ export const processor: Linter.Processor = {
                 localMsg.endColumn = msg.endColumn;
               }
               delete localMsg.fix;
-              return mapMessage(localMsg, segment.block);
+              return mapMessage(localMsg, segment.block, sourceText);
             });
 
       const formatMessages = mappedMessages.filter((msg) => msg.ruleId === 'ejs-templates/format');

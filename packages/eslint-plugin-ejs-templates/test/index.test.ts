@@ -103,7 +103,7 @@ describe('eslint-disable-next-line partly unused', () => {
         ruleId: null,
         message: "Unused eslint-disable directive (no problems were reported from 'eqeqeq').",
         line: 1,
-        column: 0,
+        column: 1,
         severity: 1,
         fix: { range: [0, 46], text: '<%# eslint-disable-next-line no-var %>' },
       },

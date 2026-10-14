@@ -32,7 +32,7 @@ describe('rule: ejs-templates/indent', () => {
   test('flags a tag after an eslint-disable-next-line comment once', () => {
     const input = '<%# eslint-disable-next-line no-var %>\n    <%_ var a = 1; _%>\n';
     const msgs = lint(input, { 'ejs-templates/indent': 'error', 'no-var': 'error' });
-    expect(msgs.map(({ ruleId, line, column }) => [ruleId, line, column])).toEqual([['ejs-templates/indent', 2, 4]]);
+    expect(msgs.map(({ ruleId, line, column }) => [ruleId, line, column])).toEqual([['ejs-templates/indent', 2, 5]]);
   });
 
   test.each([
@@ -186,7 +186,7 @@ describe('unused eslint-disable-next-line ejs-templates/indent', () => {
         ruleId: null,
         message: "Unused eslint-disable directive (no problems were reported from 'ejs-templates/indent').",
         line: 2,
-        column: 0,
+        column: 1,
         severity: 1,
         fix: { range: [2, 54], text: '' },
       },
@@ -210,7 +210,7 @@ describe('unused eslint-disable-next-line ejs-templates/indent', () => {
         ruleId: null,
         message: "Unused eslint-disable directive (no problems were reported from 'ejs-templates/indent').",
         line: 2,
-        column: 0,
+        column: 1,
         severity: 2,
         fix: { range: [2, 54], text: '' },
       },

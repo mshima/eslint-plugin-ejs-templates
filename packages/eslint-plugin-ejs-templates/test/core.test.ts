@@ -335,6 +335,45 @@ describe('processor virtual code link', () => {
 // ---------------------------------------------------------------------------
 
 describe('processor position mapping', () => {
+  // A message on the marker of a tag, as the rules of the conventions report, covers the tag: from its opening
+  // delimiter to past its closing one, in 1-based columns as ESLint's.
+  test.each([
+    ['a tag on one line', '  <%_ a(); _%>\n', { 'ejs-templates/indent': 'error' }, [1, 3, 1, 15]],
+    [
+      'a tag spanning lines',
+      '<%\n  a();\n%>\n',
+      { 'ejs-templates/experimental-prefer-slurp-multiline': 'error' },
+      [1, 1, 3, 3],
+    ],
+  ] as const)('a message on the marker of %s covers the tag', (_label, input, rules, range) => {
+    expect(
+      lint(input, rules).map(({ line, column, endLine, endColumn }) => [line, column, endLine, endColumn]),
+    ).toEqual([range]);
+  });
+
+  // The end of a node across tags, as the if statement no-negated-condition reports, is in the tag it ends in.
+  test('a message on a node across tags ends in the tag it ends in', () => {
+    const input = '<% if (!a) { %>\nA\n<% } else { %>\nB\n<% } %>\n';
+    expect(
+      lint(input, { 'no-negated-condition': 'error' }).map(({ line, column, endLine, endColumn }) => [
+        line,
+        column,
+        endLine,
+        endColumn,
+      ]),
+    ).toEqual([[1, 4, 5, 5]]);
+  });
+
+  // The end of a range at the marker of a later tag, as the location after a statement `@stylistic/semi` reports a
+  // missing semicolon at, is the start of that tag.
+  test('a message ending at the marker of a later tag ends at its start', () => {
+    expect(
+      lintWithStylistic('<% a() %>\nA\n  <%= b %>\n', { '@stylistic/semi': ['error', 'always'] }).map(
+        ({ line, column, endLine, endColumn }) => [line, column, endLine, endColumn],
+      ),
+    ).toEqual([[1, 7, 3, 3]]);
+  });
+
   test('error in single-line tag maps to correct line', () => {
     // Line 2 has the EJS tag; a `var` declaration inside it should be reported.
     const msgs = lint('line1\n<% var value = 1; %>\nline3', { 'no-var': 'error' });
@@ -507,7 +546,7 @@ describe('processor position mapping', () => {
         ruleId: null,
         message: "Unused eslint-disable directive (no problems were reported from 'no-var').",
         line: 1,
-        column: 0,
+        column: 1,
         severity: 2,
         fix: { range: [0, 30], text: '' },
       },
@@ -522,7 +561,7 @@ describe('processor position mapping', () => {
         ruleId: null,
         message: "Unused eslint-disable directive (no problems were reported from 'eqeqeq').",
         line: 1,
-        column: 0,
+        column: 1,
         severity: 2,
         fix: { range: [0, 36], text: '<%# eslint-disable no-var %>' },
       },
@@ -659,19 +698,19 @@ describe('processor: a fix that does not fit its tag is dropped', () => {
     ['an unknown sentinel', '<% a(); %>', 'UNKNOWN'],
   ])('%s', (_label, ejsText, text) => {
     expect(postprocessFix(ejsText, text)).toEqual([
-      { ruleId: 'ejs-templates/test', severity: 2, message: 'test', line: 1, column: 0 },
+      { ruleId: 'ejs-templates/test', severity: 2, message: 'test', line: 1, column: 1 },
     ]);
   });
 
   test('prefer-output on the last tag', () => {
     expect(postprocessFix('<% if (a) { %>x<% } %>', SENTINEL_PREFER_OUTPUT, 1)).toEqual([
-      { ruleId: 'ejs-templates/test', severity: 2, message: 'test', line: 1, column: 15 },
+      { ruleId: 'ejs-templates/test', severity: 2, message: 'test', line: 1, column: 16 },
     ]);
   });
 
   test('a JavaScript fix of the marker', () => {
     expect(postprocessFix('<% a(); %>', 'x', 0, [2, 4])).toEqual([
-      { ruleId: 'ejs-templates/test', severity: 2, message: 'test', line: 1, column: 0 },
+      { ruleId: 'ejs-templates/test', severity: 2, message: 'test', line: 1, column: 1 },
     ]);
   });
 });

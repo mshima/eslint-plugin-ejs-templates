@@ -176,7 +176,11 @@ its diagnostics instead: `getDiagnosticBlocks(context, code)` gives the block of
 diagnostic of that code, and the marker comment the rule reports on.
 
 `postprocess()` maps messages from virtual-file positions back to EJS source positions and
-translates fixes (below).
+translates fixes (below). A position in the code of a tag maps to its character; one on the marker
+of a block, to the start of its tag; one past its code (the lines the processor adds, the wrapper),
+to its start, or to its end for the end of a message. The end of a message is mapped in the block it
+ends in, a later one for a node across tags, and a message on a marker alone, as the rules of the
+conventions report, covers its tag. The columns are 1-based, as ESLint's (`mapMessage()`).
 
 ESLint lints the virtual file once: `preprocess()` returns it alone. Parsing it and running every
 rule on it is most of the time of a lint, so a second virtual file nearly doubles it, which the
