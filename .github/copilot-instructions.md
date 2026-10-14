@@ -108,7 +108,7 @@ src/
   diagnostics.ts        – the diagnostics of a template: its errors, its conventions
   tags.ts               – getEjsTags: the tags, each code tag parsed in its brace context, shaped
   ejs-parser.ts         – getEjsNodes, the delimiters, the absorbed `_%>` of an output tag
-  javascript-parser.ts  – parseJavaScriptPartial: best-guess parse of unbalanced JS snippets
+  javascript-parser.ts  – readTagCode: the code of a tag read in its program, its braces, nodes, statements
   escape-text.ts        – escapeText: a text to insert in a template, rendered literally (EJS 6 and 7)
   edit-template.ts      – editTemplate: edits of a template, the rest rendering as before (EJS 6 and 7)
   ts-parser.ts          – web-tree-sitter setup (parseEjs, parseJavaScript, findErrorNode)
@@ -116,7 +116,6 @@ test/
   template.test.ts      – the tree of a template
   tags.test.ts          – getEjsNodes and getEjsTags
   diagnostics.test.ts   – validateTemplate, the nodes of a template
-  parse-javascript-partial.test.ts
   escape-text.test.ts   – escapeText, checked against ejs itself
   edit-template.test.ts – editTemplate, checked against ejs itself
   performance.test.ts   – scaling guard (see "Performance invariant")
@@ -370,8 +369,8 @@ Anything that calls `preprocess()` **without** `postprocess()` — an ad-hoc scr
 an exploratory test — must free the trees itself. Leaking them exhausts the WASM heap after a
 few hundred templates and **aborts the process** (`Aborted()` / "null function or function
 signature mismatch") rather than failing cleanly, which is easy to misread as a parser bug in
-whatever you were investigating. In tests, free them in a `finally` block; see the parser's
-`test/parse-javascript-partial.test.ts`.
+whatever you were investigating. In tests, free them in a `finally` block; see `readCode()` in the
+parser's `test/tags.test.ts`.
 
 ### Performance invariant: one parse of the program, linear walks
 

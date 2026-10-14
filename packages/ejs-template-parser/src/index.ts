@@ -7,7 +7,7 @@
 //     http://www.apache.org/licenses/LICENSE-2.0
 
 export { findErrorNode, parseEjs, parseJavaScript, type SyntaxNode, type Tree } from './ts-parser.js';
-export { parseJavaScriptPartial, type RelativeJavascriptNode } from './javascript-parser.js';
+export { type RelativeJavascriptNode } from './javascript-parser.js';
 export {
   EJS_CLOSING_DELIMS,
   EJS_OPENING_DELIMS,
