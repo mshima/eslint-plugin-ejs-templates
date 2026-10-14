@@ -42,9 +42,12 @@ themselves have no `prepare`, which npm would run on install as well.
 
 release-please releases the packages listed in `release-please-config.json`, each from the
 Conventional Commits touching its folder, and the publish job of `release-please.yml` publishes
-them in dependency order. It lists both packages: the parser tagged
-`ejs-template-parser-v<version>`, the plugin `v<version>`. Its `node-workspace` plugin moves the
-plugin's dependency on the parser to the version of the parser each release brings.
+them in dependency order. It lists both packages, each tagged with its name:
+`ejs-template-parser-v<version>`, `eslint-plugin-ejs-templates-v<version>` (the plugin's releases up
+to 0.5.0, before the monorepo released it with the parser, are tagged `v<version>`). A package
+without its name in its tag has an empty component, which release-please matches no section of a
+release pull request of several packages to, once merged: it releases nothing. Its `node-workspace`
+plugin moves the plugin's dependency on the parser to the version of the parser each release brings.
 
 The version of a release comes from its commits: before 1.0, a `feat` bumps the minor version, and a
 breaking change too (`bump-minor-pre-major`). `release-as` in the config of a package forces the
