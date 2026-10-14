@@ -177,7 +177,7 @@ describe('prefer-slurp-multiline, format and indent together', () => {
   });
 });
 
-describe('the indentation rules of generator-jhipster together', () => {
+describe('the indentation rules of a whole configuration together', () => {
   // `@stylistic/indent-binary-ops` indents the line of the right operand of a binary expression from the line of its
   // left one, `@stylistic/indent` the lines of the code of a tag, and `ejs-templates/indent-tag` the tag, `customize()`
   // turning `indent-content` off: they fixed each other until ESLint gave up (ESLintCircularFixesWarning) when
