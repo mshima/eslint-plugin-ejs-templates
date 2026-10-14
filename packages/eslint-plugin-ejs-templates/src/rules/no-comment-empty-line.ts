@@ -7,7 +7,7 @@
 //     http://www.apache.org/licenses/LICENSE-2.0
 
 import type { Rule } from 'eslint';
-import { getDiagnosticBlocks, SENTINEL_COMMENT_EMPTY_LINE } from '../processor.js';
+import { reportConventions } from '../processor.js';
 
 /**
  * ESLint rule: require EJS comment tags to use `-%>` (trim-newline close).
@@ -38,16 +38,7 @@ export const noCommentEmptyLine: Rule.RuleModule = {
   create(context) {
     return {
       Program() {
-        for (const { comment } of getDiagnosticBlocks(context, 'no-comment-empty-line')) {
-          const { range } = comment;
-          context.report({
-            loc: comment.loc,
-            messageId: 'noCommentEmptyLine',
-            fix(fixer) {
-              return fixer.replaceTextRange([range[0], range[1]], SENTINEL_COMMENT_EMPTY_LINE);
-            },
-          });
-        }
+        reportConventions(context, 'no-comment-empty-line', () => 'noCommentEmptyLine');
       },
     };
   },

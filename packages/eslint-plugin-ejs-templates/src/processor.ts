@@ -51,19 +51,15 @@ const debug = createDebug('ejs-templates:processor');
  */
 export const SENTINEL_PREFER_SLURP_MULTILINE = 'PREFER_SLURP_MULTILINE';
 
-/**
- * Sentinel text written by `prefer-single-line-tags`.
- */
-export const SENTINEL_PREFER_SINGLE_LINE_TAGS_BRACES = 'PREFER_SINGLE_LINE_TAGS_BRACES';
-/**
- * Sentinel text written by the `slurp-newline` fix.
- */
-export const SENTINEL_SLURP_NEWLINE = 'SLURP_NEWLINE';
+/** The prefix of the sentinel of a convention ejs-template-parser diagnoses, its code after it. */
+const SENTINEL_CONVENTION = 'CONVENTION:';
 
 /**
- * Sentinel text written by the `indent` fix.
+ * Sentinel text written by the fix of a convention ejs-template-parser diagnoses, which `translateFix()` asks
+ * `fixOf()` of the parser for: `no-comment-empty-line`, `slurp-newline`, `prefer-slurping-codeonly`, `indent` and
+ * `prefer-single-line-tags`.
  */
-export const SENTINEL_INDENT = 'INDENT';
+export const conventionSentinel = (code: EjsDiagnosticCode): string => `${SENTINEL_CONVENTION}${code}`;
 
 /**
  * Sentinel text written by the `indent` fix when `normalizeContent` is enabled.
@@ -80,11 +76,6 @@ export const SENTINEL_FORMAT = 'FORMAT';
  * is enabled.
  */
 export const SENTINEL_FORMAT_MULTILINE_CLOSE = 'FORMAT_MULTILINE_CLOSE';
-
-/**
- * Sentinel text written by the `no-comment-empty-line` fix.
- */
-export const SENTINEL_COMMENT_EMPTY_LINE = 'COMMENT_EMPTY_LINE';
 
 /**
  * Sentinel text written by the `output-semi` fix when `always` is enabled.
@@ -631,14 +622,10 @@ function buildNegatedConditionFix(
  * offset 0.  They are translated using the `TagBlock` metadata to produce a
  * meaningful replacement in the original EJS source.
  *
- * - Generic sentinel (`text === ''`): used by `prefer-encoded`, `prefer-slurping-codeonly`,
- *   `prefer-single-line-tags`, `indent`.
- * - `SENTINEL_PREFER_SLURP_MULTILINE`: used by `experimental-prefer-slurp-multiline` to avoid
- *   collision with `prefer-single-line-tags` for `code-multiline`/`code-slurpable-multiline`
- *   tag types.
- * - `SENTINEL_PREFER_SINGLE_LINE_TAGS_BRACES`: used by
- *   `prefer-single-line-tags`.
- * - `SENTINEL_SLURP_NEWLINE`: used by `slurp-newline`.
+ * - Generic sentinel (`text === ''`): used by `prefer-encoded`.
+ * - `conventionSentinel(code)`: used by the rules of the conventions ejs-template-parser
+ *   diagnoses, whose fixes `fixOf()` of the parser gives.
+ * - `SENTINEL_PREFER_SLURP_MULTILINE`: used by `experimental-prefer-slurp-multiline`.
  *
  * **General JS fixes** (from standard ESLint rules such as `no-var`,
  * `prefer-const`, etc.): the fix offsets are positions within the virtual
@@ -661,11 +648,6 @@ function translateFix(
     diagnostics: EjsDiagnostic[];
   },
 ): { range: [number, number]; text: string } | null {
-  /** Whether ejs-template-parser diagnoses the tag of the block with a code. */
-  const diagnosed = (code: EjsDiagnosticCode): boolean =>
-    options.diagnostics.some((diagnostic) => diagnostic.code === code && diagnostic.offset === block.tagOffset);
-  // no-comment-empty-line sentinel: handled before the javascriptPartialNode guard
-  // because comment-empty-line blocks have no javascriptPartialNode.
   /** The fix ejs-template-parser gives the convention of a code for the tag of the block (`fixOf()`). */
   const conventionFix = (code: EjsDiagnosticCode, fixOptions?: EjsFixOptions) => {
     const conventional = fixOf(options.template, { code, offset: block.tagOffset }, fixOptions);
@@ -676,14 +658,21 @@ function translateFix(
         }
       : null;
   };
-  if (fix.range[0] === 0 && fix.text === SENTINEL_COMMENT_EMPTY_LINE) {
-    return block.tagType === 'comment-empty-line' ? conventionFix('no-comment-empty-line') : null;
+  // The fix of a convention, the comment tags' one among them: the one of the diagnostic of the tag, if it has one.
+  if (fix.range[0] === 0 && fix.text.startsWith(SENTINEL_CONVENTION)) {
+    const code = fix.text.slice(SENTINEL_CONVENTION.length);
+    const diagnostic = options.diagnostics.find(
+      (candidate) => candidate.code === code && candidate.offset === block.tagOffset,
+    );
+    return diagnostic
+      ? conventionFix(diagnostic.code, { indentSplitTags: options.applyIndentForSingleLineTags })
+      : null;
   }
-  // A comment tag has no fix but that one: no rule fixes the comment of a directive, the virtual code of its block.
+  // A comment tag has no fix but the one of its convention: no rule fixes the comment of a directive, the virtual
+  // code of its block.
   /* v8 ignore next -- @preserve */
   if (block.isDirectiveComment) return null;
 
-  const { applyIndentForSingleLineTags } = options;
   const trimmedCodeContent = block.codeContent.trim();
   // ── Sentinel fix detection ─────────────────────────────────────────────
   // All plugin-rule sentinels start at offset 0 in the virtual file.
@@ -698,16 +687,11 @@ function translateFix(
       };
     }
     return null;
-  } else if (fix.text === SENTINEL_SLURP_NEWLINE) {
-    // slurp-newline: insert a newline before a non-standalone slurp tag
-    return diagnosed('slurp-newline') ? conventionFix('slurp-newline') : null;
-  } else if (fix.text === SENTINEL_INDENT) {
-    // indent: fix standalone <%_ _%> indentation (single-line and multiline). The fix replaces
-    // from the start of the line, which a tag the parser diagnoses is alone on.
-    return diagnosed('indent') ? conventionFix('indent', { normalizeContent: false }) : null;
   } else if (fix.text === SENTINEL_INDENT_NORMALIZE) {
     // indent (normalizeContent=true): normalize multiline content indentation too.
-    return block.isStandalone && (diagnosed('indent') || block.tagType === 'slurp-multiline')
+    return block.isStandalone &&
+      (options.diagnostics.some(({ code, offset }) => code === 'indent' && offset === block.tagOffset) ||
+        block.tagType === 'slurp-multiline')
       ? conventionFix('indent', { normalizeContent: true })
       : null;
   } else if (fix.text === SENTINEL_FORMAT || fix.text === SENTINEL_FORMAT_MULTILINE_CLOSE) {
@@ -721,13 +705,6 @@ function translateFix(
       range: [block.tagOffset, block.tagOffset + block.tagLength],
       text: fixedText,
     };
-  } else if (fix.text === SENTINEL_PREFER_SINGLE_LINE_TAGS_BRACES) {
-    // prefer-single-line-tags: collapse a multiline tag while keeping content between braces in
-    // a single tag, and split a single-line tag that carries more than one brace boundary, a tag
-    // the parser diagnoses, one tag a statement either way.
-    return diagnosed('prefer-single-line-tags')
-      ? conventionFix('prefer-single-line-tags', { indentSplitTags: applyIndentForSingleLineTags })
-      : null;
   } else if (fix.text === SENTINEL_OUTPUT_SEMI_ADD) {
     // output-semi (always): insert `;` at the end of the trimmed code content
     if (isOutputTagType(block.tagType)) {
@@ -851,11 +828,6 @@ function translateFix(
     // prefer-encoded: change `<%-` → `<%=`
     if (block.tagType === 'raw-output') {
       return { range: [block.tagOffset + 2, block.tagOffset + 3], text: '=' };
-    }
-
-    // prefer-slurping-codeonly: change `<% … %>` → `<%_ … _%>` (content unchanged)
-    if (block.tagType === 'code-slurpable') {
-      return conventionFix('prefer-slurping-codeonly');
     }
 
     return null;
@@ -1034,6 +1006,24 @@ export function getDiagnosticBlocks(
   return (getFileBlocks(context.filename)?.segments ?? [])
     .filter(({ block }) => block.tagType !== 'directive-comment' && offsets.has(block.tagOffset))
     .map(withMarkerComment);
+}
+
+/**
+ * Reports each tag ejs-template-parser diagnoses with a code, on the marker comment of its block, with the fix of the
+ * convention: the one `fixOf()` of the parser gives (`conventionSentinel()`).
+ */
+export function reportConventions(
+  context: Rule.RuleContext,
+  code: EjsDiagnosticCode,
+  messageIdOf: (block: TagBlock) => string,
+): void {
+  for (const { block, comment } of getDiagnosticBlocks(context, code)) {
+    context.report({
+      loc: comment.loc,
+      messageId: messageIdOf(block),
+      fix: (fixer) => fixer.replaceTextRange(comment.range, conventionSentinel(code)),
+    });
+  }
 }
 
 /** The block of a segment, with the marker comment its virtual code starts with, which a rule reports on. */
