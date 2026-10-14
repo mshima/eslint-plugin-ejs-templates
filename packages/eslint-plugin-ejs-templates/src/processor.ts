@@ -20,6 +20,8 @@ import {
   type EjsTemplateNode,
   type EjsText,
   editTemplate,
+  type EjsFixOptions,
+  fixOf,
   type RelativeJavascriptNode,
   type SyntaxNode,
   validateTemplate,
@@ -213,148 +215,6 @@ function mapMessage(
 // ---------------------------------------------------------------------------
 // Fix translation
 // ---------------------------------------------------------------------------
-
-/**
- * Build the collapsed replacement text for a multiline EJS tag.
- *
- * Algorithm:
- * 1. Split content into trimmed non-empty lines.
- * 2. Accumulate lines, joining them with a space (or no space for `.` continuation).
- * 3. Emit a new tag whenever the accumulated content ends with `;`, `}` or `{`.
- *    Lines that do NOT end with one of those characters are folded into the next
- *    line (continuation).  Any remaining accumulated content after the last
- *    statement-terminator is emitted as a final tag.
- *
- * Examples:
- * ```
- * if (x) {\n  doWork();\n}
- * ```
- * → `<%_ if (x) { _%>`, `<%_ doWork(); _%>`, `<%_ } _%>`
- *
- * ```
- * const arr = 'foo'\n  .split();\n const y = 2;
- * ```
- * → `<%_ const arr = 'foo'.split(); _%>`, `<%_ const y = 2; _%>`  (dot-continuation joined)
- *
- * The tag is one `prefer-single-line-tags` reports, of several statements (`splitStatements()`), which split at the
- * braces of its blocks alone: one tag a statement, never the tag itself.
- */
-function buildCollapsedTag(block: CodeTagBlock, applyIndent: boolean): string {
-  const { javascriptPartialNode } = block;
-  const tags = javascriptPartialNode.splitStatements();
-
-  // An inline tag has template text either side of it, so the tags it splits into stay adjacent
-  // on the same line and keep the original delimiters. Putting each on its own line would insert
-  // a line break that only slurp delimiters could take back out, which would mean rewriting
-  // delimiters the author chose; leaving the tags adjacent introduces nothing to undo.
-  if (!block.isStandalone) {
-    // The author's opening delimiter belongs on the first tag only: repeating `<%_` on each one
-    // would ask for the whitespace before the tag to be slurped once per generated tag rather
-    // than once. Later tags open with whatever pairs with the closing delimiter, so the seams
-    // stay in the delimiter family the tag already uses and cannot let whitespace creep in.
-    const seamOpenDelim = block.closeDelim === '_%>' ? '<%_' : '<%';
-    return tags
-      .map((tag, index) => `${index === 0 ? block.openDelim : seamOpenDelim} ${tag.trim()} ${block.closeDelim}`)
-      .join('');
-  }
-
-  if (!applyIndent) {
-    // Legacy prefer-single-line-tags behaviour: preserve existing indentation.
-    return tags
-      .map((tag, i) => {
-        const isFirst = i === 0;
-        const isLast = i === tags.length - 1;
-        const openDelim = isFirst ? block.openDelim : '<%_';
-        const closeDelim = isLast ? block.closeDelim : '_%>';
-        const prefix = i === 0 ? '' : block.lineIndent;
-        return `${prefix}${openDelim} ${tag} ${closeDelim}`;
-      })
-      .join('\n');
-  }
-
-  // Indent-aware split: align generated tags with expected indent and structural depth.
-  const resultParts: string[] = [];
-  let relativeDepth = 0;
-  for (let i = 0; i < tags.length; i++) {
-    const tag = tags[i];
-    const isFirst = i === 0;
-    const isLast = i === tags.length - 1;
-    const openDelim = isFirst ? block.openDelim : '<%_';
-    const closeDelim = isLast ? block.closeDelim : '_%>';
-    const trimmedTag = tag.trim();
-
-    if (!isFirst && trimmedTag.startsWith('}')) {
-      relativeDepth = Math.max(0, relativeDepth - 1);
-    }
-
-    const prefix = block.expectedIndent + '  '.repeat(relativeDepth);
-    resultParts.push(`${prefix}${openDelim} ${trimmedTag} ${closeDelim}`);
-
-    if (trimmedTag.endsWith('{')) {
-      relativeDepth++;
-    }
-  }
-  return resultParts.join('\n');
-}
-
-function buildIndentedTag(block: TagBlock, options: { normalizeContent: boolean }): string {
-  const normalizeContent = options.normalizeContent;
-  const tagText = `${block.openDelim}${block.codeContent}${block.closeDelim}`;
-
-  if (!tagText.includes('\n')) {
-    return `${block.expectedIndent}${tagText}`;
-  }
-
-  // Multiline tag: trim content start, indent content lines to align with
-  // the position after the opening delimiter and space:
-  // contentIndent = expectedIndent + openDelim.length + 1 (for space)
-  const content = block.codeContent.trim();
-  const contentLines = content.split('\n');
-  const normalizedContentIndent = ' '.repeat(block.expectedIndent.length + block.openDelim.length + 1);
-
-  const lines: string[] = [];
-
-  // First line: opening delimiter + first content line (with space)
-  const firstLine = contentLines[0].trimStart();
-  lines.push(`${block.expectedIndent}${block.openDelim} ${firstLine}`);
-
-  const isOpenBlock = (line: string) =>
-    line.endsWith('{') || line.endsWith('(') || line.endsWith('[') || line.endsWith('=>');
-  const isCloseBlock = (line: string) => line.startsWith('}') || line.startsWith(')') || line.startsWith(']');
-  const isContinueStatement = (line: string) => /^[=?:|&><]/.test(line) || /^\.[^.]/.test(line);
-  let relativeBlockIndent = isOpenBlock(firstLine) ? 1 : 0;
-  const relativeStatementIndentStack: number[] = [];
-  // Middle lines:
-  // - normalizeContent=true  -> normalize each line to content-level indentation
-  // - normalizeContent=false -> preserve internal line indentation
-  for (let i = 1; i < contentLines.length; i++) {
-    if (normalizeContent) {
-      const trimmedLine = contentLines[i].trimStart();
-      const relativeStatementIndent = isContinueStatement(trimmedLine) ? 1 : 0;
-
-      if (isCloseBlock(trimmedLine)) {
-        relativeBlockIndent = Math.max(0, relativeBlockIndent - 1);
-      }
-      lines.push(
-        `${normalizedContentIndent}${'  '.repeat(relativeBlockIndent + relativeStatementIndent + (relativeStatementIndentStack.at(-1) ?? 0))}${trimmedLine}`.trimEnd(),
-      );
-      if (isCloseBlock(trimmedLine)) {
-        relativeStatementIndentStack.pop();
-      }
-      if (isOpenBlock(trimmedLine)) {
-        relativeStatementIndentStack.push(relativeStatementIndent);
-        relativeBlockIndent++;
-      }
-    } else {
-      lines.push(contentLines[i]);
-    }
-  }
-
-  // Last line: closing delimiter with same indent as opening tag
-  lines.push(`${block.expectedIndent}${block.closeDelim}`);
-
-  return lines.join('\n');
-}
 
 function buildFormattedTag(block: TagBlock, options: { multilineCloseOnNewLine: boolean }): string {
   const { multilineCloseOnNewLine } = options;
@@ -806,15 +666,18 @@ function translateFix(
     options.diagnostics.some((diagnostic) => diagnostic.code === code && diagnostic.offset === block.tagOffset);
   // no-comment-empty-line sentinel: handled before the javascriptPartialNode guard
   // because comment-empty-line blocks have no javascriptPartialNode.
+  /** The fix ejs-template-parser gives the convention of a code for the tag of the block (`fixOf()`). */
+  const conventionFix = (code: EjsDiagnosticCode, fixOptions?: EjsFixOptions) => {
+    const conventional = fixOf(options.template, { code, offset: block.tagOffset }, fixOptions);
+    return conventional
+      ? {
+          range: [conventional.offset, conventional.offset + conventional.length] satisfies [number, number],
+          text: conventional.text,
+        }
+      : null;
+  };
   if (fix.range[0] === 0 && fix.text === SENTINEL_COMMENT_EMPTY_LINE) {
-    if (block.tagType === 'comment-empty-line') {
-      const closeLen = block.closeDelim.length;
-      return {
-        range: [block.tagOffset + block.tagLength - closeLen, block.tagOffset + block.tagLength],
-        text: '-%>',
-      };
-    }
-    return null;
+    return block.tagType === 'comment-empty-line' ? conventionFix('no-comment-empty-line') : null;
   }
   // A comment tag has no fix but that one: no rule fixes the comment of a directive, the virtual code of its block.
   /* v8 ignore next -- @preserve */
@@ -837,41 +700,16 @@ function translateFix(
     return null;
   } else if (fix.text === SENTINEL_SLURP_NEWLINE) {
     // slurp-newline: insert a newline before a non-standalone slurp tag
-    if (diagnosed('slurp-newline')) {
-      return {
-        range: [block.tagOffset, block.tagOffset],
-        text: '\n',
-      };
-    }
-    return null;
+    return diagnosed('slurp-newline') ? conventionFix('slurp-newline') : null;
   } else if (fix.text === SENTINEL_INDENT) {
     // indent: fix standalone <%_ _%> indentation (single-line and multiline). The fix replaces
     // from the start of the line, which a tag the parser diagnoses is alone on.
-    if (diagnosed('indent')) {
-      // Replace from line start through full tag; in default mode only the
-      // start/end boundaries are adjusted for multiline content.
-      const indentStart = block.tagOffset - block.tagColumn;
-      return {
-        range: [indentStart, block.tagOffset + block.tagLength],
-        text: buildIndentedTag(block, { normalizeContent: false }),
-      };
-    }
-    return null;
+    return diagnosed('indent') ? conventionFix('indent', { normalizeContent: false }) : null;
   } else if (fix.text === SENTINEL_INDENT_NORMALIZE) {
     // indent (normalizeContent=true): normalize multiline content indentation too.
-    if (block.isStandalone && (diagnosed('indent') || block.tagType === 'slurp-multiline')) {
-      const indentStart = block.tagOffset - block.tagColumn;
-      const normalizedText = buildIndentedTag(block, { normalizeContent: true });
-      const currentText = block.lineIndent + block.openDelim + block.codeContent + block.closeDelim;
-      if (normalizedText === currentText) {
-        return null;
-      }
-      return {
-        range: [indentStart, block.tagOffset + block.tagLength],
-        text: normalizedText,
-      };
-    }
-    return null;
+    return block.isStandalone && (diagnosed('indent') || block.tagType === 'slurp-multiline')
+      ? conventionFix('indent', { normalizeContent: true })
+      : null;
   } else if (fix.text === SENTINEL_FORMAT || fix.text === SENTINEL_FORMAT_MULTILINE_CLOSE) {
     const multilineCloseOnNewLine = fix.text === SENTINEL_FORMAT_MULTILINE_CLOSE;
     const originalText = block.openDelim + block.codeContent + block.closeDelim;
@@ -886,15 +724,10 @@ function translateFix(
   } else if (fix.text === SENTINEL_PREFER_SINGLE_LINE_TAGS_BRACES) {
     // prefer-single-line-tags: collapse a multiline tag while keeping content between braces in
     // a single tag, and split a single-line tag that carries more than one brace boundary, a tag
-    // the parser diagnoses. `buildCollapsedTag` produces one tag per boundary either way.
-    if (!diagnosed('prefer-single-line-tags')) return null;
-    const fixedText = buildCollapsedTag(block, applyIndentForSingleLineTags);
-    const bracesModeIndentStart =
-      applyIndentForSingleLineTags && block.isStandalone ? block.tagOffset - block.tagColumn : block.tagOffset;
-    return {
-      range: [bracesModeIndentStart, block.tagOffset + block.tagLength],
-      text: fixedText,
-    };
+    // the parser diagnoses, one tag a statement either way.
+    return diagnosed('prefer-single-line-tags')
+      ? conventionFix('prefer-single-line-tags', { indentSplitTags: applyIndentForSingleLineTags })
+      : null;
   } else if (fix.text === SENTINEL_OUTPUT_SEMI_ADD) {
     // output-semi (always): insert `;` at the end of the trimmed code content
     if (isOutputTagType(block.tagType)) {
@@ -1022,10 +855,7 @@ function translateFix(
 
     // prefer-slurping-codeonly: change `<% … %>` → `<%_ … _%>` (content unchanged)
     if (block.tagType === 'code-slurpable') {
-      return {
-        range: [block.tagOffset, block.tagOffset + block.tagLength],
-        text: `<%_ ${trimmedCodeContent} _%>`,
-      };
+      return conventionFix('prefer-slurping-codeonly');
     }
 
     return null;
@@ -1620,9 +1450,7 @@ export const processor: Linter.Processor = {
         // `format: same-line`, causing a circular fix.
         const lastSegment = block.codeContent.slice(block.codeContent.lastIndexOf('\n') + 1);
         if (lastSegment.trim() !== '') return false;
-        const normalizedText = buildIndentedTag(block, { normalizeContent: true });
-        const currentText = block.lineIndent + block.openDelim + block.codeContent + block.closeDelim;
-        return normalizedText !== currentText;
+        return fixOf(template, { code: 'indent', offset: block.tagOffset }, { normalizeContent: true }) !== undefined;
       }),
       diagnostics,
     });

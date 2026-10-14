@@ -433,11 +433,13 @@ The parser's warnings `prefer-slurping-codeonly`, `slurp-newline`, `indent`,
 names report: each rule reports the tags of its diagnostic (`getDiagnosticBlocks()`), on the
 marker of their block, with its sentinel fix. Their conditions live in `conventionsOf()` of the
 parser's `src/diagnostics.ts` alone, so a change to when one of these rules reports is made there,
-and it is a change of the parser. What stays in the plugin is how they fix, which `translateFix()`
-does for a block with the diagnostic of the rule (`options.diagnostics`), and the
-`normalizeContent` part of `indent` (a `<%_ _%>` tag spanning lines whose content needs
-re-indenting), which the parser does not diagnose. Compare the messages and fixes of the
-plugin on the templates of generator-jhipster, before and after, for any change there.
+and it is a change of the parser. Their fixes live there too, `fixOf()` of `src/fixes.ts`, which
+`translateFix()` calls for a block with the diagnostic of the rule (`options.diagnostics`). What
+stays in the plugin is when to ask: the `normalizeContent` part of `indent` (a `<%_ _%>` tag
+spanning lines whose content needs re-indenting, which the parser does not diagnose, `fixOf()` of
+`indent` with `normalizeContent` telling whether it does) and whether `prefer-single-line-tags`
+indents the tags it splits (`indentSplitTags`, when `indent` reports too). Compare the messages and
+fixes of the plugin on the templates of generator-jhipster, before and after, for any change there.
 
 ### The parsed code of a tag
 
