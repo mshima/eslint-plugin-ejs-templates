@@ -16,6 +16,7 @@ EJS files are parsed by [ejs-template-parser](https://github.com/mshima/eslint-p
 - [`ejs-templates/no-global-function-call`](#ejs-templatesno-global-function-call) – disallows direct function calls in EJS tags (with `include()` allowed by default)
 - [`ejs-templates/no-multiline-output`](#ejs-templatesno-multiline-output) – flags (and auto-fixes) output tags whose conditional renders multiple lines
 - [`ejs-templates/no-stray-close-delimiter`](#ejs-templatesno-stray-close-delimiter) – flags a close delimiter (`%>`, `-%>`, `_%>`) in the text, which EJS drops, with suggestions to write it literally or delete it
+- [`ejs-templates/no-one-sided-trim`](#ejs-templatesno-one-sided-trim) – a tag trims on both sides of it or on none: `<%_` with `_%>` or `-%>`, `<%` and output tags with `%>`
 - [`ejs-templates/output-semi`](#ejs-templatesoutput-semi) – enforces semicolon style for output tags (`<%= %>`, `<%- %>`) (default: `never`)
 - [`ejs-templates/prefer-encoded`](#ejs-templatespreferencoded) – flags `<%- … %>` and suggests `<%= … %>` (`always`, default), or flags `<%= … %>` and suggests `<%- … %>` (`never`)
 - [`ejs-templates/prefer-output`](#ejs-templatesprefer-output) – suggests (and auto-fixes) simple if-wrappers into output ternaries
@@ -60,6 +61,7 @@ export default defineConfig([
       'ejs-templates/no-global-function-call': 'error',
       'ejs-templates/no-multiline-output': 'error',
       'ejs-templates/no-stray-close-delimiter': 'error',
+      'ejs-templates/no-one-sided-trim': 'error',
       'ejs-templates/output-semi': ['error', 'never'],
       'ejs-templates/prefer-output': 'error',
       'ejs-templates/prefer-encoded': 'error', // 'always' (default) or 'never'
@@ -191,6 +193,7 @@ The following rules have no specific ordering requirement (they can appear in an
 - [`no-global-function-call`](#ejs-templatesno-global-function-call)
 - [`no-multiline-output`](#ejs-templatesno-multiline-output)
 - [`no-stray-close-delimiter`](#ejs-templatesno-stray-close-delimiter)
+- [`no-one-sided-trim`](#ejs-templatesno-one-sided-trim)
 - [`output-semi`](#ejs-templatesoutput-semi)
 
 Apply [`prefer-output`](#ejs-templatesprefer-output) before [`prefer-encoded`](#ejs-templatespreferencoded).
@@ -741,6 +744,65 @@ outside of the virtual JavaScript: the processor reports them for the rule. A bl
 comment anywhere in the template turns it off for that template,
 `<%# eslint-disable ejs-templates/no-stray-close-delimiter %>`, without an `eslint-enable` after
 it; `eslint-disable-next-line` and a range closed by `eslint-enable` cannot.
+
+### `ejs-templates/no-one-sided-trim`
+
+A tag trims on both sides of it or on none. `<%_` slurps the blanks before a tag on its line;
+`-%>` drops the line break after it, `_%>` the blanks after it and the line break. A tag trimming
+one side alone is reported:
+
+| Tag                                                 | Fix                                                                                        |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| An output tag (`<%=`, `<%-`) closed by `-%>`, `_%>` | `%>`, what the close removed removed from the text, the output unchanged                   |
+| A code tag opened by `<%`, closed by `-%>`, `_%>`   | opened by `<%_` at the start of its line; reported alone when blanks or text are before it |
+| A code tag opened by `<%_`, closed by `%>`          | `_%>` and a blank line before the end of its line, `-%>` before text: the output unchanged |
+
+An output tag cannot open with `<%_`. Two are left alone: one whose code has an `include(…)`, the
+output of a partial ending with a line break, which a `-%>` keeps from doubling the line break of
+the template; and one ending the template, nothing after it but its final line break, which a
+`-%>` keeps out of the output of the template, a partial. Comment tags are left alone: a comment on
+a line of its own closes with `-%>` ([`no-comment-empty-line`](#ejs-templatesno-comment-empty-line)).
+
+|             |                                                    |
+| ----------- | -------------------------------------------------- |
+| **Fixable** | Yes — `eslint --fix` makes the tag trim both sides |
+
+```ejs
+<!-- ✗ violation: the -%> removes nothing -->
+<%- attributes -%>/>
+
+<!-- ✓ fixed -->
+<%- attributes %>/>
+
+<!-- ✗ violation: the -%> removes the line break -->
+<%= name -%>
+text
+
+<!-- ✓ fixed, the line joined, the output unchanged -->
+<%= name %>text
+
+<!-- ✗ violation: trims what is after it alone -->
+<% if (show) { -%>
+
+<!-- ✓ fixed -->
+<%_ if (show) { -%>
+
+<!-- ✗ violation: renders an empty line, which the closing delimiter does not tell -->
+<%_ } %>
+
+<!-- ✓ fixed: the empty line written out -->
+<%_ } _%>
+
+
+<!-- ✓ allowed -->
+<%- include('partial') -%>
+```
+
+Every fix keeps the output. A `<%_ … %>` before the end of its line gets a line break after its
+`_%>`, which slurps it, the empty line the tag rendered written out. A `<% … -%>` is opened by `<%_`
+at the start of its line alone, where `<%_` slurps nothing: indented or with text before it, `<%_`
+would slurp the blanks it renders, and the tag is reported without a fix. Before a `<%%`, which
+writes without clearing what the next text loses, an output tag is reported without a fix.
 
 ### `ejs-templates/output-semi`
 

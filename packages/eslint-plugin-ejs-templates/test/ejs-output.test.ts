@@ -93,6 +93,11 @@ const RUNS: Run[] = [
     level: 'exact',
     config: pluginRules({ 'ejs-templates/output-semi': ['error', 'always'] }),
   },
+  {
+    name: 'no-one-sided-trim',
+    level: 'exact',
+    config: pluginRules({ 'ejs-templates/no-one-sided-trim': 'error' }),
+  },
   // Moving a slurp tag to a line of its own renders the line break, and the blanks the tag slurped before it.
   { name: 'slurp-newline', level: 'whitespace', config: pluginRules({ 'ejs-templates/slurp-newline': 'error' }) },
   {
@@ -174,6 +179,9 @@ const TEMPLATES: string[] = [
   'a  <%# eslint-disable no-var -%>\n<%_ y(); _%>\nb\n',
   // output-semi
   '<%= x; %> <%- y %>\n',
+  // no-one-sided-trim: a close removing nothing, then one removing a line break; code tags trimming one side
+  '<%- x -%>/>\n<%= y _%>>\n<%= z -%>\nw\n',
+  '  <% if (a) { -%>\nb\n<%_ } %>\nc\n',
   // slurp-newline, prefer-slurping-codeonly, prefer-slurp-multiline, no-comment-empty-line
   'text <%_ x(); _%>\nmore\n',
   '  <% x(); %>\nmore\n',
@@ -291,7 +299,7 @@ describe('autofix: what EJS renders', () => {
       ).length;
     expect(Object.fromEntries(RUNS.map((run) => [run.name, fixedCount(run)]))).toMatchInlineSnapshot(`
       {
-        "configs.customize()": 28,
+        "configs.customize()": 30,
         "format": 10,
         "indent-content": 5,
         "indent-tag": 7,
@@ -300,10 +308,11 @@ describe('autofix: what EJS renders', () => {
         "no-comment-empty-line": 3,
         "no-multiline-output": 4,
         "no-negated-condition": 6,
-        "output-semi always": 12,
+        "no-one-sided-trim": 7,
+        "output-semi always": 13,
         "output-semi never": 3,
-        "prefer-encoded always": 8,
-        "prefer-encoded never": 6,
+        "prefer-encoded always": 9,
+        "prefer-encoded never": 7,
         "prefer-output": 5,
         "prefer-single-line-tags": 6,
         "prefer-slurp-multiline": 5,
@@ -323,7 +332,7 @@ describe('autofix: what EJS renders', () => {
     });
     expect(Object.fromEntries(counts)).toMatchInlineSnapshot(`
       {
-        "configs.customize()": "11 of 11",
+        "configs.customize()": "12 of 12",
         "no-multiline-output": "2 of 2",
         "no-negated-condition": "4 of 4",
         "prefer-output": "3 of 3",

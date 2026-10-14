@@ -172,6 +172,7 @@ src/
     no-function-block.ts
     no-global-function-call.ts
     no-stray-close-delimiter.ts
+    no-one-sided-trim.ts
     output-semi.ts
     prefer-encoded.ts
     prefer-output.ts
@@ -293,18 +294,19 @@ the tags, shared") report with `reportConventions()`, whose sentinel names the c
 diagnostic: `translateFix()` gives the fix `fixOf()` of the parser gives it, for a tag with that
 diagnostic.
 
-| Constant                                        | Rule                         | Effect                                |
-| ----------------------------------------------- | ---------------------------- | ------------------------------------- |
-| `conventionSentinel(code)`                      | the rules of the conventions | the fix `fixOf()` of the parser gives |
-| `SENTINEL_PREFER_SLURP_MULTILINE`               | `prefer-slurp-multiline`     | `<% → <%_`, `%> → _%>`                |
-| `SENTINEL_INDENT_CONTENT` (`_GREATER_OR_EQUAL`) | `indent-content`             | the lines of a tag with it            |
-| `SENTINEL_FORMAT`                               | `format`                     | normalize tag spacing                 |
-| `SENTINEL_FORMAT_MULTILINE_CLOSE`               | `format`                     | move close delimiter to new line      |
-| `SENTINEL_OUTPUT_SEMI_ADD` / `_REMOVE`          | `output-semi`                | add / remove trailing `;`             |
-| `SENTINEL_PREFER_OUTPUT`                        | `prefer-output`              | if-wrapper → output ternary           |
-| `SENTINEL_PREFER_OUTPUT_ELSE`                   | `prefer-output`              | if/else wrapper → output ternary      |
-| `SENTINEL_NO_MULTILINE_OUTPUT`                  | `no-multiline-output`        | output ternary → if wrapper           |
-| `''` (empty string)                             | `prefer-encoded`             | `<%= ↔ <%-`                           |
+| Constant                                        | Rule                         | Effect                                                    |
+| ----------------------------------------------- | ---------------------------- | --------------------------------------------------------- |
+| `conventionSentinel(code)`                      | the rules of the conventions | the fix `fixOf()` of the parser gives                     |
+| `SENTINEL_PREFER_SLURP_MULTILINE`               | `prefer-slurp-multiline`     | `<% → <%_`, `%> → _%>`                                    |
+| `SENTINEL_INDENT_CONTENT` (`_GREATER_OR_EQUAL`) | `indent-content`             | the lines of a tag with it                                |
+| `SENTINEL_FORMAT`                               | `format`                     | normalize tag spacing                                     |
+| `SENTINEL_FORMAT_MULTILINE_CLOSE`               | `format`                     | move close delimiter to new line                          |
+| `SENTINEL_OUTPUT_SEMI_ADD` / `_REMOVE`          | `output-semi`                | add / remove trailing `;`                                 |
+| `SENTINEL_ONE_SIDED_TRIM`                       | `no-one-sided-trim`          | the tag trimming both sides or none (`oneSidedTrimFix()`) |
+| `SENTINEL_PREFER_OUTPUT`                        | `prefer-output`              | if-wrapper → output ternary                               |
+| `SENTINEL_PREFER_OUTPUT_ELSE`                   | `prefer-output`              | if/else wrapper → output ternary                          |
+| `SENTINEL_NO_MULTILINE_OUTPUT`                  | `no-multiline-output`        | output ternary → if wrapper                               |
+| `''` (empty string)                             | `prefer-encoded`             | `<%= ↔ <%-`                                               |
 
 Rules without autofix (`no-function-block`, `no-global-function-call`) do not use sentinels.
 
@@ -645,13 +647,13 @@ output tag. Two templates EJS renders alike at a level give the same lines. The 
 aside because EJS separates the code of its tags with them; compiling is what tells `});` from `}`
 and `);` split into tags of their own, which EJS joins with a `;`.
 
-| Level        | Kept                                            | Rules                                                                                            |
-| ------------ | ----------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `exact`      | texts, code tokens, outputs                     | `format`, `indent-tag`, `indent-content`, `prefer-single-line-tags`, `output-semi`               |
-| `whitespace` | the same, whitespace of the texts aside         | `slurp-newline`, `prefer-slurping-codeonly`, `prefer-slurp-multiline`, `no-comment-empty-line`   |
-| `escaping`   | the same, escaped and raw outputs alike         | `prefer-encoded`                                                                                 |
-| `texts`      | texts, with code and outputs at the same places | the JavaScript rules (core, `@stylistic`), whose fixes change the code of tags alone             |
-| `compiles`   | EJS still compiles it                           | `prefer-output`, `no-multiline-output`, `no-negated-condition`, which restructure tags and texts |
+| Level        | Kept                                            | Rules                                                                                                   |
+| ------------ | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `exact`      | texts, code tokens, outputs                     | `format`, `indent-tag`, `indent-content`, `prefer-single-line-tags`, `output-semi`, `no-one-sided-trim` |
+| `whitespace` | the same, whitespace of the texts aside         | `slurp-newline`, `prefer-slurping-codeonly`, `prefer-slurp-multiline`, `no-comment-empty-line`          |
+| `escaping`   | the same, escaped and raw outputs alike         | `prefer-encoded`                                                                                        |
+| `texts`      | texts, with code and outputs at the same places | the JavaScript rules (core, `@stylistic`), whose fixes change the code of tags alone                    |
+| `compiles`   | EJS still compiles it                           | `prefer-output`, `no-multiline-output`, `no-negated-condition`, which restructure tags and texts        |
 
 `test/ejs-output.test.ts` fixes a list of templates with each rule alone and compares `ejsOutput`
 before and after at the rule's level. Two runs apply rules together, since fixes interact on the same
