@@ -37,7 +37,9 @@ jobs:
       - name: Build
         run: npm run prepare
 
+      # Node 24 runs the suite once, with coverage; the formatting `npm test` checks first is checked on Node 22.
       - name: Test
+        if: matrix.node-version != '24'
         run: npm test
 
       - name: Coverage
