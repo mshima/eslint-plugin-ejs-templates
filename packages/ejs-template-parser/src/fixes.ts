@@ -38,8 +38,19 @@ export type EjsFixOptions = {
 /** The indentation of a block level. */
 const INDENT_UNIT = '  ';
 
-/** An operator at the end of a line, or at the start of the next one: a binary expression may span the two. */
-const OPERATOR_AT_LINE_BREAK = /[&|?+\-*/%<>=^!]\s*\n|\n\s*(?:[&|?+\-*/%<>=^!]|in\s|instanceof\s)/;
+/** An operator ending a line, or starting one: a binary expression may span the line break. */
+const OPERATOR_ENDING = /[&|?+\-*/%<>=^!]$/;
+const OPERATOR_STARTING = /^(?:[&|?+\-*/%<>=^!]|in\s|instanceof\s)/;
+
+/** Whether an operator is at a line break of some code: read line by line, linear in the code. */
+const operatorAtLineBreak = (code: string): boolean => {
+  const lines = code.split('\n');
+  return lines.some(
+    (line, index) =>
+      (index < lines.length - 1 && OPERATOR_ENDING.test(line.trimEnd())) ||
+      (index > 0 && OPERATOR_STARTING.test(line.trimStart())),
+  );
+};
 
 /**
  * The lines of the code of a tag, from the first one of its code trimmed (0), where the right operand of a binary
@@ -49,13 +60,21 @@ const OPERATOR_AT_LINE_BREAK = /[&|?+\-*/%<>=^!]\s*\n|\n\s*(?:[&|?+\-*/%<>=^!]|i
  */
 const binaryOperandLines = (tag: EjsCodeTag): Set<number> => {
   const lines = new Set<number>();
-  if (!OPERATOR_AT_LINE_BREAK.test(tag.code)) return lines;
+  if (!operatorAtLineBreak(tag.code)) return lines;
   const { nodes, start } = tag.javascript;
   const trimmed = tag.code.length - tag.code.trimStart().length;
+  // The line breaks of the code trimmed, in order: the line of an index, the ones before it.
+  const breaks: number[] = [];
+  for (let at = tag.code.indexOf('\n', trimmed); at !== -1; at = tag.code.indexOf('\n', at + 1)) breaks.push(at);
   const lineOf = (index: number) => {
-    let line = 0;
-    for (let at = trimmed; at < index; at++) if (tag.code[at] === '\n') line++;
-    return line;
+    let low = 0;
+    let high = breaks.length;
+    while (low < high) {
+      const middle = (low + high) >>> 1;
+      if (breaks[middle] < index) low = middle + 1;
+      else high = middle;
+    }
+    return low;
   };
   for (const node of nodes) {
     if (node.type !== 'binary_expression') continue;
