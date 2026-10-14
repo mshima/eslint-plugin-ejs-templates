@@ -23,7 +23,8 @@ EJS files are parsed by [ejs-template-parser](https://github.com/mshima/eslint-p
 - [`ejs-templates/prefer-slurping-codeonly`](#ejs-templatespreferslurpingcodeonly) – flags `<% … %>` code tags that can be safely converted to `<%_ … _%>`
 - [`ejs-templates/experimental-prefer-slurp-multiline`](#ejs-templatesexperimental-prefer-slurp-multiline) – converts multiline `<% … %>` to `<%_ … _%>`
 - [`ejs-templates/format`](#ejs-templatesformat) – normalizes spacing inside tags and multiline closing delimiter layout
-- [`ejs-templates/indent`](#ejs-templatesindent) – enforces brace-depth–based indentation on standalone `<%_ … _%>` tags
+- [`ejs-templates/indent-tag`](#ejs-templatesindent-tag) – enforces brace-depth–based indentation on standalone `<%_ … _%>` tags
+- [`ejs-templates/indent-content`](#ejs-templatesindent-content) – indents the lines of a `<%_ … _%>` tag spanning lines with the tag
 - [`ejs-templates/slurp-newline`](#ejs-templatesslurp-newline) – ensures `<%_ … _%>` tags are on their own line
 
 ## Installation
@@ -63,7 +64,8 @@ export default defineConfig([
       'ejs-templates/prefer-slurping-codeonly': 'error',
       'ejs-templates/prefer-single-line-tags': 'error',
       'ejs-templates/slurp-newline': 'error',
-      'ejs-templates/indent': 'error',
+      'ejs-templates/indent-tag': 'error',
+      'ejs-templates/indent-content': 'error',
       'ejs-templates/format': 'error',
     },
   },
@@ -169,8 +171,9 @@ Apply the remaining rules in the following order for best results:
 2. [`prefer-slurping-codeonly`](#ejs-templatespreferslurpingcodeonly) — convert single-line `<% %>` to `<%_ %>`
 3. [`prefer-single-line-tags`](#ejs-templatesprefer-single-line-tags) — collapse remaining multiline tags
 4. [`slurp-newline`](#ejs-templatesslurp-newline) — ensure slurp tags are on their own line
-5. [`indent`](#ejs-templatesindent) — enforce brace-depth indentation
-6. [`format`](#ejs-templatesformat) — apply final whitespace/layout normalization
+5. [`indent-tag`](#ejs-templatesindent-tag) — enforce brace-depth indentation
+6. [`indent-content`](#ejs-templatesindent-content) — indent the lines of a tag spanning lines with it
+7. [`format`](#ejs-templatesformat) — apply final whitespace/layout normalization
 
 ### `ejs-templates/experimental-prefer-slurp-multiline`
 
@@ -233,10 +236,42 @@ Options:
   <%_ doWork(); _%>
 ```
 
-### `ejs-templates/indent`
+### `ejs-templates/indent-content`
+
+Indents the lines of a standalone `<%_ … _%>` tag spanning lines with the tag, each at the depth of
+its own blocks, wherever the tag is: [`indent-tag`](#ejs-templatesindent-tag) places the tag.
+
+|             |                                                    |
+| ----------- | -------------------------------------------------- |
+| **Fixable** | Yes — `eslint --fix` re-indents the lines of a tag |
+
+```ejs
+<!-- ✗ violation: the lines not indented with the tag -->
+<%_ items.forEach((item) => {
+show(item);
+});
+_%>
+
+<!-- ✓ fixed -->
+<%_ items.forEach((item) => {
+      show(item);
+    });
+_%>
+```
+
+Options:
+
+- `binaryOperands` (default `'greater'`) — the line where the right operand of a binary
+  expression starts, apart from its left one, is accepted indented more than the line the
+  expression starts on, by any amount, or as much with `'greaterOrEqual'`, as
+  `@stylistic/indent-binary-ops` asks for some lines; one level more otherwise. `customize()` sets
+  `'greaterOrEqual'` when the configurations it is given turn that rule on.
+
+### `ejs-templates/indent-tag`
 
 Enforces brace-depth–based indentation (two spaces per level) on standalone
-`<%_ … _%>` tags.
+`<%_ … _%>` tags. The lines of a tag spanning lines move with its first line as written, which
+[`indent-content`](#ejs-templatesindent-content) indents with the tag.
 
 Consistent indentation improves readability of nested template logic.
 
@@ -255,16 +290,6 @@ Consistent indentation improves readability of nested template logic.
   <%_ doWork(); _%>
 <%_ } _%>
 ```
-
-Options:
-
-- `normalizeContent` (default `true`) — also re-indents the lines of a `<%_ … _%>` tag spanning
-  lines, at the depth of their own blocks.
-- `binaryOperands` (default `'greater'`) — with `normalizeContent`, the line where the right
-  operand of a binary expression starts, apart from its left one, is accepted indented more than
-  the line the expression starts on, by any amount, or as much with `'greaterOrEqual'`, as
-  `@stylistic/indent-binary-ops` asks for some lines. `customize()` sets `'greaterOrEqual'` when
-  the configurations it is given turn that rule on.
 
 ### `ejs-templates/no-comment-across-tags`
 
@@ -288,7 +313,7 @@ enabled
 
 There is no fix: only the author knows what the comment was meant to hide. The message is at the
 tag opening the comment. The tags in between are part of the comment, as EJS compiles them: the
-blocks their code would open and close are none, so `ejs-templates/indent` expects them at the
+blocks their code would open and close are none, so `ejs-templates/indent-tag` expects them at the
 depth of the comment.
 
 The rule reports the `comment-across-tags` diagnostics of
@@ -817,7 +842,7 @@ It also flags a **single-line** tag that closes more than one block, such as
 ```
 
 A tag closing two blocks at once cannot sit at a single indent depth, so
-[`indent`](#ejs-templatesindent) has no correct answer for it and a reader has to
+[`indent-tag`](#ejs-templatesindent-tag) has no correct answer for it and a reader has to
 count braces to follow the nesting. A tag that closes one block and opens another
 (`<%_ } else { _%>`) is an ordinary continuation and is left alone.
 
@@ -915,7 +940,7 @@ Tags that open or close brace depth are left unchanged:
 
 Ensures `<%_ … _%>` whitespace-slurping tags are on their own line. An inline
 slurp tag will not eat the preceding whitespace as intended. Apply this rule
-**after** `prefer-slurping-*` and **before** `indent`.
+**after** `prefer-slurping-*` and **before** `indent-tag`.
 
 Because slurp tags remove the newline/whitespace before them, placing each tag
 on its own line (then indenting it) makes the template easier to read and reason

@@ -19,7 +19,7 @@ import {
   conventionSentinel,
   processor,
   SENTINEL_FORMAT,
-  SENTINEL_INDENT_NORMALIZE,
+  SENTINEL_INDENT_CONTENT,
   SENTINEL_NO_MULTILINE_OUTPUT,
   SENTINEL_OUTPUT_SEMI_ADD,
   SENTINEL_OUTPUT_SEMI_REMOVE,
@@ -354,7 +354,7 @@ describe('processor position mapping', () => {
   // A message on the marker of a tag, as the rules of the conventions report, covers the tag: from its opening
   // delimiter to past its closing one, in 1-based columns as ESLint's.
   test.each([
-    ['a tag on one line', '  <%_ a(); _%>\n', { 'ejs-templates/indent': 'error' }, [1, 3, 1, 15]],
+    ['a tag on one line', '  <%_ a(); _%>\n', { 'ejs-templates/indent-tag': 'error' }, [1, 3, 1, 15]],
     [
       'a tag spanning lines',
       '<%\n  a();\n%>\n',
@@ -703,8 +703,8 @@ describe('processor: a fix that does not fit its tag is dropped', () => {
     ['prefer-slurp-multiline on a single-line tag', '<% a(); %>', SENTINEL_PREFER_SLURP_MULTILINE],
     ['slurp-newline on a standalone slurp tag', '<%_ a(); _%>', conventionSentinel('slurp-newline')],
     ['indent on an indented slurp tag', '<%_ a(); _%>', conventionSentinel('indent')],
-    ['indent normalize on a code tag', '<% a(); %>', SENTINEL_INDENT_NORMALIZE],
-    ['indent normalize on a normalized slurp tag', '<%_ a();\n    b();\n_%>', SENTINEL_INDENT_NORMALIZE],
+    ['indent-content on a code tag', '<% a(); %>', SENTINEL_INDENT_CONTENT],
+    ['indent-content on a normalized slurp tag', '<%_ a();\n    b();\n_%>', SENTINEL_INDENT_CONTENT],
     ['format on a formatted tag', '<% a(); %>', SENTINEL_FORMAT],
     ['prefer-single-line-tags on a single-line tag', '<% a(); %>', conventionSentinel('prefer-single-line-tags')],
     [
@@ -870,10 +870,10 @@ describe('plugin shape', () => {
       'error',
     ],
     ['not set', [{ rules: { '@stylistic/semi': 'error' } }], 'error'],
-  ])('customize sets indent by @stylistic/indent-binary-ops %s', (_label, stylisticConfigs, expected) => {
+  ])('customize sets indent-content by @stylistic/indent-binary-ops %s', (_label, stylisticConfigs, expected) => {
     const configs = plugin.configs.customize({}, ...stylisticConfigs);
-    const indentConfig = configs.find((config) => config.rules?.['ejs-templates/indent'] !== undefined);
-    expect(indentConfig?.rules?.['ejs-templates/indent']).toEqual(expected);
+    const indentConfig = configs.find((config) => config.rules?.['ejs-templates/indent-content'] !== undefined);
+    expect(indentConfig?.rules?.['ejs-templates/indent-content']).toEqual(expected);
   });
 
   test('customize turns off prettier/prettier with prettierBlocklist', () => {
@@ -888,7 +888,8 @@ describe('plugin shape', () => {
       {
         "ejs-templates/experimental-prefer-slurp-multiline": "off",
         "ejs-templates/format": "error",
-        "ejs-templates/indent": "error",
+        "ejs-templates/indent-content": "error",
+        "ejs-templates/indent-tag": "error",
         "ejs-templates/no-comment-across-tags": "error",
         "ejs-templates/no-comment-empty-line": "error",
         "ejs-templates/no-complex-statements": "error",
@@ -920,7 +921,8 @@ describe('plugin shape', () => {
       {
         rules: {
           'ejs-templates/format': 'off',
-          'ejs-templates/indent': 'off',
+          'ejs-templates/indent-tag': 'off',
+          'ejs-templates/indent-content': 'off',
           'ejs-templates/no-comment-empty-line': 'off',
           'ejs-templates/no-complex-statements': 'off',
           'ejs-templates/no-function-block': 'off',

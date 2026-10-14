@@ -62,15 +62,14 @@ const SENTINEL_CONVENTION = 'CONVENTION:';
 export const conventionSentinel = (code: EjsDiagnosticCode): string => `${SENTINEL_CONVENTION}${code}`;
 
 /**
- * Sentinel text written by the `indent` fix when `normalizeContent` is enabled.
+ * Sentinel text written by the `indent-content` fix.
  */
-export const SENTINEL_INDENT_NORMALIZE = 'INDENT_NORMALIZE';
+export const SENTINEL_INDENT_CONTENT = 'INDENT_CONTENT';
 
 /**
- * Sentinel text written by the `indent` fix when `normalizeContent` is enabled and `binaryOperands` is
- * `greaterOrEqual`.
+ * Sentinel text written by the `indent-content` fix when `binaryOperands` is `greaterOrEqual`.
  */
-export const SENTINEL_INDENT_NORMALIZE_GREATER_OR_EQUAL = 'INDENT_NORMALIZE_GREATER_OR_EQUAL';
+export const SENTINEL_INDENT_CONTENT_GREATER_OR_EQUAL = 'INDENT_CONTENT_GREATER_OR_EQUAL';
 
 /**
  * Sentinel text written by the `format` fix.
@@ -701,13 +700,11 @@ function translateFix(
       };
     }
     return null;
-  } else if (fix.text === SENTINEL_INDENT_NORMALIZE || fix.text === SENTINEL_INDENT_NORMALIZE_GREATER_OR_EQUAL) {
-    // indent (normalizeContent=true): normalize multiline content indentation too.
-    const binaryOperands = fix.text === SENTINEL_INDENT_NORMALIZE ? 'greater' : 'greaterOrEqual';
-    return block.isStandalone &&
-      (options.diagnostics.some(({ code, offset }) => code === 'indent' && offset === block.tagOffset) ||
-        block.tagType === 'slurp-multiline')
-      ? conventionFix('indent', { normalizeContent: true, binaryOperands })
+  } else if (fix.text === SENTINEL_INDENT_CONTENT || fix.text === SENTINEL_INDENT_CONTENT_GREATER_OR_EQUAL) {
+    // indent-content: the lines of a tag spanning lines indented with the tag, which stays where it is.
+    const binaryOperands = fix.text === SENTINEL_INDENT_CONTENT ? 'greater' : 'greaterOrEqual';
+    return block.isStandalone && block.tagType === 'slurp-multiline'
+      ? conventionFix('indent', { normalizeContent: true, indentTag: false, binaryOperands })
       : null;
   } else if (fix.text === SENTINEL_FORMAT || fix.text === SENTINEL_FORMAT_MULTILINE_CLOSE) {
     const multilineCloseOnNewLine = fix.text === SENTINEL_FORMAT_MULTILINE_CLOSE;
@@ -962,7 +959,7 @@ type VirtualCodeMetadata = {
   tagFormat: TagFormatState[];
   /**
    * Index i is true when the i-th non-directive slurp-multiline block needs content normalization, by the `binaryOperands`
-   * of `indent`: a block needing it with `greaterOrEqual` needs it with `greater`, which leaves fewer lines as written.
+   * of `indent-content`: a block needing it with `greaterOrEqual` needs it with `greater`, which leaves fewer lines as written.
    */
   needsNormalize: Record<'greater' | 'greaterOrEqual', boolean[]>;
   /** The diagnostics of the template, `validateTemplate()` of ejs-template-parser, in its coordinates. */
@@ -1456,7 +1453,6 @@ export const processor: Linter.Processor = {
 
     const virtualCode = `${GLOBAL_VIRTUAL_OPEN}${blocks.map((b) => b.virtualCode).join('\n')}${GLOBAL_VIRTUAL_CLOSE}`;
     const codeBlocks = codeSegments.map(({ block }) => block);
-    const misindented = new Set(diagnostics.filter(({ code }) => code === 'indent').map(({ offset }) => offset));
     virtualCodeMetadataMap.set(virtualCode, {
       tagFormat: codeBlocks.map((block) => {
         const originalText = block.openDelim + block.codeContent + block.closeDelim;
@@ -1470,21 +1466,20 @@ export const processor: Linter.Processor = {
         const greaterOrEqual: boolean[] = [];
         for (const block of codeBlocks) {
           // A tag alone on its line: the fix rewrites the line from its start, which holds the
-          // text before the tag otherwise. A tag the parser diagnoses as indented otherwise is
-          // reported for its indentation, and fixed with its content.
+          // text before the tag otherwise. Its lines are indented with the tag where it is, wherever `indent-tag` puts
+          // it.
           // Only normalize when the close delimiter is already on its own line
           // (last codeContent segment is all whitespace). If the close is on the
           // same line as the last content line, normalizing it would conflict with
           // `format: same-line`, causing a circular fix.
           const lastSegment = block.codeContent.slice(block.codeContent.lastIndexOf('\n') + 1);
-          const normalizable =
-            block.tagType === 'slurp-multiline' &&
-            block.isStandalone &&
-            !misindented.has(block.tagOffset) &&
-            lastSegment.trim() === '';
+          const normalizable = block.tagType === 'slurp-multiline' && block.isStandalone && lastSegment.trim() === '';
           const needs = (binaryOperands: 'greater' | 'greaterOrEqual') =>
-            fixOf(template, { code: 'indent', offset: block.tagOffset }, { normalizeContent: true, binaryOperands }) !==
-            undefined;
+            fixOf(
+              template,
+              { code: 'indent', offset: block.tagOffset },
+              { normalizeContent: true, indentTag: false, binaryOperands },
+            ) !== undefined;
           const needsGreater = normalizable && needs('greater');
           greater.push(needsGreater);
           greaterOrEqual.push(needsGreater && needs('greaterOrEqual'));
@@ -1543,7 +1538,10 @@ export const processor: Linter.Processor = {
       const suppressedRuleIds = new Set(['no-undef']);
 
       logVirtualCodeOnFatal(filename, virtualMessages, segments);
-      const hasIndentMessages = virtualMessages.some((msg) => msg.ruleId === 'ejs-templates/indent');
+      // The rules of indentation on: the tags a tag is split into indented as they expect them.
+      const hasIndentMessages = virtualMessages.some(
+        (msg) => msg.ruleId === 'ejs-templates/indent-tag' || msg.ruleId === 'ejs-templates/indent-content',
+      );
 
       const mappedMessages = virtualMessages
         .filter((msg) => !msg.fatal && !suppressedRuleIds.has(msg.ruleId ?? '') && !isDiagnosticRuleId(msg.ruleId))

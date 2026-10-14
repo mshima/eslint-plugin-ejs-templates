@@ -13,6 +13,7 @@ import * as fixture1 from './fixtures/1.js';
 import * as fixture2 from './fixtures/2.js';
 import * as fixture3 from './fixtures/3.js';
 import * as fixture4 from './fixtures/4.js';
+import * as fixture5 from './fixtures/5.js';
 import plugin from '../src/index.js';
 import { lint, applyFix, makeLinter } from './helpers.js';
 
@@ -155,7 +156,8 @@ describe('experimental-prefer-slurp-multiline, format and indent together', () =
     const fixed = applyFix(input, {
       'ejs-templates/experimental-prefer-slurp-multiline': 'error',
       'ejs-templates/format': 'error',
-      'ejs-templates/indent': 'error',
+      'ejs-templates/indent-tag': 'error',
+      'ejs-templates/indent-content': 'error',
     });
     expect(fixed).toMatchInlineSnapshot(`
       "a(<%_ if (b) { _%>B(<%_ } else
@@ -184,7 +186,7 @@ describe('indent and @stylistic/indent-binary-ops', () => {
     const config = plugin.configs.customize(
       { stylisticBlocklist: true },
       stylistic.configs.customize({ jsx: false, semi: true }),
-      { rules: { 'ejs-templates/indent': 'error' } },
+      { rules: { 'ejs-templates/indent-tag': 'error', 'ejs-templates/indent-content': 'error' } },
     );
     const input = "  <%_ if ((a === 'x' || (a === 'y' && b === true))\n                && !c) { _%>\nx\n  <%_ } _%>\n";
     const emitWarning = vi.spyOn(process, 'emitWarning').mockImplementation(() => undefined);
@@ -206,11 +208,41 @@ describe('indent and @stylistic/indent-binary-ops', () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// indent-tag and indent-content together
+// ---------------------------------------------------------------------------
+
+describe('indent-tag and indent-content together', () => {
+  test('places a multiline tag, then indents its lines with it', () => {
+    const input = '<%_ if (x) { %>\n<%_\ndoWork();\ndoMore();\n_%>\n<%_ } %>';
+    expect(applyFix(input, { 'ejs-templates/indent-tag': 'error', 'ejs-templates/indent-content': 'error' })).toBe(
+      '<%_ if (x) { %>\n  <%_ doWork();\n      doMore();\n  _%>\n<%_ } %>',
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fixture tests – indent-tag and indent-content
+// ---------------------------------------------------------------------------
+
+describe('indent fixture tests', () => {
+  test('fixture 5 (indent) autofix produces expected output', () => {
+    const fixed = applyFix(fixture5.input, fixture5.rules);
+    expect(fixed).toBe(fixture5.expected);
+  });
+
+  test('fixture 5 expected is already fixed (idempotent)', () => {
+    const fixed = applyFix(fixture5.expected, fixture5.rules);
+    expect(fixed).toBe(fixture5.expected);
+  });
+});
+
 describe('rules on a JavaScript file', () => {
   test.each([
     'experimental-prefer-slurp-multiline',
     'format',
-    'indent',
+    'indent-content',
+    'indent-tag',
     'no-comment-empty-line',
     'no-complex-statements',
     'no-function-block',

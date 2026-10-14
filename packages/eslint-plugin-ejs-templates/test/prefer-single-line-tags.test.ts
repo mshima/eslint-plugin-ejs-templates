@@ -316,7 +316,8 @@ describe('autofix: prefer-single-line-tags', () => {
     const input = '  <%_\n  if (x) {\n  doWork();\n_%>\n<%_ } _%>';
     const fixed = applyFix(input, {
       'ejs-templates/prefer-single-line-tags': 'error',
-      'ejs-templates/indent': 'error',
+      'ejs-templates/indent-tag': 'error',
+      'ejs-templates/indent-content': 'error',
     });
     expect(fixed).toMatchInlineSnapshot(`
       "<%_ if (x) { _%>

@@ -164,7 +164,8 @@ src/
   rules/
     index.ts            – re-exports all rule modules
     format.ts
-    indent.ts
+    indent-content.ts
+    indent-tag.ts
     no-comment-across-tags.ts
     no-comment-empty-line.ts
     no-complex-statements.ts
@@ -284,18 +285,18 @@ the tags, shared") report with `reportConventions()`, whose sentinel names the c
 diagnostic: `translateFix()` gives the fix `fixOf()` of the parser gives it, for a tag with that
 diagnostic.
 
-| Constant                               | Rule                                  | Effect                                |
-| -------------------------------------- | ------------------------------------- | ------------------------------------- |
-| `conventionSentinel(code)`             | the rules of the conventions          | the fix `fixOf()` of the parser gives |
-| `SENTINEL_PREFER_SLURP_MULTILINE`      | `experimental-prefer-slurp-multiline` | `<% → <%_`, `%> → _%>`                |
-| `SENTINEL_INDENT_NORMALIZE`            | `indent`                              | normalize + indent                    |
-| `SENTINEL_FORMAT`                      | `format`                              | normalize tag spacing                 |
-| `SENTINEL_FORMAT_MULTILINE_CLOSE`      | `format`                              | move close delimiter to new line      |
-| `SENTINEL_OUTPUT_SEMI_ADD` / `_REMOVE` | `output-semi`                         | add / remove trailing `;`             |
-| `SENTINEL_PREFER_OUTPUT`               | `prefer-output`                       | if-wrapper → output ternary           |
-| `SENTINEL_PREFER_OUTPUT_ELSE`          | `prefer-output`                       | if/else wrapper → output ternary      |
-| `SENTINEL_NO_MULTILINE_OUTPUT`         | `no-multiline-output`                 | output ternary → if wrapper           |
-| `''` (empty string)                    | `prefer-encoded`                      | `<%= ↔ <%-`                           |
+| Constant                                        | Rule                                  | Effect                                |
+| ----------------------------------------------- | ------------------------------------- | ------------------------------------- |
+| `conventionSentinel(code)`                      | the rules of the conventions          | the fix `fixOf()` of the parser gives |
+| `SENTINEL_PREFER_SLURP_MULTILINE`               | `experimental-prefer-slurp-multiline` | `<% → <%_`, `%> → _%>`                |
+| `SENTINEL_INDENT_CONTENT` (`_GREATER_OR_EQUAL`) | `indent-content`                      | the lines of a tag with it            |
+| `SENTINEL_FORMAT`                               | `format`                              | normalize tag spacing                 |
+| `SENTINEL_FORMAT_MULTILINE_CLOSE`               | `format`                              | move close delimiter to new line      |
+| `SENTINEL_OUTPUT_SEMI_ADD` / `_REMOVE`          | `output-semi`                         | add / remove trailing `;`             |
+| `SENTINEL_PREFER_OUTPUT`                        | `prefer-output`                       | if-wrapper → output ternary           |
+| `SENTINEL_PREFER_OUTPUT_ELSE`                   | `prefer-output`                       | if/else wrapper → output ternary      |
+| `SENTINEL_NO_MULTILINE_OUTPUT`                  | `no-multiline-output`                 | output ternary → if wrapper           |
+| `''` (empty string)                             | `prefer-encoded`                      | `<%= ↔ <%-`                           |
 
 Rules without autofix (`no-function-block`, `no-global-function-call`) do not use sentinels.
 
@@ -473,18 +474,19 @@ of blocks (`expectedIndent`); the plugin's `extractTagBlocks()` builds its tag t
 
 The parser's warnings `prefer-slurping-codeonly`, `slurp-newline`, `indent`,
 `prefer-single-line-tags` and `no-comment-empty-line` are what the plugin's rules of the same
-names report: each rule reports the tags of its diagnostic (`reportConventions()`), on the
+names report (`indent-tag` for `indent`): each rule reports the tags of its diagnostic (`reportConventions()`), on the
 marker of their block, with the sentinel of its code (`conventionSentinel()`). Their conditions
 live in `conventionsOf()` of the parser's `src/diagnostics.ts` alone, so a change to when one of
 these rules reports is made there, and it is a change of the parser. Their fixes live there too, `fixOf()` of `src/fixes.ts`, which
 `translateFix()` calls for a block with the diagnostic of the sentinel (`options.diagnostics`). What
-stays in the plugin is when to ask: the `normalizeContent` part of `indent` (a `<%_ _%>` tag
-spanning lines whose content needs re-indenting, which the parser does not diagnose, `fixOf()` of
-`indent` with `normalizeContent` telling whether it does) and whether `prefer-single-line-tags`
-indents the tags it splits (`indentSplitTags`, when `indent` reports too). Compare the messages and
+stays in the plugin is when to ask: `indent-content` (a `<%_ _%>` tag spanning lines whose content
+needs re-indenting, which the parser does not diagnose, `fixOf()` of `indent` with
+`normalizeContent` and `indentTag: false` telling whether it does, the tag where it is) and whether
+`prefer-single-line-tags` indents the tags it splits (`indentSplitTags`, when `indent-tag` reports
+too). Compare the messages and
 fixes of the plugin on the templates of generator-jhipster, before and after, for any change there.
 
-The fix of `indent` with `normalizeContent` accepts the line where the right operand of a binary
+The fix of `indent-content` accepts the line where the right operand of a binary
 expression starts, apart from its left one, indented more than the line the expression starts on,
 by any amount (`binaryOperands: 'greater'`), or as much (`'greaterOrEqual'`), and writes it one level
 more otherwise: `@stylistic/indent-binary-ops` indents that line from the line of the left operand,
@@ -635,7 +637,7 @@ and `);` split into tags of their own, which EJS joins with a `;`.
 
 | Level        | Kept                                            | Rules                                                                                                       |
 | ------------ | ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| `exact`      | texts, code tokens, outputs                     | `format`, `indent`, `prefer-single-line-tags`, `output-semi`                                                |
+| `exact`      | texts, code tokens, outputs                     | `format`, `indent-tag`, `indent-content`, `prefer-single-line-tags`, `output-semi`                          |
 | `whitespace` | the same, whitespace of the texts aside         | `slurp-newline`, `prefer-slurping-codeonly`, `experimental-prefer-slurp-multiline`, `no-comment-empty-line` |
 | `escaping`   | the same, escaped and raw outputs alike         | `prefer-encoded`                                                                                            |
 | `texts`      | texts, with code and outputs at the same places | the JavaScript rules (core, `@stylistic`), whose fixes change the code of tags alone                        |
