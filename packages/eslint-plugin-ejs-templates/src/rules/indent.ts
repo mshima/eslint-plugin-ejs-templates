@@ -11,9 +11,10 @@ import {
   SENTINEL_INDENT,
   SENTINEL_INDENT_NORMALIZE,
   getDiagnosticBlocks,
+  getTagBlocks,
   getVirtualCodeMetadata,
 } from '../processor.js';
-import { getTagTypeComments, isRecord, type VirtualMarkerComment } from '../utils.js';
+import { isRecord, type VirtualMarkerComment } from '../utils.js';
 
 /**
  * ESLint rule: enforce brace-depth–based indentation on standalone
@@ -88,10 +89,10 @@ export const indent: Rule.RuleModule = {
           });
         }
         if (normalizeContent) {
-          // Indexed as the marker comments: the i-th non-directive block.
+          // Indexed as the blocks of the tags.
           const needsNormalizeByTag = getVirtualCodeMetadata(sourceCode.text)?.needsNormalize;
-          for (const [tagIndex, { comment, tagType }] of getTagTypeComments(sourceCode.text).entries()) {
-            if (tagType === 'slurp-multiline' && needsNormalizeByTag?.[tagIndex] === true) reports.push({ comment });
+          for (const [tagIndex, { comment }] of getTagBlocks(context).entries()) {
+            if (needsNormalizeByTag?.[tagIndex] === true) reports.push({ comment });
           }
         }
 
