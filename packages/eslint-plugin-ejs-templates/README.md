@@ -113,7 +113,7 @@ export default defineConfig([
 | `allowedGlobals`     | `string[]`                           | `[]`          | Extra global function names that `no-global-function-call` will not flag                                                                                 |
 | `experimental`       | `boolean`                            | `false`       | Enables experimental features                                                                                                                            |
 | `html`               | `'always' \| 'never' \| 'extension'` | `'extension'` | Controls the `prefer-encoded` option: `always` for all `.ejs` files, `never` for all `.ejs` files, or `always` for `*.html.ejs` and `never` for the rest |
-| `stylisticBlocklist` | `boolean`                            | `false`       | Turns off `@stylistic` rules that conflict with EJS formatting (for example `eol-last`, `indent`, `brace-style` and `multiline-ternary`)                 |
+| `stylisticBlocklist` | `boolean`                            | `false`       | Turns off `@stylistic` rules that conflict with EJS formatting (`eol-last`, `brace-style` and `multiline-ternary`)                                       |
 | `prettierBlocklist`  | `boolean`                            | `false`       | Turns off the `prettier/prettier` rule when Prettier is also configured                                                                                  |
 
 Then run ESLint as usual:
@@ -266,6 +266,10 @@ Options:
   expression starts on, by any amount, or as much with `'greaterOrEqual'`, as
   `@stylistic/indent-binary-ops` asks for some lines; one level more otherwise. `customize()` sets
   `'greaterOrEqual'` when the configurations it is given turn that rule on.
+
+`@stylistic/indent` indents the same lines, those after the first one of a tag: `customize()` turns
+`indent-content` off when the configurations it is given turn `@stylistic/indent` on. Its messages
+on the first line of a tag, which `indent-tag` places, are dropped.
 
 ### `ejs-templates/indent-tag`
 

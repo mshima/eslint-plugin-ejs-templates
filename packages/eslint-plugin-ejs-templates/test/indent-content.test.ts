@@ -6,6 +6,7 @@
 //
 //     http://www.apache.org/licenses/LICENSE-2.0
 
+import type { Linter } from 'eslint';
 import { describe, test, expect } from 'vitest';
 import { lint, applyFix } from './helpers.js';
 
@@ -27,6 +28,23 @@ describe('rule: ejs-templates/indent-content', () => {
 // ---------------------------------------------------------------------------
 
 describe('autofix: indent-content', () => {
+  // The line of a right operand as indented as the line its expression starts on: one level more by default, as written
+  // with `binaryOperands: 'greaterOrEqual'`, as `@stylistic/indent-binary-ops` asks for some lines.
+  test.each<[string, Linter.RuleEntry, string]>([
+    ['by default', 'error', '<%_ const y = c ||\n      b;\n_%>\n'],
+    ['with greaterOrEqual', ['error', { binaryOperands: 'greaterOrEqual' }], '<%_ const y = c ||\n    b;\n_%>\n'],
+  ])('the line of a right operand %s', (_label, setting, expected) => {
+    expect(applyFix('<%_ const y = c ||\n    b;\n_%>\n', { 'ejs-templates/indent-content': setting })).toBe(expected);
+  });
+
+  test('the line of a right operand less indented than its expression, with greaterOrEqual', () => {
+    expect(
+      applyFix('<%_ const y = c ||\n  b;\n_%>\n', {
+        'ejs-templates/indent-content': ['error', { binaryOperands: 'greaterOrEqual' }],
+      }),
+    ).toBe('<%_ const y = c ||\n      b;\n_%>\n');
+  });
+
   // The tag where it is, `indent-tag` placing it: its lines indented from its column.
   test('indents the lines of a tag where it is, misplaced or not', () => {
     const input = '<%_ if (x) { _%>\n    <%_ a(\n  b);\n    _%>\n<%_ } _%>\n';

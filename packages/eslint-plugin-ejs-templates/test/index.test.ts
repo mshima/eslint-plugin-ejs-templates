@@ -177,11 +177,11 @@ describe('experimental-prefer-slurp-multiline, format and indent together', () =
   });
 });
 
-describe('indent and @stylistic/indent-binary-ops', () => {
+describe('the indentation rules of generator-jhipster together', () => {
   // `@stylistic/indent-binary-ops` indents the line of the right operand of a binary expression from the line of its
-  // left one; `ejs-templates/indent` re-indents the lines of a tag spanning lines (`normalizeContent`). It accepts that
-  // line indented as much as or more than the line the expression starts on, which customize() sets when the rule is
-  // on: until it did, the two fixed each other until ESLint gave up (ESLintCircularFixesWarning).
+  // left one, `@stylistic/indent` the lines of the code of a tag, and `ejs-templates/indent-tag` the tag, `customize()`
+  // turning `indent-content` off: they fixed each other until ESLint gave up (ESLintCircularFixesWarning) when
+  // `indent-content` indented the lines of the tag differently.
   test('fix a tag spanning lines without fixing each other', () => {
     const config = plugin.configs.customize(
       { stylisticBlocklist: true },

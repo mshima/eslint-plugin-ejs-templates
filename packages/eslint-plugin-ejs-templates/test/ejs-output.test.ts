@@ -296,7 +296,7 @@ describe('autofix: what EJS renders', () => {
         "format": 10,
         "indent-content": 5,
         "indent-tag": 7,
-        "javascript rules": 4,
+        "javascript rules": 10,
         "layout rules together": 20,
         "no-comment-empty-line": 3,
         "no-multiline-output": 4,
