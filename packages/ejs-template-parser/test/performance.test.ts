@@ -34,7 +34,25 @@ vi.mock('../src/ts-parser.js', async (importOriginal) => {
   };
 });
 
+/**
+ * Total characters of the templates escapeText reads to write a text in, accumulated by the mock below: editTemplate
+ * writes the texts of a region there, in the part of the template EJS reads the region in.
+ */
+const escaped = { chars: 0 };
+
+vi.mock('../src/escape-text.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/escape-text.js')>();
+  return {
+    ...actual,
+    escapeText: (template: string, offset: number, text: string) => {
+      escaped.chars += template.length;
+      return actual.escapeText(template, offset, text);
+    },
+  };
+});
+
 const { buildTemplate, cleanupTemplate, validateTemplate } = await import('../src/template.js');
+const { editTemplate } = await import('../src/edit-template.js');
 
 /**
  * Characters fed to the JavaScript parser while building `template` and diagnosing it, which reads
@@ -140,5 +158,46 @@ describe('buildTemplate parses the JavaScript of a template once', () => {
     } finally {
       cleanupTemplate(built);
     }
+  });
+});
+
+describe('editTemplate scaling', () => {
+  // An edit of each tag of a template built once, as the fixes of the messages of a lint: the template is read once
+  // for all of them, and each edit writes its texts in the part of the template around it. Read whole for each edit,
+  // the characters would grow as the square of the template.
+  const escapedCharsFor = (template: string): { chars: number; nodesRead: number } => {
+    const built = buildTemplate(template);
+    let nodesRead = 0;
+    const counted = new Proxy(built, {
+      get: (target, property, receiver) => {
+        if (property === 'nodes') nodesRead++;
+        return Reflect.get(target, property, receiver) as unknown;
+      },
+    });
+    escaped.chars = 0;
+    try {
+      for (const { offset, length } of built.tags) editTemplate(counted, [{ offset, length, text: ['x '] }]);
+      return { chars: escaped.chars, nodesRead };
+    } finally {
+      cleanupTemplate(built);
+    }
+  };
+
+  test.each([
+    { shape: 'sibling blocks', build: siblingBlocks },
+    { shape: 'else ladder', build: elseLadder },
+    { shape: 'nested callbacks', build: nestedCallbacks },
+  ])('$shape: the template is read once, and each edit reads the part around it', ({ build }) => {
+    const small = escapedCharsFor(build(40));
+    const large = escapedCharsFor(build(80));
+    const growth = large.chars / small.chars;
+
+    expect([small.nodesRead, large.nodesRead]).toEqual([1, 1]);
+    expect(
+      growth,
+      `doubling the template multiplied the characters escapeText reads by ${growth.toFixed(2)} ` +
+        `(${String(small.chars)} -> ${String(large.chars)} chars); ` +
+        `a factor near 4 means each edit writes its texts in the whole template`,
+    ).toBeLessThan(MAX_GROWTH_FACTOR);
   });
 });

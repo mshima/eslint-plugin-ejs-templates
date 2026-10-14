@@ -32,11 +32,19 @@ export type EjsEditedTemplate = {
    */
   offsets: number[];
   /**
+   * The ranges of the template written again, in order, each with what is written in its place: the template edited is
+   * the template with them replaced. What they write again around the edits is written as it was, or as it renders.
+   */
+  replacements: EjsReplacement[];
+  /**
    * The errors of the template edited (`diagnoseTemplate`) the edits bring, the template's own, at their offsets,
    * aside: diagnosed when read, once.
    */
   errors: EjsDiagnostic[];
 };
+
+/** A range of a template, and the text written in its place. */
+export type EjsReplacement = { offset: number; length: number; text: string };
 
 type Range = { start: number; end: number };
 type Tag = { offset: number; length: number; openDelim: EjsOpeningDelimiter; closeDelim: EjsClosingDelimiter };
@@ -83,6 +91,71 @@ const tokenRanges = (texts: Text[]): Range[] => {
   return ranges;
 };
 
+/** What editTemplate reads of a template: its texts and its tags, in order, where its characters are, its tokens. */
+type Prepared = {
+  texts: Text[];
+  tags: Tag[];
+  /** The tag at each offset where one starts, and the tag of each offset where one ends. */
+  tagAt: Map<number, Tag>;
+  tagEndingAt: Map<number, Tag>;
+  /** Whether each character of the template is in a text, and whether it renders. */
+  inText: Uint8Array;
+  renders: Uint8Array;
+  tokens: Range[];
+};
+
+/** The template built already, read once for the edits of every call. */
+const preparedTemplates = new WeakMap<EjsTemplate, Prepared>();
+
+const prepare = (built: EjsTemplate): Prepared => {
+  const texts = built.nodes.flatMap((node) =>
+    node.kind === 'text'
+      ? [
+          {
+            offset: node.offset,
+            length: node.length,
+            text: node.text,
+            rendered: node.rendered,
+            renderedOffsets: node.renderedOffsets,
+          },
+        ]
+      : [],
+  );
+  const tags = built.tags.map(({ offset, length, openDelim, closeDelim }) => ({
+    offset,
+    length,
+    openDelim,
+    closeDelim,
+  }));
+  const inText = new Uint8Array(built.text.length);
+  const renders = new Uint8Array(built.text.length);
+  for (const text of texts) {
+    inText.fill(1, text.offset, text.offset + text.length);
+    for (const renderedOffset of text.renderedOffsets.slice(0, -1)) renders[renderedOffset] = 1;
+  }
+  return {
+    texts,
+    tags,
+    tagAt: new Map(tags.map((tag) => [tag.offset, tag])),
+    tagEndingAt: new Map(tags.map((tag) => [tag.offset + tag.length, tag])),
+    inText,
+    renders,
+    tokens: tokenRanges(texts),
+  };
+};
+
+/** The index of the first item of a list in order for which a test, false then true along it, is true. */
+const firstIndex = <Item>(items: readonly Item[], test: (item: Item) => boolean): number => {
+  let low = 0;
+  let high = items.length;
+  while (low < high) {
+    const middle = (low + high) >>> 1;
+    if (test(items[middle])) high = middle;
+    else low = middle + 1;
+  }
+  return low;
+};
+
 /**
  * Edits a template: each edit deletes what a range of the template renders and renders its text there, the rest of the
  * template rendering as before, as EJS 6 and 7 render it (the default delimiters). The edits, in offsets of the
@@ -101,10 +174,11 @@ const tokenRanges = (texts: Text[]): Range[] => {
  * Where escapeText cannot write a text (a tag needed in the literal mode, see escapeText), its delimiters are escaped
  * alone: the errors tell what EJS would not render.
  *
- * @param template the template, which parses, or the template buildTemplate built of it, left as it is: built once
- *   for the edits of several calls
+ * @param template the template, which parses, or the template buildTemplate built of it, left as it is: built and
+ *   read once for the edits of several calls, each one costing what it writes again
  * @param edits the edits, in offsets of the template
- * @returns the template edited, where each offset of the template is in it, and the errors the edits bring
+ * @returns the template edited, where each offset of the template is in it, the ranges written again, and the errors
+ *   the edits bring
  * @throws RangeError when an edit is out of the template, overlaps another one, or cuts a tag
  * @throws EjsSyntaxError when the template does not parse
  */
@@ -114,28 +188,25 @@ export function editTemplate(template: string | EjsTemplate, edits: EjsEdit[]): 
     .map((edit, order) => ({ ...edit, order }))
     .sort((a, b) => a.offset - b.offset || a.order - b.order);
 
-  // A template built already is left as it is, to its builder to free.
-  const built = typeof template === 'string' ? buildTemplate(template) : template;
-  let texts: Text[];
-  let tags: Tag[];
-  try {
-    texts = built.nodes.flatMap((node) =>
-      node.kind === 'text'
-        ? [
-            {
-              offset: node.offset,
-              length: node.length,
-              text: node.text,
-              rendered: node.rendered,
-              renderedOffsets: node.renderedOffsets,
-            },
-          ]
-        : [],
-    );
-    tags = built.tags.map(({ offset, length, openDelim, closeDelim }) => ({ offset, length, openDelim, closeDelim }));
-  } finally {
-    if (typeof template === 'string') cleanupTemplate(built);
+  // A template built already is left as it is, to its builder to free, and read once for the edits of every call.
+  let prepared: Prepared;
+  if (typeof template === 'string') {
+    const built = buildTemplate(template);
+    try {
+      prepared = prepare(built);
+    } finally {
+      cleanupTemplate(built);
+    }
+  } else {
+    prepared = preparedTemplates.get(template) ?? prepare(template);
+    preparedTemplates.set(template, prepared);
   }
+  const { texts, tags, tagAt, tagEndingAt, inText, renders, tokens } = prepared;
+  /** The tag an offset is inside of, after its start and before its end. */
+  const tagAround = (offset: number): Tag | undefined => {
+    const tag = tags[firstIndex(tags, (candidate) => candidate.offset >= offset) - 1] as Tag | undefined;
+    return tag && offset < tag.offset + tag.length ? tag : undefined;
+  };
 
   let previousEnd = 0;
   for (const { offset, length } of sorted) {
@@ -144,23 +215,10 @@ export function editTemplate(template: string | EjsTemplate, edits: EjsEdit[]): 
       throw new RangeError(`The edit at ${String(offset)} of length ${String(length)} is out of the template`);
     }
     if (offset < previousEnd) throw new RangeError(`The edit at ${String(offset)} overlaps the one before it`);
-    const cut = tags.find(
-      (tag) =>
-        (tag.offset < offset && offset < tag.offset + tag.length) ||
-        (tag.offset < end && end < tag.offset + tag.length),
-    );
+    const cut = tagAround(offset) ?? tagAround(end);
     if (cut) throw new RangeError(`The edit at ${String(offset)} cuts the tag at ${String(cut.offset)}`);
     previousEnd = end;
   }
-
-  /** Whether each character of the template is in a text, and whether it renders. */
-  const inText = Array.from({ length: source.length }, () => false);
-  const renders = Array.from({ length: source.length }, () => false);
-  for (const text of texts) {
-    for (let index = text.offset; index < text.offset + text.length; index++) inText[index] = true;
-    for (const renderedOffset of text.renderedOffsets.slice(0, -1)) renders[renderedOffset] = true;
-  }
-  const tokens = tokenRanges(texts);
 
   // A tag an edit deletes, the text of the edit starting with a tag opening as it does, or ending with a tag closing as
   // it does: that tag slurps the blanks before it, or drops what follows it, as the deleted one did, which are left
@@ -170,11 +228,13 @@ export function editTemplate(template: string | EjsTemplate, edits: EjsEdit[]): 
   for (const { offset, length, text = [] } of sorted) {
     const [first] = text;
     const last = text.at(-1);
-    const opening = tags.find((tag) => tag.offset === offset && tag.offset + tag.length <= offset + length);
+    const startingTag = tagAt.get(offset);
+    const opening = startingTag && startingTag.offset + startingTag.length <= offset + length ? startingTag : undefined;
     if (opening?.openDelim === '<%_' && typeof first === 'object' && first.tag.startsWith('<%_')) {
       keptBefore.add(opening.offset);
     }
-    const closing = tags.find((tag) => tag.offset + tag.length === offset + length && tag.offset >= offset);
+    const endingTag = tagEndingAt.get(offset + length);
+    const closing = endingTag && endingTag.offset >= offset ? endingTag : undefined;
     if (closing && closing.closeDelim !== '%>' && typeof last === 'object' && last.tag.endsWith(closing.closeDelim)) {
       keptAfter.add(closing.offset);
     }
@@ -184,32 +244,36 @@ export function editTemplate(template: string | EjsTemplate, edits: EjsEdit[]): 
   const regionOf = ({ start, end }: Range): Range => {
     for (;;) {
       const before = { start, end };
-      for (const tag of tags) {
+      // The tags of the range, then the tokens meeting it: found in their order, a pass repeated until it grows no more.
+      for (let index = firstIndex(tags, (tag) => tag.offset >= start); index < tags.length; index++) {
+        const tag = tags[index];
+        // A region cuts no tag: a tag starting in it ends in it.
+        if (tag.offset >= end) break;
         const tagEnd = tag.offset + tag.length;
-        if (tag.offset < start || tagEnd > end) continue;
         // A tag deleted, with the blanks it slurped and the line break it dropped, but the ones a tag of the edit
         // slurps and drops again.
         if (tag.openDelim === '<%_' && !keptBefore.has(tag.offset)) {
           let blanks = tag.offset;
-          while (blanks > 0 && inText[blanks - 1] && isBlank(source[blanks - 1])) blanks--;
+          while (blanks > 0 && inText[blanks - 1] === 1 && isBlank(source[blanks - 1])) blanks--;
           start = Math.min(start, blanks);
         }
         if (tag.closeDelim !== '%>' && !keptAfter.has(tag.offset)) {
           let after = tagEnd;
-          if (tag.closeDelim === '_%>') while (inText[after] && isBlank(source[after])) after++;
-          const lineBreak = inText[after] ? LINE_BREAK.exec(source.slice(after)) : null;
+          if (tag.closeDelim === '_%>') while (inText[after] === 1 && isBlank(source[after])) after++;
+          const lineBreak = inText[after] === 1 ? LINE_BREAK.exec(source.slice(after)) : null;
           end = Math.max(end, after + (lineBreak?.[0].length ?? 0));
         }
       }
-      for (const token of tokens) {
-        if (token.start < end && token.end > start) {
-          start = Math.min(start, token.start);
-          end = Math.max(end, token.end);
-        }
+      for (let index = firstIndex(tokens, (token) => token.end > start); index < tokens.length; index++) {
+        const token = tokens[index];
+        if (token.start >= end) break;
+        start = Math.min(start, token.start);
+        end = Math.max(end, token.end);
       }
       // What could make a delimiter with what is written again, and the whitespace a delimiter could slurp or drop.
       const grows = (index: number) =>
-        inText[index] && (DELIMITER_CHARACTERS.has(source[index]) || (renders[index] && isWhitespace(source[index])));
+        inText[index] === 1 &&
+        (DELIMITER_CHARACTERS.has(source[index]) || (renders[index] === 1 && isWhitespace(source[index])));
       while (start > 0 && grows(start - 1)) start--;
       while (end < source.length && grows(end)) end++;
       if (start === before.start && end === before.end) return { start, end };
@@ -237,7 +301,22 @@ export function editTemplate(template: string | EjsTemplate, edits: EjsEdit[]): 
   const moved = new Map<number, number>();
   let edited = source;
   let shift = 0;
+  const replacements: EjsReplacement[] = [];
+  let previousRegionEnd = 0;
   for (const region of regions) {
+    const shiftBefore = shift;
+    // The part of the template EJS reads the region in as in the whole of it, which is written again there: from the
+    // start of the tag before the region, whose opening delimiter sets how EJS reads what follows, whatever comes
+    // before it, to the start of the second tag after the region, the line break the first one drops included. From
+    // the start of the template when that tag is in a region before, written again already.
+    const beforeIndex = firstIndex(tags, (tag) => tag.offset + tag.length > region.start) - 1;
+    const before = beforeIndex >= 0 ? tags[beforeIndex] : undefined;
+    const windowStart = before && before.offset >= previousRegionEnd ? before.offset : 0;
+    const after = firstIndex(tags, (tag) => tag.offset >= region.end) + 1;
+    const windowEnd = after < tags.length ? tags[after].offset : source.length;
+    const editedStart = windowStart === 0 ? 0 : windowStart + shift;
+    const editedEnd = windowEnd + shift;
+    previousRegionEnd = region.end;
     // What the region renders, edited, cut where its edits start and end: the texts of the edits there, a mark for
     // each offset, then the characters of the texts of the region the edits keep, up to the next one.
     const bounds = [
@@ -249,14 +328,19 @@ export function editTemplate(template: string | EjsTemplate, edits: EjsEdit[]): 
     ].sort((a, b) => a - b);
     const kept = (from: number, to: number) => {
       let characters = '';
-      for (const text of texts) {
-        text.renderedOffsets.slice(0, -1).forEach((renderedOffset, index) => {
-          if (renderedOffset < from || renderedOffset >= to) return;
+      // The texts meeting the range, and their characters rendered from there.
+      for (let at = firstIndex(texts, (text) => text.offset + text.length > from); at < texts.length; at++) {
+        const text = texts[at];
+        if (text.offset >= to) break;
+        const offsets = text.renderedOffsets;
+        for (let index = firstIndex(offsets, (offset) => offset >= from); index < offsets.length - 1; index++) {
+          const renderedOffset = offsets[index];
+          if (renderedOffset >= to) break;
           const deleted = region.edits.some(
             ({ offset, length }) => offset <= renderedOffset && renderedOffset < offset + length,
           );
           if (!deleted) characters += text.rendered[index];
-        });
+        }
       }
       return characters;
     };
@@ -285,8 +369,8 @@ export function editTemplate(template: string | EjsTemplate, edits: EjsEdit[]): 
     });
 
     // The tags first, as they are, then the texts between them, the last first, each one with what is around it.
-    let current = edited.slice(0, region.start + shift) + edited.slice(region.end + shift);
-    let at = region.start + shift;
+    let current = edited.slice(editedStart, region.start + shift) + edited.slice(region.end + shift, editedEnd);
+    let at = region.start + shift - editedStart;
     for (const slot of slots) {
       slot.at = at;
       if (slot.tag !== undefined) {
@@ -309,50 +393,63 @@ export function editTemplate(template: string | EjsTemplate, edits: EjsEdit[]): 
       current = current.slice(0, slot.at) + text + current.slice(slot.at);
       written.set(slot, text.length);
     }
-    let before = 0;
+    let writtenBefore = 0;
     for (const slot of slots) {
-      if (slot.mark !== undefined) moved.set(slot.mark, slot.at + before);
-      before += written.get(slot) ?? 0;
+      if (slot.mark !== undefined) moved.set(slot.mark, editedStart + slot.at + writtenBefore);
+      writtenBefore += written.get(slot) ?? 0;
     }
-    shift = current.length - source.length;
-    edited = current;
+    edited = edited.slice(0, editedStart) + current + edited.slice(editedEnd);
+    shift = edited.length - source.length;
+    replacements.push({
+      offset: region.start,
+      length: region.end - region.start,
+      text: edited.slice(region.start + shiftBefore, region.end + shift),
+    });
   }
 
   // An offset of a region at the mark of the bound before it, plus its distance to it, short of the next one; an
-  // offset out of the regions shifted by what the regions before it changed.
-  const offsets: number[] = [];
-  let region = 0;
-  let delta = 0;
-  for (let offset = 0; offset <= source.length; offset++) {
-    while (region < regions.length && regions[region].end < offset) {
-      // The end of a region is one of its bounds, which have a mark.
-      /* v8 ignore next -- @preserve */
-      delta = (moved.get(regions[region].end) ?? 0) - regions[region].end;
-      region++;
+  // offset out of the regions shifted by what the regions before it changed. Computed when read, once.
+  let offsets: number[] | undefined;
+  const offsetsOf = (): number[] => (offsets ??= offsetsOfRegions());
+  const offsetsOfRegions = (): number[] => {
+    const offsets: number[] = [];
+    let region = 0;
+    let delta = 0;
+    for (let offset = 0; offset <= source.length; offset++) {
+      while (region < regions.length && regions[region].end < offset) {
+        // The end of a region is one of its bounds, which have a mark.
+        /* v8 ignore next -- @preserve */
+        delta = (moved.get(regions[region].end) ?? 0) - regions[region].end;
+        region++;
+      }
+      const current = regions.at(region);
+      if (current && offset >= current.start) {
+        const bound = Math.max(...[...moved.keys()].filter((key) => key >= current.start && key <= offset));
+        const nextBound = Math.min(...[...moved.keys()].filter((key) => key > offset && key <= current.end));
+        // The bounds are keys of `moved`.
+        /* v8 ignore next -- @preserve */
+        const at = (moved.get(bound) ?? 0) + (offset - bound);
+        /* v8 ignore next -- @preserve */
+        offsets.push(Number.isFinite(nextBound) ? Math.min(at, moved.get(nextBound) ?? at) : at);
+      } else {
+        offsets.push(offset + delta);
+      }
     }
-    const current = regions.at(region);
-    if (current && offset >= current.start) {
-      const bound = Math.max(...[...moved.keys()].filter((key) => key >= current.start && key <= offset));
-      const nextBound = Math.min(...[...moved.keys()].filter((key) => key > offset && key <= current.end));
-      // The bounds are keys of `moved`.
-      /* v8 ignore next -- @preserve */
-      const at = (moved.get(bound) ?? 0) + (offset - bound);
-      /* v8 ignore next -- @preserve */
-      offsets.push(Number.isFinite(nextBound) ? Math.min(at, moved.get(nextBound) ?? at) : at);
-    } else {
-      offsets.push(offset + delta);
-    }
-  }
+    return offsets;
+  };
 
   // The errors, when they are read: they diagnose the template edited, and the template.
   let errors: EjsDiagnostic[] | undefined;
   return {
     template: edited,
-    offsets,
+    get offsets() {
+      return offsetsOf();
+    },
+    replacements,
     get errors() {
       if (!errors) {
         const errorsOf = (text: string) => diagnoseTemplate(text).filter(({ severity }) => severity === 'error');
-        const own = new Set(errorsOf(source).map(({ code, offset }) => `${code}@${String(offsets[offset])}`));
+        const own = new Set(errorsOf(source).map(({ code, offset }) => `${code}@${String(offsetsOf()[offset])}`));
         errors = errorsOf(edited).filter(({ code, offset }) => !own.has(`${code}@${String(offset)}`));
       }
       return errors;

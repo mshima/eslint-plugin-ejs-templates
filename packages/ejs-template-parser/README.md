@@ -329,12 +329,18 @@ It returns:
 
 - `template` — the template edited;
 - `offsets` — the offset in the template edited of each offset of the template, then of its end,
-  after what an edit inserts there;
+  after what an edit inserts there: computed when read;
+- `replacements` — the ranges of the template written again, in order, each `{ offset, length,
+text }` with what is written in its place: the template edited is the template with them
+  replaced, an edit for an editor or the fix of a linter, without comparing the two templates;
 - `errors` — the errors of the template edited (`diagnoseTemplate`) the edits bring, the ones the
   template has, at their offsets, aside: diagnosed when read, which takes two more parses.
 
 The template can be given built already (`buildTemplate`): it is not built again, and not freed,
-for a caller editing it several times, which frees it when done.
+for a caller editing it several times, which frees it when done. It is read once for all the
+calls, and each call then costs what its edits write again, not the size of the template: their
+texts are written in the part of the template around them, from the tag before to the second tag
+after, which EJS reads them in as in the whole of it.
 
 Where `escapeText` cannot write a text (a tag needed in the literal mode), its delimiters are
 escaped alone, and the errors tell what EJS would not render.

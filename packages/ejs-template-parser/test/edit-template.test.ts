@@ -10,14 +10,25 @@ import ejs from 'ejs';
 import { describe, expect, test } from 'vitest';
 import { buildTemplate, cleanupTemplate, editTemplate, type EjsEdit } from '../src/index.js';
 
-/** The template edited, alone. */
-const edit = (template: string, edits: EjsEdit[]) => editTemplate(template, edits).template;
+/** The template edited, alone, which its replacements make of the template too: a test of each edit checks them. */
+const edit = (template: string, edits: EjsEdit[]) => {
+  const edited = editTemplate(template, edits);
+  let replaced = '';
+  let at = 0;
+  for (const { offset, length, text } of edited.replacements) {
+    replaced += template.slice(at, offset) + text;
+    at = offset + length;
+  }
+  expect(replaced + template.slice(at)).toBe(edited.template);
+  return edited.template;
+};
 
 describe('editTemplate', () => {
   test('deletes what a range renders', () => {
     expect(editTemplate('a b c\n', [{ offset: 2, length: 2 }])).toEqual({
       template: 'a c\n',
       offsets: [0, 1, 2, 2, 2, 3, 4],
+      replacements: [{ offset: 1, length: 3, text: ' ' }],
       errors: [],
     });
   });
@@ -35,7 +46,12 @@ describe('editTemplate', () => {
         { offset: 2, length: 1, text: ['y'] },
         { offset: 0, length: 1, text: ['x'] },
       ]),
-    ).toEqual({ template: 'x y\n', offsets: [1, 1, 3, 3, 4], errors: [] });
+    ).toEqual({
+      template: 'x y\n',
+      offsets: [1, 1, 3, 3, 4],
+      replacements: [{ offset: 0, length: 4, text: 'x y\n' }],
+      errors: [],
+    });
   });
 
   test('edits a template built already, left to its builder to free', () => {
@@ -65,6 +81,7 @@ describe('editTemplate', () => {
       expect(editTemplate('a <%% b %> c\n', [{ offset: 2, length: 4 }])).toEqual({
         template: 'a b %%> c\n',
         offsets: [0, 1, 2, 2, 2, 2, 2, 3, 4, 5, 6, 8, 9, 10],
+        replacements: [{ offset: 1, length: 10, text: ' b %%> ' }],
         errors: [],
       });
     });
@@ -99,6 +116,7 @@ describe('editTemplate', () => {
     expect(editTemplate('x %> y\nz\n', [{ offset: 7, length: 1, text: [{ tag: '%>' }] }])).toEqual({
       template: 'x %> y\n%>\n',
       offsets: [0, 1, 2, 3, 4, 5, 6, 9, 9, 10],
+      replacements: [{ offset: 6, length: 3, text: '\n%>\n' }],
       errors: [
         {
           code: 'stray-close-delimiter',
