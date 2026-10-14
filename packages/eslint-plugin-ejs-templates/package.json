@@ -18,6 +18,10 @@
     "url": "git+https://github.com/mshima/eslint-plugin-ejs-templates.git",
     "directory": "packages/eslint-plugin-ejs-templates"
   },
+  "funding": {
+    "type": "github",
+    "url": "https://github.com/sponsors/mshima"
+  },
   "license": "Apache-2.0",
   "author": "",
   "type": "module",
