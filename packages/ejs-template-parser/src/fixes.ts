@@ -28,6 +28,11 @@ export type EjsFixOptions = {
    */
   normalizeContent?: boolean | undefined;
   /**
+   * `indent`: the line of the tag and its closing delimiter at the indentation of its depth (the default); otherwise
+   * where they are, the lines of its code alone indented with them (`normalizeContent`).
+   */
+  indentTag?: boolean | undefined;
+  /**
    * `indent` with `normalizeContent`: the line where the right operand of a binary expression starts, apart from its left
    * one, is left as written when indented more than the line the expression starts on (`greater`, the default), by any
    * amount, or as much (`greaterOrEqual`, which `@stylistic/indent-binary-ops` asks for some lines); one level more than
@@ -104,16 +109,19 @@ const indentedTag = (
   tag: EjsCodeTag,
   normalizeContent: boolean,
   binaryOperands: 'greater' | 'greaterOrEqual',
+  indentTag: boolean,
 ): string => {
+  // The indentation of the tag: the one of its depth, or the one it has.
+  const indentation = indentTag ? tag.expectedIndent : tag.linePrefix;
   const tagText = `${tag.openDelim}${tag.code}${tag.closeDelim}`;
-  if (!tagText.includes('\n')) return `${tag.expectedIndent}${tagText}`;
+  if (!tagText.includes('\n')) return `${indentation}${tagText}`;
 
   // A tag spanning lines: its code from the opening delimiter and a blank, its lines at the column after them, its
   // closing delimiter on a line of its own at the indentation of the tag.
   const contentLines = tag.code.trim().split('\n');
-  const contentIndent = ' '.repeat(tag.expectedIndent.length + tag.openDelim.length + 1);
+  const contentIndent = ' '.repeat(indentation.length + tag.openDelim.length + 1);
   const firstLine = contentLines[0].trimStart();
-  const lines = [`${tag.expectedIndent}${tag.openDelim} ${firstLine}`];
+  const lines = [`${indentation}${tag.openDelim} ${firstLine}`];
 
   const isOpenBlock = (line: string) =>
     line.endsWith('{') || line.endsWith('(') || line.endsWith('[') || line.endsWith('=>');
@@ -156,7 +164,7 @@ const indentedTag = (
       relativeBlockIndent++;
     }
   }
-  lines.push(`${tag.expectedIndent}${tag.closeDelim}`);
+  lines.push(`${indentation}${tag.closeDelim}`);
   return lines.join('\n');
 };
 
@@ -244,7 +252,12 @@ export function fixOf(
     case 'prefer-slurping-codeonly':
       return { offset: tag.offset, length: tag.length, text: `<%_ ${tag.code.trim()} _%>` };
     case 'indent': {
-      const text = indentedTag(tag, options.normalizeContent ?? false, options.binaryOperands ?? 'greater');
+      const text = indentedTag(
+        tag,
+        options.normalizeContent ?? false,
+        options.binaryOperands ?? 'greater',
+        options.indentTag ?? true,
+      );
       return text === tag.linePrefix + source
         ? undefined
         : { offset: lineStart, length: tag.column + tag.length, text };

@@ -223,7 +223,7 @@ offset: the fix is then `undefined` when it changes nothing. The plugin fixes it
   of a binary expression starts, apart from its left one: as written when indented more than the
   line the expression starts on, by any amount, or as much with `binaryOperands: 'greaterOrEqual'`
   (which `@stylistic/indent-binary-ops` asks for some lines); one level more than that line
-  otherwise.
+  otherwise. With `indentTag: false`, the tag stays where it is, its lines indented with it.
 - `prefer-single-line-tags` — the tag split, a tag a statement: side by side after text, a line
   each otherwise; with `indentSplitTags`, each line at the depth of its blocks.
 
