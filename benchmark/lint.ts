@@ -56,7 +56,7 @@ const files = globSync('**/*.ejs', { cwd: templates })
   .sort()
   .map((file) => ({ filePath: resolve(templates, file), text: readFileSync(resolve(templates, file), 'utf8') }));
 
-/** A configuration like generator-jhipster's, the rules of the plugin with JavaScript and stylistic ones. */
+/** A whole configuration: the rules of the plugin with the recommended JavaScript rules and `@stylistic`. */
 const configOf = (plugin: Plugin): Linter.Config[] =>
   plugin.configs.customize(
     {

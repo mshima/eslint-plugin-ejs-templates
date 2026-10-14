@@ -6,7 +6,7 @@ sources (`lib/esm/ejs.js`: `Template#generateSource`,
 EJS is here; the parser's `escapeText` follows it step by step, and its tests check it against
 `ejs.render`.
 
-EJS 6.0.1, the version generator-jhipster renders with, reads a template the same way: the functions
+EJS 6.0.1 reads a template the same way: the functions
 above are the same in both. 7.0.1 only stopped reading options (`delimiter`, `rmWhitespace`, ...)
 from the data of `render(template, data)`; they are passed in its third argument.
 

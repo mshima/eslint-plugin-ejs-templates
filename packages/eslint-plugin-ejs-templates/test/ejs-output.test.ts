@@ -37,7 +37,7 @@ const pluginRules = (rules: Linter.RulesRecord): Config[] => [
   },
 ];
 
-/** A configuration like generator-jhipster's: every rule of the plugin, and fixable JavaScript rules. */
+/** A whole configuration: every rule of the plugin, and fixable JavaScript rules. */
 const configuration: Config[] = plugin.configs.customize(
   { html: 'never', prettierBlocklist: true, stylisticBlocklist: true },
   js.configs.recommended,

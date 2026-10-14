@@ -70,16 +70,16 @@ jobs:
           npm ci --ignore-scripts
           npm run build
 
-      # The templates of a release of generator-jhipster, the project the plugin is written for.
+      # A corpus of real templates, at a fixed release.
       - name: Check out the templates
         if: matrix.job == 'benchmark' && github.event_name == 'pull_request'
         run: |
-          git clone --quiet --depth 1 --branch v8.11.0 --filter=blob:none --sparse https://github.com/jhipster/generator-jhipster .benchmark/generator-jhipster
-          git -C .benchmark/generator-jhipster sparse-checkout set generators
+          git clone --quiet --depth 1 --branch v8.11.0 --filter=blob:none --sparse https://github.com/jhipster/generator-jhipster .benchmark/templates
+          git -C .benchmark/templates sparse-checkout set generators
 
       - name: Benchmark
         if: matrix.job == 'benchmark' && github.event_name == 'pull_request'
-        run: node benchmark/lint.ts --templates .benchmark/generator-jhipster/generators --rounds 3 --max-ratio 1.2 base=.benchmark/base head=.
+        run: node benchmark/lint.ts --templates .benchmark/templates/generators --rounds 3 --max-ratio 1.2 base=.benchmark/base head=.
 
   check-tests:
     permissions:
