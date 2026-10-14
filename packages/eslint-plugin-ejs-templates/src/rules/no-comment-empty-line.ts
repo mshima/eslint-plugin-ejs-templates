@@ -39,9 +39,9 @@ export const noCommentEmptyLine: Rule.RuleModule = {
     return {
       Program() {
         for (const { comment } of getDiagnosticBlocks(context, 'no-comment-empty-line')) {
-          const { range = [0, 0] } = comment;
+          const { range } = comment;
           context.report({
-            loc: comment.loc ?? { line: 0, column: 0 },
+            loc: comment.loc,
             messageId: 'noCommentEmptyLine',
             fix(fixer) {
               return fixer.replaceTextRange([range[0], range[1]], SENTINEL_COMMENT_EMPTY_LINE);

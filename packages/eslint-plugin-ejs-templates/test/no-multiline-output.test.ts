@@ -37,6 +37,10 @@ describe('rule: ejs-templates/no-multiline-output', () => {
     ['a ternary with a non-literal branch', String.raw`<%- condition ? foo : '' %>`],
     ['a template literal, which can interpolate', "<%- condition ? `aaa\\nbbb` : '' %>"],
     ['a code tag', String.raw`<% condition ? 'aaa\nbbb' : '' %>`],
+    ['a tag spanning lines', "<%- condition\n  ? 'aaa\\nbbb'\n  : '' %>"],
+    ['a ternary inside a call', String.raw`<%- f(condition ? 'aaa\nbbb' : '') %>`],
+    ['a string with an escape it does not decode', String.raw`<%- condition ? 'aaa\nbbb\x41' : '' %>`],
+    ['a backslash before an n, which renders no line break', String.raw`<%- condition ? 'aaa\\nbbb' : '' %>`],
   ])('does not flag %s', (_label, template) => {
     expect(lint(template, rules)).toHaveLength(0);
   });

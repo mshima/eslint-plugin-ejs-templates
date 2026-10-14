@@ -114,18 +114,35 @@ describe('editTemplate', () => {
   });
 
   test.each([
-    ['out of the template', [{ offset: 3, length: 2 }]],
+    ['out of the template', [{ offset: 6, length: 2 }]],
     [
       'overlapping another edit',
       [
-        { offset: 0, length: 2 },
-        { offset: 1, length: 0 },
+        { offset: 0, length: 7 },
+        { offset: 3, length: 0 },
       ],
     ],
     ['cutting a tag', [{ offset: 0, length: 3 }]],
     ['in a tag', [{ offset: 1, length: 0 }]],
   ] as const)('refuses an edit %s', (_label, edits) => {
     expect(() => editTemplate('<% a %>', [...edits])).toThrow(RangeError);
+  });
+
+  test('applies the edits at an offset in their order', () => {
+    expect(
+      edit('a\n', [
+        { offset: 1, length: 0, text: ['x'] },
+        { offset: 1, length: 0, text: ['y'] },
+      ]),
+    ).toBe('axy\n');
+  });
+
+  // escapeText cannot write a text between the <%% and the line break the -%> before it drops (see escapeText): the
+  // edit writes the close delimiter of the literal mode %%>, the line break dropped with the rest.
+  test('inserts a text in the literal mode a <%% enters, before the line break a -%> drops', () => {
+    const edited = editTemplate('<% -%><%%\n%>', [{ offset: 9, length: 0, text: ['x<%'] }]);
+    expect([edited.template, edited.errors]).toEqual(['<% -%><%%x<%%%%>', []]);
+    expect([ejs.render('<% -%><%%\n%>'), ejs.render(edited.template)]).toEqual(['<%%>', '<%x<%%>']);
   });
 
   describe('against EJS', () => {

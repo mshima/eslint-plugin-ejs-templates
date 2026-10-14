@@ -37,10 +37,6 @@ const debug = createDebug('ejs-templates:processor');
 // ---------------------------------------------------------------------------
 // Slurping eligibility check
 // ---------------------------------------------------------------------------
-function isSingleLineAfterTrim(content: string): boolean {
-  const trimmed = content.trim();
-  return trimmed.length > 0 && !trimmed.includes('\n');
-}
 
 // ---------------------------------------------------------------------------
 // Function-wrapper helpers
@@ -239,37 +235,16 @@ function mapMessage(
  * const arr = 'foo'\n  .split();\n const y = 2;
  * ```
  * → `<%_ const arr = 'foo'.split(); _%>`, `<%_ const y = 2; _%>`  (dot-continuation joined)
+ *
+ * The tag is one `prefer-single-line-tags` reports, of several statements (`splitStatements()`), which split at the
+ * braces of its blocks alone: one tag a statement, never the tag itself.
  */
-function buildCollapsedTag(block: TagBlock, options?: { applyIndent?: boolean }): string {
-  const { javascriptPartialNode } = block;
-  if (!javascriptPartialNode) {
-    // Should not happen since we only call this on blocks with a successful JS parse, but guard just in case.
-    throw new Error(
-      `Cannot build collapsed tag for block at line ${String(block.tagLine)} due to missing javascriptPartialNode.`,
-    );
-  }
-  const applyIndent = options?.applyIndent ?? false;
-  // Also collapse multiline tags that become a single line after trim — but only when the
-  // content is a single statement. Content that is already one line can still hold several
-  // brace boundaries (`} }`), and those need the splitting path below rather than being handed
-  // back unchanged.
-  if (isSingleLineAfterTrim(block.codeContent) && javascriptPartialNode.splitStatements().length <= 1) {
-    const baseIndent = applyIndent ? block.expectedIndent : '';
-    return `${baseIndent}${block.openDelim} ${block.codeContent.trim()} ${block.closeDelim}`;
-  }
-
-  const hasBraces = javascriptPartialNode.hasStructuralBraces;
-  if (!hasBraces) {
-    // For non-structural multiline content, keep original formatting.
-    return `${block.openDelim}${block.codeContent}${block.closeDelim}`;
-  }
-
+function buildCollapsedTag(
+  block: TagBlock,
+  javascriptPartialNode: RelativeJavascriptNode,
+  applyIndent: boolean,
+): string {
   const tags = javascriptPartialNode.splitStatements();
-
-  if (tags.length === 1) {
-    const baseIndent = applyIndent ? block.expectedIndent : '';
-    return `${baseIndent}${block.openDelim} ${tags[0]} ${block.closeDelim}`;
-  }
 
   // An inline tag has template text either side of it, so the tags it splits into stay adjacent
   // on the same line and keep the original delimiters. Putting each on its own line would insert
@@ -384,8 +359,8 @@ function buildIndentedTag(block: TagBlock, options: { normalizeContent: boolean 
   return lines.join('\n');
 }
 
-function buildFormattedTag(block: TagBlock, options?: { multilineCloseOnNewLine?: boolean }): string {
-  const multilineCloseOnNewLine = options?.multilineCloseOnNewLine ?? false;
+function buildFormattedTag(block: TagBlock, options: { multilineCloseOnNewLine: boolean }): string {
+  const { multilineCloseOnNewLine } = options;
   const trimmedContent = block.codeContent.trim();
   const wasMultiline = block.codeContent.includes('\n');
 
@@ -835,17 +810,16 @@ function translateFix(
   fix: { range: [number, number]; text: string },
   block: TagBlock,
   options: {
-    applyIndentForSingleLineTags?: boolean;
+    applyIndentForSingleLineTags: boolean;
     /** The template, for the fixes spanning several tags: its blocks, and what EJS renders of its texts. */
-    template?: EjsTemplate;
+    template: EjsTemplate;
     /** The diagnostics of the template, the conventions its tags break, which the rules reporting them fix. */
-    diagnostics?: EjsDiagnostic[];
+    diagnostics: EjsDiagnostic[];
   },
 ): { range: [number, number]; text: string } | null {
   /** Whether ejs-template-parser diagnoses the tag of the block with a code. */
   const diagnosed = (code: EjsDiagnosticCode): boolean =>
-    options.diagnostics?.some((diagnostic) => diagnostic.code === code && diagnostic.offset === block.tagOffset) ??
-    false;
+    options.diagnostics.some((diagnostic) => diagnostic.code === code && diagnostic.offset === block.tagOffset);
   // no-comment-empty-line sentinel: handled before the javascriptPartialNode guard
   // because comment-empty-line blocks have no javascriptPartialNode.
   if (fix.range[0] === 0 && fix.text === SENTINEL_COMMENT_EMPTY_LINE) {
@@ -859,7 +833,7 @@ function translateFix(
     return null;
   }
 
-  const applyIndentForSingleLineTags = options.applyIndentForSingleLineTags ?? false;
+  const { applyIndentForSingleLineTags } = options;
   const trimmedCodeContent = block.codeContent.trim();
   // ── Sentinel fix detection ─────────────────────────────────────────────
   // All plugin-rule sentinels start at offset 0 in the virtual file.
@@ -924,34 +898,17 @@ function translateFix(
     };
   } else if (fix.text === SENTINEL_PREFER_SINGLE_LINE_TAGS_BRACES) {
     // prefer-single-line-tags: collapse a multiline tag while keeping content between braces in
-    // a single tag, and split a single-line tag that carries more than one brace boundary.
-    // `buildCollapsedTag` produces one tag per boundary either way.
-    if (block.tagType.endsWith('-multiline') || (block.javascriptPartialNode?.missingOpenBracesCount ?? 0) > 1) {
-      const { javascriptPartialNode } = block;
-      if (!javascriptPartialNode) {
-        // Should not happen since we only call this on blocks with a successful JS parse, but guard just in case.
-        throw new Error(
-          `Cannot translate fix for block at line ${String(block.tagLine)} due to missing javascriptPartialNode.`,
-        );
-      }
-      if (!javascriptPartialNode.hasStructuralBraces && !isSingleLineAfterTrim(block.codeContent)) {
-        return null;
-      }
-      const originalText = block.openDelim + block.codeContent + block.closeDelim;
-      const fixedText = buildCollapsedTag(block, {
-        applyIndent: applyIndentForSingleLineTags,
-      });
-      if (fixedText === originalText) {
-        return null;
-      }
-      const bracesModeIndentStart =
-        applyIndentForSingleLineTags && block.isStandalone ? block.tagOffset - block.tagColumn : block.tagOffset;
-      return {
-        range: [bracesModeIndentStart, block.tagOffset + block.tagLength],
-        text: fixedText,
-      };
-    }
-    return null;
+    // a single tag, and split a single-line tag that carries more than one brace boundary, a tag
+    // the parser diagnoses. `buildCollapsedTag` produces one tag per boundary either way.
+    const { javascriptPartialNode } = block;
+    if (!javascriptPartialNode || !diagnosed('prefer-single-line-tags')) return null;
+    const fixedText = buildCollapsedTag(block, javascriptPartialNode, applyIndentForSingleLineTags);
+    const bracesModeIndentStart =
+      applyIndentForSingleLineTags && block.isStandalone ? block.tagOffset - block.tagColumn : block.tagOffset;
+    return {
+      range: [bracesModeIndentStart, block.tagOffset + block.tagLength],
+      text: fixedText,
+    };
   } else if (fix.text === SENTINEL_OUTPUT_SEMI_ADD) {
     // output-semi (always): insert `;` at the end of the trimmed code content
     if (isOutputTagType(block.tagType)) {
@@ -975,7 +932,7 @@ function translateFix(
     // `<% if (cond) { %>a<% } else { %>b<% } %>` => `<%= cond ? 'a' : 'b' %>`
     // The strings are what EJS renders of the branches, not their source: `%%>` renders `%>`, and the
     // delimiters of the tags slurp blanks and line breaks around them.
-    if (block.tagType !== 'code' || block.openDelim !== '<%' || !options.template) {
+    if (block.tagType !== 'code' || block.openDelim !== '<%') {
       return null;
     }
 
@@ -1297,10 +1254,7 @@ function logVirtualCodeOnFatal(
   if (fatalMessages.length === 0) return;
 
   const renderedErrors = fatalMessages
-    .map(
-      (msg) =>
-        `- line ${String(msg.line)}, col ${String(msg.column)}: ${msg.message}${msg.ruleId ? ` [${msg.ruleId}]` : ''}`,
-    )
+    .map((msg) => `- line ${String(msg.line)}, col ${String(msg.column)}: ${msg.message}`)
     .join('\n');
   const virtualCode = `${GLOBAL_VIRTUAL_OPEN}${segments.map((s) => s.block.virtualCode).join('\n')}${GLOBAL_VIRTUAL_CLOSE}`;
   debug(
@@ -1440,13 +1394,8 @@ function extractUnusedDirectiveRuleIds(message: string): string[] {
 }
 
 /**
- * Find the matching `eslint-enable` directive for a given `eslint-disable` directive.
- *
- * Matching rules:
- * - `eslint-disable` with no rules matches the next `eslint-enable` with no rules
- * - `eslint-disable` with explicit rules matches the next `eslint-enable`
- *   - If enable has no rules, it re-enables all rules (matches)
- *   - If enable has explicit rules, they must be the same set (in any order)
+ * Find the matching `eslint-enable` directive for an `eslint-disable` directive listing rules: the next
+ * `eslint-enable` without a rule list, which re-enables them all, or with the same rules, in any order.
  *
  * Used for translating fixes that remove or update unused `eslint-disable` directives,
  * so the corresponding `eslint-enable` can be updated or removed together.
@@ -1454,65 +1403,32 @@ function extractUnusedDirectiveRuleIds(message: string): string[] {
 function findMatchingEnableDirective(
   blocks: TagBlock[],
   currentBlockIndex: number,
+  disableRuleIds: string[],
 ): { block: TagBlock; index: number } | null {
-  const currentBlock = blocks[currentBlockIndex];
   // An `eslint-disable-next-line` ends with its synthesized `eslint-enable`, which is no tag of the template.
-  if (!currentBlock.isDirectiveComment || currentBlock.nextLineDirective) {
+  if (blocks[currentBlockIndex].nextLineDirective) {
     return null;
   }
-
-  const currentDirectiveMatch = /^eslint-disable(?:-next-line)?(?:\s+(.*))?$/u.exec(currentBlock.codeContent);
-  if (!currentDirectiveMatch) {
-    return null;
-  }
-
-  const [, currentRuleListRaw = ''] = currentDirectiveMatch;
-  const ruleListText = currentRuleListRaw.trim();
-  if (ruleListText.length === 0) {
-    // eslint-disable with no explicit rule list matches eslint-enable with no rule list
-    for (let i = currentBlockIndex + 1; i < blocks.length; i++) {
-      const block = blocks[i];
-      if (block.isDirectiveComment && !block.nextLineDirective && /^eslint-enable(?:\s|$)/u.test(block.codeContent)) {
-        const enableMatch = /^eslint-enable(?:\s+(.*))?$/u.exec(block.codeContent);
-        if (enableMatch && (!enableMatch[1] || enableMatch[1].trim().length === 0)) {
-          return { block, index: i };
-        }
-      }
-    }
-  } else {
-    // eslint-disable with explicit rules matches eslint-enable with same rules (in any order)
-    const disableRuleIds = new Set(
-      ruleListText
+  const disabled = new Set(disableRuleIds);
+  for (let i = currentBlockIndex + 1; i < blocks.length; i++) {
+    const block = blocks[i];
+    if (!block.isDirectiveComment || block.nextLineDirective) continue;
+    const enableMatch = /^eslint-enable(?:\s+(.*))?$/u.exec(block.codeContent);
+    if (!enableMatch) continue;
+    const [, enableRuleListRaw = ''] = enableMatch;
+    const enableRuleIds = new Set(
+      enableRuleListRaw
         .split(',')
         .map((r) => r.trim())
         .filter((r) => r.length > 0),
     );
-
-    for (let i = currentBlockIndex + 1; i < blocks.length; i++) {
-      const block = blocks[i];
-      if (block.isDirectiveComment && !block.nextLineDirective && /^eslint-enable(?:\s|$)/u.test(block.codeContent)) {
-        const enableMatch = /^eslint-enable(?:\s+(.*))?$/u.exec(block.codeContent);
-        if (enableMatch) {
-          const [, enableRuleListRaw = ''] = enableMatch;
-          const enableRuleListText = enableRuleListRaw.trim();
-          if (enableRuleListText.length === 0) {
-            // eslint-enable with no rules matches any disable (stops at first enable)
-            return { block, index: i };
-          }
-          const enableRuleIds = new Set(
-            enableRuleListText
-              .split(',')
-              .map((r) => r.trim())
-              .filter((r) => r.length > 0),
-          );
-          if (disableRuleIds.size === enableRuleIds.size && [...disableRuleIds].every((r) => enableRuleIds.has(r))) {
-            return { block, index: i };
-          }
-        }
-      }
+    if (
+      enableRuleIds.size === 0 ||
+      (enableRuleIds.size === disabled.size && [...disabled].every((r) => enableRuleIds.has(r)))
+    ) {
+      return { block, index: i };
     }
   }
-
   return null;
 }
 
@@ -1596,7 +1512,7 @@ function translateUnusedDirectiveFix(
   };
 
   if (disableFix && blocks && blockIndex !== undefined) {
-    const matchingEnable = findMatchingEnableDirective(blocks, blockIndex);
+    const matchingEnable = findMatchingEnableDirective(blocks, blockIndex, currentRuleIds);
     if (matchingEnable) {
       const enableRuleListMatch = /^eslint-enable(?:\s+(.*))?$/u.exec(matchingEnable.block.codeContent);
       if (enableRuleListMatch) {

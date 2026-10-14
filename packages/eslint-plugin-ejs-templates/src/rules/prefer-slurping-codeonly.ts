@@ -36,9 +36,9 @@ export const preferSlurpingCodeonly: Rule.RuleModule = {
     return {
       Program() {
         for (const { comment } of getDiagnosticBlocks(context, 'prefer-slurping-codeonly')) {
-          const { range = [0, 0] } = comment;
+          const { range } = comment;
           context.report({
-            loc: comment.loc ?? { line: 0, column: 0 },
+            loc: comment.loc,
             messageId: 'preferSlurpingCodeonly',
             fix(fixer) {
               // Provide a sentinel fix. The processor's postprocess replaces

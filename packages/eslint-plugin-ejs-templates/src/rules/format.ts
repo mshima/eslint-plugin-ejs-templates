@@ -77,9 +77,9 @@ export const format: Rule.RuleModule = {
             continue;
           }
 
-          const { range = [0, 0] } = comment;
+          const { range } = comment;
           context.report({
-            loc: comment.loc ?? { line: 0, column: 0 },
+            loc: comment.loc,
             messageId: multilineClose === 'new-line' ? 'formatMultilineClose' : 'format',
             fix(fixer) {
               return fixer.replaceTextRange(

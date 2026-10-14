@@ -87,6 +87,17 @@ describe('validateTemplate', () => {
     );
   });
 
+  test('validates a template buildTemplate built', () => {
+    const template = buildTemplate('<%= a %>');
+    try {
+      expect(() => validateTemplate({ ...template })).toThrow(
+        'validateTemplate validates a template buildTemplate built',
+      );
+    } finally {
+      cleanupTemplate(template);
+    }
+  });
+
   test('frees a template disposed, as at the end of the block of a using declaration, once', () => {
     const template = buildTemplate('<%= a %>');
     template[Symbol.dispose]();
@@ -106,9 +117,11 @@ describe('validateTemplate', () => {
   });
 
   test('reports the JavaScript EJS cannot compile once a tag, each tag', () => {
-    expect(diagnosticsOf('a<%= foo( bar( ) %>b\n<% c(; %>\n')).toEqual([
+    // The last tag has two errors, tree-sitter recovering from `a b` and from `c d`.
+    expect(diagnosticsOf('a<%= foo( bar( ) %>b\n<% c(; %>\n<% a b; c d %>\n')).toEqual([
       ['javascript-error', 'error', '<%= foo( bar( ) %>'],
       ['javascript-error', 'error', '<% c(; %>'],
+      ['javascript-error', 'error', '<% a b; c d %>'],
     ]);
   });
 

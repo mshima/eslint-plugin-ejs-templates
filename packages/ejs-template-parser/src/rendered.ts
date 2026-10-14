@@ -67,7 +67,7 @@ export function renderText(
   let rendered = '';
   const renderedOffsets: number[] = [];
   /** The number of blanks of the text from an index of it. */
-  const afterBlanks = (from: number): number => /^[ \t]*/.exec(text.slice(from))?.[0].length ?? 0;
+  const afterBlanks = (from: number): number => text.slice(from).search(/[^ \t]|$/u);
   /**
    * After what the tag before the text slurps, then after the last rendered character and what it drops after it: a
    * text inserted there renders, and drops nothing more.

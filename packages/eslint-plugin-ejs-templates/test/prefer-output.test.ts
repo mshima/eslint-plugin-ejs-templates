@@ -142,6 +142,8 @@ describe('rule: ejs-templates/prefer-output', () => {
     ['an else closed with a statement', '<% if (a) { %>x<% } else { %>y<% b(); } %>'],
     ['an opening tag of several lines', '<% if (a) {\n %>x<% } %>'],
     ['a closing tag of several lines', '<% if (a) { %>x<% }\n %>'],
+    ['an if closing its own block before an else', '<% if (a) { b(); } else { %>x<% } %>'],
+    ['an else closed by a tag of more than its brace', '<% if (a) { %>x<% } else { %>y<% } c(); %>'],
   ])('does not flag an if wrapper with %s', (_label, input) => {
     expect(lint(input, { 'ejs-templates/prefer-output': 'error' })).toEqual([]);
   });

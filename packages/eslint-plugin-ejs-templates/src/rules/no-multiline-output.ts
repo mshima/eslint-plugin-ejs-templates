@@ -62,11 +62,7 @@ export const noMultilineOutput: Rule.RuleModule = {
             continue;
           }
 
-          const commentLine = comment.loc?.start.line;
-          if (commentLine === undefined) {
-            continue;
-          }
-
+          const commentLine = comment.loc.start.line;
           const block = nonDirectiveSegments.find((segment) => segment.startLine === commentLine)?.block;
           if (!block || !getMultilineOutputConditionalParts(block)) {
             continue;
@@ -75,15 +71,9 @@ export const noMultilineOutput: Rule.RuleModule = {
           // Reported whether or not it can be fixed: `translateFix` withholds the fix for a
           // `<%=` tag whose text needs escaping, where no rewrite preserves the output.
           context.report({
-            loc: comment.loc ?? { start: { line: 1, column: 0 }, end: { line: 1, column: 0 } },
+            loc: comment.loc,
             messageId: 'noMultilineOutput',
-            fix: (fixer) => {
-              const range = comment.range;
-              if (!range) {
-                return null;
-              }
-              return fixer.replaceTextRange([range[0], range[1]], SENTINEL_NO_MULTILINE_OUTPUT);
-            },
+            fix: (fixer) => fixer.replaceTextRange(comment.range, SENTINEL_NO_MULTILINE_OUTPUT),
           });
         }
       },

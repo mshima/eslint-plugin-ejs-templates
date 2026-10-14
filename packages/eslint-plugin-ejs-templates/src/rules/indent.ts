@@ -96,9 +96,9 @@ export const indent: Rule.RuleModule = {
         }
 
         for (const { comment, data } of reports) {
-          const { range = [0, 0] } = comment;
+          const { range } = comment;
           context.report({
-            loc: comment.loc ?? { line: 0, column: 0 },
+            loc: comment.loc,
             ...(data ? { messageId: 'indent', data } : { messageId: 'indentContent' }),
             fix(fixer) {
               // Sentinel fix — the processor's postprocess translates this
