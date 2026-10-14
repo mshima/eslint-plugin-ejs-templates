@@ -7,7 +7,7 @@ EJS files are parsed by [ejs-template-parser](https://github.com/mshima/eslint-p
 ## Features
 
 - **EJS processor** – extracts each EJS tag into its own virtual JS block so standard ESLint rules can inspect the embedded JavaScript
-- **Autofix support** – most rules support autofix; run `eslint --fix` to apply fixes (`no-global-function-call`, `no-function-block`, `no-stray-close-delimiter` and `no-comment-across-tags` have no autofix)
+- **Autofix support** – most rules support autofix; run `eslint --fix` to apply fixes (`no-comment-across-tags`, `no-complex-statements`, `no-function-block` and `no-global-function-call` have no autofix; `no-stray-close-delimiter` has suggestions)
 - **Autofix for built-in [`no-negated-condition`](#autofix-for-the-built-in-no-negated-condition-rule)** – supplies the fix ESLint itself cannot produce for EJS `if`/`else` tag pairs
 - [`ejs-templates/no-comment-across-tags`](#ejs-templatesno-comment-across-tags) – flags a block comment opened in a tag and closed in a later one, which comments out the template in between
 - [`ejs-templates/no-comment-empty-line`](#ejs-templatesno-comment-empty-line) – flags comment tags that leave an empty line (missing `-%>` close)
@@ -53,9 +53,13 @@ export default defineConfig([
     files: ['**/*.ejs'],
     rules: {
       // No specific ordering requirement:
+      'ejs-templates/no-comment-across-tags': 'error',
       'ejs-templates/no-comment-empty-line': 'error',
+      'ejs-templates/no-complex-statements': 'error',
       'ejs-templates/no-function-block': 'error',
       'ejs-templates/no-global-function-call': 'error',
+      'ejs-templates/no-multiline-output': 'error',
+      'ejs-templates/no-stray-close-delimiter': 'error',
       'ejs-templates/output-semi': ['error', 'never'],
       'ejs-templates/prefer-output': 'error',
       'ejs-templates/prefer-encoded': 'error', // 'always' (default) or 'never'
@@ -116,6 +120,29 @@ export default defineConfig([
 | `stylisticBlocklist` | `boolean`                            | `false`       | Turns off `@stylistic` rules that conflict with EJS formatting (`eol-last`, `brace-style` and `multiline-ternary`)                                       |
 | `prettierBlocklist`  | `boolean`                            | `false`       | Turns off the `prettier/prettier` rule when Prettier is also configured                                                                                  |
 
+`customize()` turns on every rule of the plugin with `error` but
+`experimental-prefer-slurp-multiline` (with `experimental`) and `prefer-encoded` (by `html`). It
+leaves alone an `ejs-templates` rule the configurations it is given set, and reads the rules of
+`@stylistic` they turn on:
+
+- `@stylistic/indent` indents the lines of the code of tags: `indent-content`, which indents the
+  same lines, is off. `indent-tag` places the tags, and the messages of `@stylistic/indent` on the
+  first line of a tag are dropped.
+- `@stylistic/indent-binary-ops` asks for some lines of right operands as much indentation as the
+  line their expression starts on: `indent-content` accepts it (`binaryOperands: 'greaterOrEqual'`).
+
+A configuration like generator-jhipster's:
+
+```js
+export default defineConfig([
+  ...ejs.configs.customize(
+    { html: 'never', stylisticBlocklist: true, prettierBlocklist: true, experimental: true },
+    js.configs.recommended,
+    stylistic.configs.customize({ jsx: false, semi: true }),
+  ),
+]);
+```
+
 Then run ESLint as usual:
 
 ```sh
@@ -129,6 +156,14 @@ npx eslint --fix "**/*.ejs"
 > The EJS processor lints each tag as a separate virtual JavaScript block.
 > `no-undef` diagnostics are suppressed internally for `*.ejs` virtual blocks,
 > so you do not need to disable `no-undef` in your ESLint config.
+
+> **Note on the code the processor adds**
+>
+> The virtual JavaScript has code the template does not: a marker comment before the code of each
+> tag, a `;` after the expression of an output tag, a `void 0;` line after a tag opening a block,
+> and a function and a block around them all. The messages of other rules on that code are
+> dropped. Every line of the code of a tag is at its column in the template, so that rules
+> measuring indentation measure it as there.
 
 > **Note on ESLint directives in EJS comments**
 >
@@ -489,7 +524,27 @@ calls like `method()`.
 
 Options:
 
-- `{ allow: ['name1', 'name2'] }` — adds direct function names to the allowlist
+- `{ allow: ['name1', 'name2'] }` — adds direct function names to the allowlist; `customize()` sets
+  it from `allowedGlobals`
+
+```js
+// eslint.config.js
+{
+  files: ['**/*.ejs'],
+  rules: {
+    'ejs-templates/no-global-function-call': ['error', { allow: ['include'] }],
+  },
+}
+```
+
+Security implications:
+
+- Allowing dangerous direct calls (for example `exec()`) inside templates can
+  lead to command execution risks if arguments are user-controlled.
+- Prefer keeping the allowlist minimal and avoid granting process-execution
+  primitives to template code.
+- If your project must allow such calls, validate/sanitize all inputs and
+  isolate execution contexts.
 
 ### Autofix for the built-in `no-negated-condition` rule
 
@@ -617,25 +672,6 @@ configure yourself untouched:
 }
 ```
 
-### `ejs-templates/no-output-negated-condition`
-
-Removed, along with its later name `ejs-templates/no-output-negated-ternary`.
-Negated output ternaries are reported by ESLint's built-in `no-negated-condition`
-rule, and this plugin supplies the autofix — see
-[Autofix for the built-in `no-negated-condition` rule](#autofix-for-the-built-in-no-negated-condition-rule).
-
-Replace either rule name with the built-in one:
-
-```js
-// eslint.config.js
-{
-  files: ['**/*.ejs'],
-  rules: {
-    'no-negated-condition': 'error',
-  },
-}
-```
-
 ### `ejs-templates/no-stray-close-delimiter`
 
 Disallows a close delimiter (`%>`, `-%>`, `_%>`) in the text of a template, outside of any tag.
@@ -679,8 +715,8 @@ it; `eslint-disable-next-line` and a range closed by `eslint-enable` cannot.
 
 ### `ejs-templates/output-semi`
 
-Enforces semicolon style at the end of single-line output tag content in
-`<%= ... %>` and `<%- ... %>`.
+Enforces semicolon style at the end of the content of output tags, `<%= ... %>` and `<%- ... %>`,
+on one line or spanning lines.
 
 This rule is independent from the ordered formatting pipeline
 (`experimental-prefer-slurp-multiline` → `format`) and does not affect the
@@ -717,25 +753,6 @@ Options:
 <!-- fixed -->
 <%= value; %>
 ```
-
-```js
-// eslint.config.js
-{
-  files: ['**/*.ejs'],
-  rules: {
-    'ejs-templates/no-global-function-call': ['error', { allow: ['include'] }],
-  },
-}
-```
-
-Security implications:
-
-- Allowing dangerous direct calls (for example `exec()`) inside templates can
-  lead to command execution risks if arguments are user-controlled.
-- Prefer keeping the allowlist minimal and avoid granting process-execution
-  primitives to template code.
-- If your project must allow such calls, validate/sanitize all inputs and
-  isolate execution contexts.
 
 ### `ejs-templates/prefer-encoded`
 
@@ -963,6 +980,33 @@ some text
 <%_ doWork(); _%>
 ```
 
+## Removed and renamed rules
+
+### `ejs-templates/indent`
+
+Split into [`indent-tag`](#ejs-templatesindent-tag), which places a tag at its depth of blocks, and
+[`indent-content`](#ejs-templatesindent-content), which indents the lines of a tag spanning lines
+with it. Its `normalizeContent` option is `indent-content`, turned on or off.
+
+### `ejs-templates/no-output-negated-condition`
+
+Removed, along with its later name `ejs-templates/no-output-negated-ternary`.
+Negated output ternaries are reported by ESLint's built-in `no-negated-condition`
+rule, and this plugin supplies the autofix — see
+[Autofix for the built-in `no-negated-condition` rule](#autofix-for-the-built-in-no-negated-condition-rule).
+
+Replace either rule name with the built-in one:
+
+```js
+// eslint.config.js
+{
+  files: ['**/*.ejs'],
+  rules: {
+    'no-negated-condition': 'error',
+  },
+}
+```
+
 ## Supported EJS Delimiters
 
 | Delimiter | Meaning                                |
@@ -972,6 +1016,8 @@ some text
 | `<%-`     | Output (raw / unescaped)               |
 | `<%_`     | Code, trims preceding whitespace       |
 | `<%#`     | Comment (no output)                    |
+| `<%%`     | A literal `<%` in the text             |
+| `%%>`     | A literal `%>` in the text             |
 | `%>`      | Standard closing delimiter             |
 | `-%>`     | Closing delimiter, trims trailing `\n` |
 | `_%>`     | Closing delimiter, trims whitespace    |

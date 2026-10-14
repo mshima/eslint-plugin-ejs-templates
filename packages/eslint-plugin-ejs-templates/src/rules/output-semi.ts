@@ -22,7 +22,7 @@ import { getTagBlocks, isOutputTagType, SENTINEL_OUTPUT_SEMI_ADD, SENTINEL_OUTPU
  * - `"always"`: require a semicolon at the end of every output tag.
  * - `"never"` (default): disallow semicolons at the end of output tags.
  *
- * Only single-line output tags are checked; multiline variants are ignored.
+ * Output tags on one line and spanning lines are checked alike.
  */
 export const outputSemi: Rule.RuleModule = {
   meta: {
