@@ -450,6 +450,12 @@ export function getMultilineOutputConditionalParts(block: TagBlock): MultilineOu
     return null;
   }
 
+  // A ternary whose strings render a line break has a `?` and an escaped `\n`: the tree of any other code is not read,
+  // which ejs-template-parser parses only when it is.
+  if (!block.codeContent.includes('?') || !block.codeContent.includes('\\n')) {
+    return null;
+  }
+
   const conditionalNode = partialNode.nodes.find(
     (node) => node.type === 'ternary_expression' && node.parent?.type === 'expression_statement',
   );

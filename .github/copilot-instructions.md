@@ -366,21 +366,33 @@ whatever you were investigating. In tests, free them in a `finally` block; see t
 
 ### Performance invariant: one parse of the program, linear walks
 
-The parser reads the JavaScript of a template once as a whole: `getEjsTags()` parses the code of
-each tag alone, which tells the braces it opens and closes, then builds the program of the template
-as EJS compiles it (`EjsProgram`: a function, a statement for each text and code tag, the blocks its
-tags close without opening opened before them, and the ones they leave open closed after them),
-which it parses once, when it is first read. An unbalanced tag (a `<% } %>`, an `if (a) {`) reads its
-nodes there, inside its blocks; `validateTemplate()` finds the errors and the comments across tags
-there. The program is freed with the last tag freed (`javascript.cleanup()`).
+The parser reads the JavaScript of a template once as a whole. `getEjsTags()` builds the program of
+the template as EJS compiles it (`EjsProgram`: a function, a statement for each text and code tag)
+and parses it once. When it parses without an error, and no comment in it crosses a tag, each code
+tag is read there: its braces, its `{`, `${` and `}` tokens, and whether it parses alone
+(`javascript.parsesAlone`: they balance, and no node of the program crosses an edge of its code, the
+`;` EJS ends it with aside). An unbalanced tag (a `<% } %>`, an `if (a) {`) reads its nodes there,
+inside its blocks; a tag parsing alone is parsed alone only when its tree is read (`contentNode`,
+`nodes`, `hasStructuralBraces`, `splitStatements()`). `validateTemplate()` finds the errors and the
+comments across tags in the program too. A program with an error, or a comment across tags, does
+not tell what the tags parse as alone: each code tag is then parsed alone, as the parser did before
+it built the program, and the braces of the code a comment across tags comments out count; the
+program its unbalanced tags read their nodes in then opens the blocks they close without opening,
+and closes the ones they leave open. The program is freed with the last tag freed
+(`javascript.cleanup()`).
 
-Everything stays linear in the length of the template, which the parser's
-`test/performance.test.ts` guards by counting characters fed to the parser: doubling a template must
-not much more than double them (it deliberately does not assert wall-clock time, which flakes in CI).
-Two things would break it. Parsing a tag again with the code of the tags before it, as the parser did
-until it built the program: a 32KB template took ~3.9s when that context grew with the template. And
-walking the program once for each tag: its nodes are collected in one walk for all the unbalanced
-tags (`collectNodesInRanges()`), which goes down only to the nodes across their code. The plugin's
+A tree read is a parse: a rule of the plugin reading the tree of every tag parses every tag alone
+again. Check what the text of a tag tells first (`no-multiline-output` reads the tree of an output
+tag only when its code has a `?` and an escaped `\n`; `prefer-output`, of a tag written `if (…) {`).
+The parser's `test/performance.test.ts` asserts that a template whose program parses is parsed once.
+
+Everything stays linear in the length of the template, which `test/performance.test.ts` guards by
+counting characters fed to the parser: doubling a template must not much more than double them (it
+deliberately does not assert wall-clock time, which flakes in CI). Two things would break it.
+Parsing a tag again with the code of the tags before it, as the parser did until it built the
+program: a 32KB template took ~3.9s when that context grew with the template. And walking the
+program once for each tag: its nodes are collected in one walk for all the unbalanced tags
+(`collectNodesInRanges()`), which goes down only to the nodes across their code. The plugin's
 `extractTagBlocks()` reads each tag of `getEjsTags()` once, for the same reason.
 
 ### The conventions of the tags, shared
@@ -484,9 +496,9 @@ under them and fails in Node ("require is not defined in ES module scope") — w
 ```
 
 `RelativeJavascriptNode` (from the parser's `src/javascript-parser.ts`) is not a bare tree-sitter
-node. It
-carries `contentNode`, the `nodes` starting inside the original content, `bracesDelta` /
-`missingOpenBracesCount` / `missingCloseBracesCount`, `splitStatements()`, and `cleanup()`.
+node. It carries `parsesAlone`, `contentNode` (the code parsed alone, parsed when read), the `nodes`
+starting inside the original content, `bracesDelta` / `missingOpenBracesCount` /
+`missingCloseBracesCount`, `splitStatements()`, and `cleanup()`.
 
 ---
 

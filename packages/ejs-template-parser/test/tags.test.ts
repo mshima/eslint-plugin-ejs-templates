@@ -188,4 +188,25 @@ describe('getEjsTags', () => {
   test('a partial template closing a block another template opens goes below zero', () => {
     expect(tagsOf('A\n<%_ } _%>\nB').map((tag) => [tag.depthBefore, tag.depthAfter])).toEqual([[0, -1]]);
   });
+
+  // A template whose program parses has its tags read there: a statement without its semicolon, which the `;` EJS adds
+  // ends, parses alone; a case, which goes on in the tags after it, does not.
+  test.each([
+    ['a statement without its semicolon', '<% const a = 1 %>\nx\n', 0, true, 'code-slurpable'],
+    ['a case of a switch', '<% switch (k) { %><% case 1: %>one<% } %>', 1, false, 'code'],
+    ['an if opening a block', '<% if (a) { %>A<% } %>', 0, false, 'code'],
+  ])('whether a tag parses alone, read in the program: %s', (_label, text, index, alone, shape) => {
+    const tag = tagsOf(text)[index];
+    expect(tag.type === 'comment' ? undefined : [tag.javascript.parsesAlone, tag.shape]).toEqual([alone, shape]);
+  });
+
+  // The program of a template with a comment across tags comments out the code between: each tag is parsed alone
+  // instead, and the braces of the code the comment comments out count.
+  test('counts the braces of the code a comment across tags comments out', () => {
+    expect(tagsOf('<% /* %><% if (a) { %>A<% } */ %>').map((tag) => [tag.depthBefore, tag.depthAfter])).toEqual([
+      [0, 0],
+      [0, 1],
+      [1, 0],
+    ]);
+  });
 });

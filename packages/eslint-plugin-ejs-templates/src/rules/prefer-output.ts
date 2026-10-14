@@ -66,6 +66,9 @@ export const preferOutput: Rule.RuleModule = {
           const firstSegment = nonDirectiveSegments[i];
           const firstBlock = firstSegment.block;
 
+          // `if (…) {`, then `}` or `} else {`: the trees of the tags, which ejs-template-parser parses only when they
+          // are read, are read for code written so alone.
+          if (!/^\s*if\b/u.test(firstBlock.codeContent) || !/\{\s*$/u.test(firstBlock.codeContent)) continue;
           const firstPartialNode = firstBlock.javascriptPartialNode;
           if (!firstPartialNode || firstPartialNode.multilineOriginal || firstPartialNode.contentNode.childCount !== 1)
             continue;
@@ -79,7 +82,7 @@ export const preferOutput: Rule.RuleModule = {
 
           const nextBlock = nonDirectiveSegments.at(i + 1)?.block;
           if (nextBlock?.tagType !== 'code') continue;
-          if (nextBlock.originalLine !== firstBlock.originalLine) continue;
+          if (nextBlock.originalLine !== firstBlock.originalLine || !/^\s*\}/u.test(nextBlock.codeContent)) continue;
           const nextPartialNode = nextBlock.javascriptPartialNode;
           if (!nextPartialNode || nextPartialNode.multilineOriginal || nextPartialNode.contentNode.childCount !== 1) {
             continue;
@@ -94,7 +97,12 @@ export const preferOutput: Rule.RuleModule = {
             if (errorNode.child(1)?.type !== 'else' || errorNode.child(2)?.type !== '{') continue;
 
             const elseCloseBlock = nonDirectiveSegments.at(i + 2)?.block;
-            if (elseCloseBlock?.originalLine !== firstBlock.originalLine) continue;
+            if (
+              elseCloseBlock?.originalLine !== firstBlock.originalLine ||
+              !/^\s*\}/u.test(elseCloseBlock.codeContent)
+            ) {
+              continue;
+            }
             const elseCloseErrorNode = elseCloseBlock.javascriptPartialNode?.contentNode.child(0);
             if (elseCloseErrorNode?.type !== 'ERROR' || elseCloseErrorNode.child(0)?.type !== '}') continue;
 

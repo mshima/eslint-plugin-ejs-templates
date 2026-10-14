@@ -142,7 +142,7 @@ export function buildTemplate(text: string): EjsTemplate {
     }
     const tag = tags[tagIndex++];
     ordered.push(tag);
-    if (tag.type === 'comment' || !tag.javascript.contentNode.hasError) {
+    if (tag.type === 'comment' || tag.javascript.parsesAlone) {
       current().push(tag);
       continue;
     }
