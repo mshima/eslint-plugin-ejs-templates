@@ -159,10 +159,9 @@ npx eslint --fix "**/*.ejs"
 > **Note on the code the processor adds**
 >
 > The virtual JavaScript has code the template does not: a marker comment before the code of each
-> tag, a `;` after the expression of an output tag, a `void 0;` line after a tag opening a block,
-> and a function and a block around them all. The messages of other rules on that code are
-> dropped. Every line of the code of a tag is at its column in the template, so that rules
-> measuring indentation measure it as there.
+> tag, a `;` after the expression of an output tag, and a function and a block around them all.
+> The messages of other rules on that code are dropped. Every line of the code of a tag is at its
+> column in the template, so that rules measuring indentation measure it as there.
 
 > **Note on ESLint directives in EJS comments**
 >

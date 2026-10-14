@@ -272,15 +272,17 @@ describe('processor virtual code', () => {
     expect(blocks[0].virtualCode).toContain('name;');
   });
 
-  test('code tag ending with { gets void 0 appended', () => {
-    const blocks = extractTagBlocks(buildTemplate('<%_ if (x) { _%>').tags);
-    expect(blocks[0].virtualCode).toContain('void 0;');
-    expect(blocks[0].virtualBodyExtraLine).toBe('\nvoid 0;');
+  test('a code tag opening a block is its code alone', () => {
+    const blocks = extractTagBlocks(buildTemplate('<%_ if (x) { _%>\n<%_ } _%>').tags);
+    expect(blocks[0].virtualCode).toBe('//@ejs-tag:slurp\n    if (x) {');
   });
 
-  test('code tag NOT ending with { does not get void 0', () => {
-    const blocks = extractTagBlocks(buildTemplate('<%_ doWork(); _%>').tags);
-    expect(blocks[0].virtualCode).not.toContain('void 0;');
+  // The block holds the marker comments of the tags in it: never empty, nothing in it but text or not.
+  test.each([
+    ['text alone in it', '<% if (x) { %>a<% } %>\n'],
+    ['nothing in it', '<% if (x) { %><% } %>\n'],
+  ])('no-empty reports nothing on a block across tags, %s', (_label, template) => {
+    expect(lint(template, { 'no-empty': 'error' })).toEqual([]);
   });
 
   test('structural slurp tag keeps code body in virtual block', () => {
