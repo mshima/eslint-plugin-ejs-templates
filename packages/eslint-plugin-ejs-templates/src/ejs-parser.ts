@@ -108,7 +108,7 @@ export type CommentTagBlock = BlockBase & {
    * covers the comment tag itself, `enable` is synthesized after the next tag and carries that
    * tag's position, so it is no tag of its own to fix.
    */
-  nextLineDirective?: 'disable' | 'enable';
+  nextLineDirective?: 'disable' | 'enable' | undefined;
 };
 
 /** A single extracted EJS tag together with its position in the original file. */
@@ -135,7 +135,7 @@ function createDirectiveCommentBlock(params: {
   lineIndent: string;
   isStandalone: boolean;
   closeDelim: EjsClosingDelimiter;
-  nextLineDirective?: 'disable' | 'enable';
+  nextLineDirective?: 'disable' | 'enable' | undefined;
 }): CommentTagBlock {
   const {
     ejsNode,

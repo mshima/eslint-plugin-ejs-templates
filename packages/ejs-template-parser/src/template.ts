@@ -34,7 +34,7 @@ export type EjsBranch = {
    * `while_statement`, `do_statement`, `try_statement`, `catch_clause`, `finally_clause`, `switch_statement`,
    * `arrow_function` or `function_expression` (a callback, like `forEach(item => {`).
    */
-  statement?: string;
+  statement?: string | undefined;
   children: EjsTemplateNode[];
 };
 

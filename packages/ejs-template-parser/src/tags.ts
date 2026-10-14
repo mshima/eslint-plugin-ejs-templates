@@ -321,16 +321,16 @@ function crossesCode(root: SyntaxNode, source: string, codeStart: number, code: 
 }
 
 /**
- * The program of a template parsed, and the code of each code tag read there; none without a code tag. The program of
+ * The program of a template parsed, and the code of each code tag read there; no tree without a code tag. The program of
  * a partial template is parsed again, once its braces are read: the blocks its tags close without opening opened
  * before them, and the ones they leave open closed after them.
  */
 function readProgram(
   nodes: readonly EjsSyntaxNode[],
   written: WrittenTag[],
-): { source: string; codes: CodeInProgram[]; tree: Tree; read: CodeRead[] } | undefined {
+): { source: string; codes: CodeInProgram[]; tree: Tree | undefined; read: CodeRead[] } {
   const plain = programSource(nodes, written, 0, 0);
-  if (plain.codes.length === 0) return undefined;
+  if (plain.codes.length === 0) return { ...plain, tree: undefined, read: [] };
   const tree = parseJavaScript(plain.source);
   const read = readInProgram(tree.rootNode, plain.source, plain.codes);
   /** The depth after the codes, and the lowest one they reach: the blocks they close without opening, below 0. */
@@ -360,8 +360,8 @@ export function getEjsTags(nodes: readonly EjsSyntaxNode[]): EjsTag[] {
   const parsed = readProgram(nodes, written);
 
   // The tree of the program, freed with the last code tag freed.
-  let tree = parsed?.tree;
-  let live = parsed?.codes.length ?? 0;
+  let { tree } = parsed;
+  let live = parsed.codes.length;
   const release = (): void => {
     if (--live > 0) return;
     tree?.delete();
@@ -372,7 +372,7 @@ export function getEjsTags(nodes: readonly EjsSyntaxNode[]): EjsTag[] {
     return tree.rootNode;
   };
   const ejsProgram: EjsProgram = {
-    source: parsed?.source ?? '',
+    source: parsed.source,
     ranges: [],
     get root() {
       return root();
@@ -380,12 +380,11 @@ export function getEjsTags(nodes: readonly EjsSyntaxNode[]): EjsTag[] {
   };
   /** The ranges of the code of the tags not parsing alone, whose nodes are read in the program, in one walk. */
   const unbalanced: { start: number; end: number }[] = [];
-  let unbalancedNodes: Map<number, SyntaxNode[]> | undefined;
-  const inProgram = (start: number) => (): CodeInTree => ({
+  let unbalancedNodes: SyntaxNode[][] | undefined;
+  /** The code of a tag at `start` in the program, its range the one at `index` among the `unbalanced` ones. */
+  const inProgram = (start: number, index: number) => (): CodeInTree => ({
     start,
-    // A tag reading its nodes in the program has its range in `unbalanced`, which the walk gives nodes to.
-    /* v8 ignore next -- @preserve */
-    nodes: () => (unbalancedNodes ??= collectNodesInRanges(root(), unbalanced)).get(start) ?? [],
+    nodes: () => (unbalancedNodes ??= collectNodesInRanges(root(), unbalanced))[index],
   });
 
   const tags: EjsTag[] = [];
@@ -396,11 +395,13 @@ export function getEjsTags(nodes: readonly EjsSyntaxNode[]): EjsTag[] {
       tags.push({ ...tag, depthBefore: braceDepth, depthAfter: braceDepth });
       continue;
     }
-    // A template with a code tag has a program.
-    /* v8 ignore next -- @preserve */
-    if (!parsed) throw new Error('Unexpectedly did not find the program of a code tag');
     const { start, end, codeStart } = parsed.codes[codeIndex];
-    const javascript = readTagCode(tag.parsedCode, parsed.read[codeIndex++], inProgram(codeStart), release);
+    const javascript = readTagCode(
+      tag.parsedCode,
+      parsed.read[codeIndex++],
+      inProgram(codeStart, unbalanced.length),
+      release,
+    );
     const depthBefore = braceDepth;
     braceDepth += javascript.bracesDelta;
     const shape = shapeOf(tag.openDelim, tag.closeDelim, javascript.parsesAlone);
