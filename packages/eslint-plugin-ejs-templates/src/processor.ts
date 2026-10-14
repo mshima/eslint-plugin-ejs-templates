@@ -119,7 +119,6 @@ const GLOBAL_VIRTUAL_CLOSE = '\n}\n})();';
  * Line 2:   <first JS>[virtualBodyInlineSuffix]
  *           ← block.originalLine
  * Line 2+n: <further JS lines>               ← block.originalLine + n
- * Line 2+m: [virtualBodyExtraLine]            ← filtered out (maps to tag position)
  * ```
  */
 /**
@@ -131,18 +130,6 @@ const GLOBAL_VIRTUAL_CLOSE = '\n}\n})();';
  */
 /** The rule of `@stylistic` indenting every line, which judges the lines of the code of tags alone. */
 const STYLISTIC_INDENT = '@stylistic/indent';
-
-/**
- * Whether a message of another plugin is on the line the processor adds after the code of a tag opening a block
- * (`void 0;`, the block not empty): generated code, which the author never wrote.
- */
-function isSyntheticLineMessage(msg: Linter.LintMessage, segment: VirtualBlockSegment): boolean {
-  const { block } = segment;
-  if (block.virtualBodyExtraLine.length === 0) return false;
-  if (msg.ruleId === null || msg.ruleId.startsWith('ejs-templates/')) return false;
-  // The marker on the first line of the block, the code on the next ones, then the line added.
-  return msg.line === segment.startLine + block.lintCodeContent.split('\n').length + 1;
-}
 
 function isSyntheticSuffixMessage(msg: Linter.LintMessage, segment: VirtualBlockSegment): boolean {
   const { block } = segment;
@@ -873,7 +860,7 @@ function translateFix(
 
   // ── General JS fix ─────────────────────────────────────────────────────
   // The virtual code body is:
-  //   <codeContent><virtualBodyInlineSuffix><virtualBodyExtraLine>
+  //   <codeContent><virtualBodyInlineSuffix>
   //
   // codeContent starts at byte offset:
   //   codeContentStart = markerLen + virtualIndent
@@ -1372,11 +1359,9 @@ function translateUnusedDirectiveFix(
  * Every per-tag block contains the original tag content (no synthetic
  * per-block braces).  The first line of every per-tag block is a single-line
  * comment (`//@ejs-tag:<type>`) that encodes the tag type so plugin rules can
- * detect EJS-specific patterns.  Global brace balancing (synthetic `}`
- * characters) is appended before the IIFE close when the cumulative net brace
- * delta across all tags is positive, keeping isolated unbalanced fragments
- * parseable while still handling cross-tag constructs like `forEach(x => { … })`
- * correctly.
+ * detect EJS-specific patterns. No brace is added: a template whose tags do not balance their blocks does
+ * not parse, and the parser tells its errors (`javascript-error`, `unclosed-block`, `unopened-close`), which
+ * `postprocess()` reports.
  *
  * Parsing is backed by tree-sitter-embedded-template for accurate position
  * information and robust syntax handling.
@@ -1601,11 +1586,6 @@ export const processor: Linter.Processor = {
           // about a character the author never wrote — `@stylistic/semi` in `never` mode would
           // otherwise flag every output tag for a semicolon that is not in the template.
           if (isSyntheticSuffixMessage(normalizedMsg, segment)) {
-            return [];
-          }
-
-          // The line the processor adds after the code of a tag opening a block, `void 0;`, is generated too.
-          if (isSyntheticLineMessage(normalizedMsg, segment)) {
             return [];
           }
 

@@ -542,10 +542,10 @@ what EJS renders") — whitespace slurping is easy to reason about wrongly in ei
 
 ### Generated characters must stay invisible to rules
 
-The virtual JavaScript contains characters the author never wrote: the `//@ejs-tag:` marker, a
-`;` appended to an output tag's expression so it forms a statement, and the `void 0;` line after
-the code of a tag opening a block, which keeps the block from being empty
-(`isSyntheticLineMessage()`). A rule reporting on one of
+The virtual JavaScript contains characters the author never wrote: the `//@ejs-tag:` marker, and
+a `;` appended to an output tag's expression so it forms a statement. A block a tag opens needs
+nothing to keep it from being empty: it holds the marker of the next tag, a comment, which
+`no-empty` takes for content. A rule reporting on one of
 those is reporting on generated code, and its message must be dropped in `postprocess()`.
 
 The suffix is appended for every output tag, single-line or multiline, and skipped when the

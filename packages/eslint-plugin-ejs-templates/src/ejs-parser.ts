@@ -25,11 +25,10 @@ type BlockBase = {
    * Line 2:   <codeContent>[virtualBodyInlineSuffix]
    *           ← block.originalLine
    * Line 2+n: <further JS lines>              ← block.originalLine + n
-   * Line 2+m: [virtualBodyExtraLine]          ← optional extra line (e.g. `void 0;`)
    * ```
    *
-   * Brace balancing is done at the **global** level in `preprocess` (not per-block),
-   * so that cross-tag constructs like `forEach(x => { ... })` work correctly.
+   * No brace is added: a block a tag opens is closed by a later one, as in the template, and holds the
+   * marker comments of the tags in it, so that `no-empty` never reports it.
    */
   virtualCode: string;
   /** 1-based line in the original EJS file where the opening delimiter starts. */
@@ -83,13 +82,6 @@ type BlockBase = {
    * Empty string for other tags.
    */
   virtualBodyInlineSuffix: string;
-  /**
-   * Optional extra line injected into the virtual body AFTER `codeContent` and
-   * BEFORE `syntheticSuffix`.  Used for code/slurp tags whose trimmed content
-   * ends with `{`: appends `void 0;` to suppress ESLint `no-empty` errors
-   * on the opened block.  Empty string when not needed.
-   */
-  virtualBodyExtraLine: string;
   /** Whether the tag is standalone (only whitespace before it on the same line). */
   isStandalone: boolean;
 };
@@ -174,7 +166,6 @@ function createDirectiveCommentBlock(params: {
     lineIndent,
     expectedIndent: lineIndent,
     virtualBodyInlineSuffix: '',
-    virtualBodyExtraLine: '',
     isStandalone,
     isDirectiveComment: true,
     nextLineDirective,
@@ -188,10 +179,7 @@ function createDirectiveCommentBlock(params: {
  * Each per-tag virtual block has the structure:
  * ```
  * //@ejs-tag:<tagType>
- * [synthetic prefix — brace-balancing]
  * <raw JS code from the tag>[virtualBodyInlineSuffix]
- * [virtualBodyExtraLine — e.g. void 0;]
- * [synthetic suffix — brace-balancing]
  * ```
  *
  * Tag types (base):
@@ -255,7 +243,6 @@ export function extractTagBlocks(tags: EjsTag[], diagnostics: readonly EjsDiagno
             lineIndent,
             expectedIndent: lineIndent,
             virtualBodyInlineSuffix: '',
-            virtualBodyExtraLine: '',
             isStandalone,
             isDirectiveComment: true,
           });
@@ -328,16 +315,12 @@ export function extractTagBlocks(tags: EjsTag[], diagnostics: readonly EjsDiagno
     const isMultiline = codeContent.includes('\n');
     const tagType: CodeTagType = isMultiline ? `${baseType}-multiline` : baseType;
 
-    // ── Virtual body extras (void-expression wrapping) ────────────────────
+    // ── Virtual body extra ─────────────────────────────────────────────────
     // For output tags: append `;` so the expression is a valid statement in
     // virtual JS (without introducing global references like `debug`).
-    // For code/slurp tags ending with `{`: append `void 0;` to suppress
-    // `no-empty` errors on the opened block.
     const isOutputTag = baseType === 'escaped-output' || baseType === 'raw-output';
-    const endsWithOpenBrace = !isMultiline && lintCodeContent.trim().endsWith('{');
 
     let virtualBodyInlineSuffix = '';
-    let virtualBodyExtraLine = '';
 
     if (isOutputTag) {
       // An output tag holds an expression; the `;` makes it a statement in the virtual JS.
@@ -351,22 +334,15 @@ export function extractTagBlocks(tags: EjsTag[], diagnostics: readonly EjsDiagno
       // carries exactly one terminator either way rather than a synthetic `;;` for rules to
       // trip over.
       virtualBodyInlineSuffix = lintCodeContent.trimEnd().endsWith(';') ? '' : ';';
-    } else if (endsWithOpenBrace) {
-      virtualBodyExtraLine = '\nvoid 0;';
     }
 
     // ── Virtual code generation ────────────────────────────────────────────
-    // Original content only — no per-block synthetic braces.  The current
-    // `buildFunctionWrapper` only balances `{`/`}` and ignores `(`/`)` and
-    // `[`/`]`, so it would BREAK cross-tag constructs like
-    // `forEach(x => { ... })`.  Global brace balancing is applied in
-    // `preprocess` instead.
+    // Original content only, no brace added: a construct across tags, as `forEach(x => { ... })`, reads as written.
     // A first line without code, the code starting on the next one, is not indented: it would be blanks alone.
     const firstLine = lintCodeContent.slice(0, lintCodeContent.indexOf('\n') + 1 || undefined);
     const virtualIndent = firstLine.trim() === '' ? 0 : originalColumn;
     const virtualCode =
-      `//${EJS_MARKER_PREFIX}${tagType}\n${' '.repeat(virtualIndent)}` +
-      `${lintCodeContent}${virtualBodyInlineSuffix}${virtualBodyExtraLine}`;
+      `//${EJS_MARKER_PREFIX}${tagType}\n${' '.repeat(virtualIndent)}` + `${lintCodeContent}${virtualBodyInlineSuffix}`;
 
     blocks.push({
       ejsNode: node,
@@ -387,7 +363,6 @@ export function extractTagBlocks(tags: EjsTag[], diagnostics: readonly EjsDiagno
       lineIndent,
       expectedIndent,
       virtualBodyInlineSuffix,
-      virtualBodyExtraLine,
       isStandalone,
       isDirectiveComment: false,
     });
