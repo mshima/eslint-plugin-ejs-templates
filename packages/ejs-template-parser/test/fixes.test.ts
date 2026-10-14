@@ -125,6 +125,13 @@ describe('fixOf', () => {
       { normalizeContent: true, binaryOperands: 'greaterOrEqual' },
       '<%_ if (a) { _%>\n  <%_ b();\n      const y = c ||\n      b;\n  _%>\n<%_ } _%>\n',
     ],
+    // The tag where it is, its lines indented with it.
+    [
+      'indent',
+      '<%_ if (a) { _%>\n<%_ b(\n1);\n_%>\n<%_ } _%>\n',
+      { normalizeContent: true, indentTag: false },
+      '<%_ if (a) { _%>\n<%_ b(\n      1);\n_%>\n<%_ } _%>\n',
+    ],
     // An operator at a line break, of no binary expression spanning lines.
     [
       'indent',
