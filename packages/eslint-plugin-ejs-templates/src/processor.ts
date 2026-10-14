@@ -780,17 +780,10 @@ function translateFix(
     // delimiter of the last tag stays, with the line break or the blanks it drops after it.
     const openDelim = HTML_ESCAPED.test(truthyContent + falsyContent) ? '<%-' : '<%=';
 
-    return editFix(options.template, [
-      {
-        offset: block.tagOffset,
-        length: close.offset + close.length - block.tagOffset,
-        text: [
-          {
-            tag: `${openDelim} ${condition} ? '${escapedTruthyContent}' : '${escapedFalsyContent}' ${close.closeDelim}`,
-          },
-        ],
-      },
-    ]);
+    return {
+      range: [block.tagOffset, close.offset + close.length],
+      text: `${openDelim} ${condition} ? '${escapedTruthyContent}' : '${escapedFalsyContent}' ${close.closeDelim}`,
+    };
   } else if (fix.text === SENTINEL_NO_MULTILINE_OUTPUT) {
     // no-multiline-output: `<%- cond ? 'a\nb' : '' %>` => a conditional block.
     const parts = getMultilineOutputConditionalParts(block);
@@ -814,13 +807,16 @@ function translateFix(
     // line breaks reproduces the original output exactly, wherever the tag sits. The last tag
     // closes with the delimiter of the output tag, and drops after it what that one dropped:
     // the line break after a `-%>`, the blanks and the line break after a `_%>`.
-    const pieces: (string | { tag: string })[] = [{ tag: `<% if (${parts.condition}) { %>` }, parts.consequent];
+    const pieces = [`<% if (${parts.condition}) { %>`, parts.consequent];
     if (parts.alternate.length > 0) {
-      pieces.push({ tag: '<% } else { %>' }, parts.alternate);
+      pieces.push('<% } else { %>', parts.alternate);
     }
-    pieces.push({ tag: `<% } ${block.closeDelim}` });
+    pieces.push(`<% } ${block.closeDelim}`);
 
-    return editFix(options.template, [{ offset: block.tagOffset, length: block.tagLength, text: pieces }]);
+    return {
+      range: [block.tagOffset, block.tagOffset + block.tagLength],
+      text: pieces.join(''),
+    };
   } else if (fix.text === '') {
     // ── Generic sentinel (fix.text === '') ────────────────────────────────
 

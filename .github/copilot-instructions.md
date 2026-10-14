@@ -297,13 +297,6 @@ than skipping a link to pair the `if` with an `else` further down the chain.
 The texts of a branch are its `children`; what EJS renders of them is their `rendered`, which a fix
 writing them into a string must use rather than their source (`renderedOf()`).
 
-A fix replacing tags with others writes them through `editTemplate()` of the parser (`editFix()`):
-the tags it writes and the texts between them, which it escapes so that they render as written, and
-the rest of the template rendering as before, what the tags it deletes slurped and dropped around
-them included. `prefer-output`, `no-multiline-output` and the suggestions of
-`no-stray-close-delimiter` do. The fix of `no-negated-condition` does not: it moves the bodies of the
-branches as they are written, their tags with them, and the delimiters around them.
-
 ---
 
 ## Relationship to core ESLint rules
