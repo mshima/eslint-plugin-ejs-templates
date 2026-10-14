@@ -350,6 +350,36 @@ describe('processor virtual code link', () => {
 // Processor: position mapping via ESLint Linter
 // ---------------------------------------------------------------------------
 
+describe('processor: @stylistic/indent on the lines of the code of tags', () => {
+  const rules: RuleConfigMap = { '@stylistic/indent': ['error', 2] };
+
+  // The first line of a tag is placed by `indent-tag`, or by the text around it.
+  test.each([
+    ['a tag at its depth', '<% if (a) { %>\n<%_ b(); _%>\n<% } %>\n'],
+    ['a misplaced tag', '<% if (a) { %>\n      <%_ b(); _%>\n<% } %>\n'],
+    ['a tag inside text', 'x <%- a %> y\n'],
+    ['a tag opening a block, the line the processor adds after it', '<% if (a) { %>x<% } %>\n'],
+  ])('reports nothing on %s', (_label, template) => {
+    expect(lintWithStylistic(template, rules)).toEqual([]);
+  });
+
+  test('indents the other lines of a tag at its column', () => {
+    const template = '<%_ items.forEach((item) => {\nshow(item);\n});\n_%>\n';
+    expect(lintWithStylistic(template, rules).map(({ line, message }) => [line, message])).toEqual([
+      [2, 'Expected indentation of 6 spaces but found 0.'],
+      [3, 'Expected indentation of 4 spaces but found 0.'],
+    ]);
+    expect(applyFixWithStylistic(template, rules)).toBe(
+      '<%_ items.forEach((item) => {\n      show(item);\n    });\n_%>\n',
+    );
+  });
+
+  // Judged from where it expects the first line, not where it is.
+  test('reports nothing on the other lines of a tag whose first line is misplaced', () => {
+    expect(lintWithStylistic('x <%_ items.forEach((item) => {\nshow(item);\n});\n_%>\n', rules)).toEqual([]);
+  });
+});
+
 describe('processor position mapping', () => {
   // A message on the marker of a tag, as the rules of the conventions report, covers the tag: from its opening
   // delimiter to past its closing one, in 1-based columns as ESLint's.
@@ -871,6 +901,16 @@ describe('plugin shape', () => {
     ],
     ['not set', [{ rules: { '@stylistic/semi': 'error' } }], 'error'],
   ])('customize sets indent-content by @stylistic/indent-binary-ops %s', (_label, stylisticConfigs, expected) => {
+    const configs = plugin.configs.customize({}, ...stylisticConfigs);
+    const indentConfig = configs.find((config) => config.rules?.['ejs-templates/indent-content'] !== undefined);
+    expect(indentConfig?.rules?.['ejs-templates/indent-content']).toEqual(expected);
+  });
+
+  // `@stylistic/indent` indents the lines of the code of tags, which `indent-content` would indent too.
+  test.each<[string, Config[], unknown]>([
+    ['on', [{ rules: { '@stylistic/indent': ['error', 2] } }], 'off'],
+    ['not set', [{ rules: { '@stylistic/semi': 'error' } }], 'error'],
+  ])('customize turns indent-content off when @stylistic/indent is %s', (_label, stylisticConfigs, expected) => {
     const configs = plugin.configs.customize({}, ...stylisticConfigs);
     const indentConfig = configs.find((config) => config.rules?.['ejs-templates/indent-content'] !== undefined);
     expect(indentConfig?.rules?.['ejs-templates/indent-content']).toEqual(expected);

@@ -98,9 +98,6 @@ const stylisticIgnoredRules = {
   // Default value of "1tbs" splits `}}` in multiples lines, this is useful for improvements, but cannot be enabled by default.
   // Default value in recommended, "stroustrup" is not ideal for EJS code blocks, it splits else in a multiline tag.
   '@stylistic/brace-style': 'off',
-
-  // Interoperability issues
-  '@stylistic/indent': 'off',
 } as const;
 
 const collectEjsRules = (configs: Config[]): string[] =>
@@ -126,6 +123,7 @@ const defaultRules = ({
   ignoredRules,
   preferEncoded,
   indentBinaryOps,
+  stylisticIndent,
 }: {
   allowedGlobals?: string[] | undefined;
   experimental?: boolean | undefined;
@@ -133,6 +131,11 @@ const defaultRules = ({
   preferEncoded?: 'always' | 'never' | undefined;
   /** Whether `@stylistic/indent-binary-ops` is on, which asks for some lines of right operands as much indentation. */
   indentBinaryOps?: boolean | undefined;
+  /**
+   * Whether `@stylistic/indent` is on, which indents the lines of the code of tags (the processor drops its messages on
+   * the first line of a tag, which `indent-tag` places): `indent-content` is off then, the two indenting the same lines.
+   */
+  stylisticIndent?: boolean | undefined;
 }) =>
   Object.fromEntries(
     Object.entries({
@@ -151,7 +154,11 @@ const defaultRules = ({
       [`${pluginName}/prefer-slurping-codeonly`]: 'error',
       [`${pluginName}/experimental-prefer-slurp-multiline`]: experimental ? 'error' : 'off',
       [`${pluginName}/indent-tag`]: 'error',
-      [`${pluginName}/indent-content`]: indentBinaryOps ? ['error', { binaryOperands: 'greaterOrEqual' }] : 'error',
+      [`${pluginName}/indent-content`]: stylisticIndent
+        ? 'off'
+        : indentBinaryOps
+          ? ['error', { binaryOperands: 'greaterOrEqual' }]
+          : 'error',
       [`${pluginName}/format`]: 'error',
       ...(preferEncoded ? { [`${pluginName}/prefer-encoded`]: ['error', preferEncoded] } : {}),
     }).filter(([rule]) => !ignoredRules?.includes(rule)),
@@ -192,6 +199,7 @@ const customize = (
           preferEncoded: html === 'extension' ? undefined : html,
           ignoredRules: collectEjsRules(otherConfigs),
           indentBinaryOps: ruleEnabled(otherConfigs, '@stylistic/indent-binary-ops'),
+          stylisticIndent: ruleEnabled(otherConfigs, '@stylistic/indent'),
         }),
         ...(stylisticBlocklist ? stylisticIgnoredRules : {}),
         ...(prettierBlocklist ? ({ 'prettier/prettier': 'off' } as const) : {}),

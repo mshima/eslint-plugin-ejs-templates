@@ -192,8 +192,10 @@ test/
 ## How the processor works
 
 `preprocess()` turns an EJS file into one virtual JS file: every tag becomes a block that
-starts with a marker comment, and all blocks are concatenated inside a function wrapper
-(`(function() {` … `})();`) so the file parses as a whole.
+starts with a marker comment, and all blocks are concatenated inside a function wrapper and a block
+(`(function() {` and `{` … `}` and `})();`) so the file parses as a whole. The two levels put the
+code of a tag at a depth of blocks where `@stylistic/indent` expects it as `indent-tag` places it: a
+`<%_` tag at its depth, `<%_ ` and two levels further.
 
 ```
 //@ejs-tag:<tagType>     <- marker comment, line 1 of every block
@@ -220,6 +222,12 @@ starts (`virtualIndent`), unless it has no code. A rule measuring the indentatio
 one of another (`@stylistic/indent-binary-ops`) measures it as in the template; it measured the
 first line from column 0, and asked for indentations the template did not have. A position in those
 blanks maps to the start of the code, and a fix starting there is dropped.
+
+`@stylistic/indent` indents the lines of the code of tags, which `stylisticBlocklist` keeps on and
+with which `customize()` turns `indent-content` off: the two indenting the same lines fixed each
+other. `postprocess()` drops its messages on the first line of a tag, which `indent-tag` places, or
+the text around it, and on the other lines of a tag whose first line it finds misplaced, which it
+judges from where it expects the first one, not from where it is (`misplacedTags`).
 
 ESLint lints the virtual file once: `preprocess()` returns it alone. Parsing it and running every
 rule on it is most of the time of a lint, so a second virtual file nearly doubles it, which the
@@ -534,8 +542,10 @@ what EJS renders") — whitespace slurping is easy to reason about wrongly in ei
 
 ### Generated characters must stay invisible to rules
 
-The virtual JavaScript contains characters the author never wrote: the `//@ejs-tag:` marker, and
-a `;` appended to an output tag's expression so it forms a statement. A rule reporting on one of
+The virtual JavaScript contains characters the author never wrote: the `//@ejs-tag:` marker, a
+`;` appended to an output tag's expression so it forms a statement, and the `void 0;` line after
+the code of a tag opening a block, which keeps the block from being empty
+(`isSyntheticLineMessage()`). A rule reporting on one of
 those is reporting on generated code, and its message must be dropped in `postprocess()`.
 
 The suffix is appended for every output tag, single-line or multiline, and skipped when the

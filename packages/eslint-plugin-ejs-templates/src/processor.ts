@@ -102,9 +102,9 @@ export const SENTINEL_PREFER_OUTPUT_ELSE = 'PREFER_OUTPUT_ELSE';
 export const SENTINEL_NO_MULTILINE_OUTPUT = 'NO_MULTILINE_OUTPUT';
 
 /** Opening line of the function wrapper injected around the full virtual file. */
-const GLOBAL_VIRTUAL_OPEN = '(function() {\n';
+const GLOBAL_VIRTUAL_OPEN = '(function() {\n{\n';
 /** Closing line of the function wrapper injected around the full virtual file. */
-const GLOBAL_VIRTUAL_CLOSE = '\n})();';
+const GLOBAL_VIRTUAL_CLOSE = '\n}\n})();';
 
 // ---------------------------------------------------------------------------
 // Message position mapping
@@ -129,6 +129,21 @@ const GLOBAL_VIRTUAL_CLOSE = '\n})();';
  * template, so a rule reporting on it is reporting on generated code. Messages from this
  * plugin's own rules and ESLint's system messages are left alone.
  */
+/** The rule of `@stylistic` indenting every line, which judges the lines of the code of tags alone. */
+const STYLISTIC_INDENT = '@stylistic/indent';
+
+/**
+ * Whether a message of another plugin is on the line the processor adds after the code of a tag opening a block
+ * (`void 0;`, the block not empty): generated code, which the author never wrote.
+ */
+function isSyntheticLineMessage(msg: Linter.LintMessage, segment: VirtualBlockSegment): boolean {
+  const { block } = segment;
+  if (block.virtualBodyExtraLine.length === 0) return false;
+  if (msg.ruleId === null || msg.ruleId.startsWith('ejs-templates/')) return false;
+  // The marker on the first line of the block, the code on the next ones, then the line added.
+  return msg.line === segment.startLine + block.lintCodeContent.split('\n').length + 1;
+}
+
 function isSyntheticSuffixMessage(msg: Linter.LintMessage, segment: VirtualBlockSegment): boolean {
   const { block } = segment;
   if (block.virtualBodyInlineSuffix.length === 0) {
@@ -1429,7 +1444,7 @@ export const processor: Linter.Processor = {
     // Track block positions in the virtual code, used during postprocess() to locate ESLint messages and translate
     // them back to source.
     const segments: VirtualBlockSegment[] = [];
-    let lineCursor = 2; // Start at line 2 (line 1 is GLOBAL_VIRTUAL_OPEN)
+    let lineCursor = 3; // Start at line 3 (lines 1 and 2 are GLOBAL_VIRTUAL_OPEN)
     let offsetCursor = GLOBAL_VIRTUAL_OPEN.length; // Account for wrapper in offset
 
     for (const block of blocks) {
@@ -1538,10 +1553,25 @@ export const processor: Linter.Processor = {
       const suppressedRuleIds = new Set(['no-undef']);
 
       logVirtualCodeOnFatal(filename, virtualMessages, segments);
-      // The rules of indentation on: the tags a tag is split into indented as they expect them.
+      // The rules of indentation on: the tags a tag is split into indented as they expect them. `@stylistic/indent`
+      // reports the first line of tags, its messages there dropped below, when it is on.
       const hasIndentMessages = virtualMessages.some(
-        (msg) => msg.ruleId === 'ejs-templates/indent-tag' || msg.ruleId === 'ejs-templates/indent-content',
+        (msg) =>
+          msg.ruleId === 'ejs-templates/indent-tag' ||
+          msg.ruleId === 'ejs-templates/indent-content' ||
+          msg.ruleId === STYLISTIC_INDENT,
       );
+
+      // `@stylistic/indent` judges the first line of the code of a tag from where the virtual code puts it, inside its
+      // blocks, which `indent-tag` places, or the text around the tag: its messages there are dropped. The other lines of
+      // a tag it finds misplaced so are judged from where it expects the first one, not where it is: dropped too.
+      const segmentOf = (line: number) => segments.findIndex((s) => line >= s.startLine && line <= s.endLine);
+      const misplacedTags = new Set<number>();
+      for (const msg of virtualMessages) {
+        if (msg.ruleId !== STYLISTIC_INDENT) continue;
+        const index = segmentOf(msg.line);
+        if (index !== -1 && msg.line === segments[index].startLine + 1) misplacedTags.add(index);
+      }
 
       const mappedMessages = virtualMessages
         .filter((msg) => !msg.fatal && !suppressedRuleIds.has(msg.ruleId ?? '') && !isDiagnosticRuleId(msg.ruleId))
@@ -1571,6 +1601,18 @@ export const processor: Linter.Processor = {
           // about a character the author never wrote — `@stylistic/semi` in `never` mode would
           // otherwise flag every output tag for a semicolon that is not in the template.
           if (isSyntheticSuffixMessage(normalizedMsg, segment)) {
+            return [];
+          }
+
+          // The line the processor adds after the code of a tag opening a block, `void 0;`, is generated too.
+          if (isSyntheticLineMessage(normalizedMsg, segment)) {
+            return [];
+          }
+
+          if (
+            normalizedMsg.ruleId === STYLISTIC_INDENT &&
+            (normalizedMsg.line === segment.startLine + 1 || misplacedTags.has(segmentIndex))
+          ) {
             return [];
           }
 
