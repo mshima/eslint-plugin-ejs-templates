@@ -256,6 +256,16 @@ Consistent indentation improves readability of nested template logic.
 <%_ } _%>
 ```
 
+Options:
+
+- `normalizeContent` (default `true`) — also re-indents the lines of a `<%_ … _%>` tag spanning
+  lines, at the depth of their own blocks.
+- `binaryOperands` (default `'greater'`) — with `normalizeContent`, the line where the right
+  operand of a binary expression starts, apart from its left one, is accepted indented more than
+  the line the expression starts on, by any amount, or as much with `'greaterOrEqual'`, as
+  `@stylistic/indent-binary-ops` asks for some lines. `customize()` sets `'greaterOrEqual'` when
+  the configurations it is given turn that rule on.
+
 ### `ejs-templates/no-comment-across-tags`
 
 Disallows a block comment opened in an EJS tag and closed in a later one. EJS compiles the template

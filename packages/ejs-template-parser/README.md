@@ -219,7 +219,11 @@ offset: the fix is then `undefined` when it changes nothing. The plugin fixes it
 - `slurp-newline` — a line break before the tag.
 - `prefer-slurping-codeonly` — the tag written `<%_ … _%>`, its code trimmed.
 - `indent` — the line of the tag at the indentation of its depth; with `normalizeContent`, the
-  lines of its code too, at the depth of their own blocks.
+  lines of its code too, at the depth of their own blocks, but the line where the right operand
+  of a binary expression starts, apart from its left one: as written when indented more than the
+  line the expression starts on, by any amount, or as much with `binaryOperands: 'greaterOrEqual'`
+  (which `@stylistic/indent-binary-ops` asks for some lines); one level more than that line
+  otherwise.
 - `prefer-single-line-tags` — the tag split, a tag a statement: side by side after text, a line
   each otherwise; with `indentSplitTags`, each line at the depth of its blocks.
 

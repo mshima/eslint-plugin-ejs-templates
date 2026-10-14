@@ -67,6 +67,12 @@ export const conventionSentinel = (code: EjsDiagnosticCode): string => `${SENTIN
 export const SENTINEL_INDENT_NORMALIZE = 'INDENT_NORMALIZE';
 
 /**
+ * Sentinel text written by the `indent` fix when `normalizeContent` is enabled and `binaryOperands` is
+ * `greaterOrEqual`.
+ */
+export const SENTINEL_INDENT_NORMALIZE_GREATER_OR_EQUAL = 'INDENT_NORMALIZE_GREATER_OR_EQUAL';
+
+/**
  * Sentinel text written by the `format` fix.
  */
 export const SENTINEL_FORMAT = 'FORMAT';
@@ -695,12 +701,13 @@ function translateFix(
       };
     }
     return null;
-  } else if (fix.text === SENTINEL_INDENT_NORMALIZE) {
+  } else if (fix.text === SENTINEL_INDENT_NORMALIZE || fix.text === SENTINEL_INDENT_NORMALIZE_GREATER_OR_EQUAL) {
     // indent (normalizeContent=true): normalize multiline content indentation too.
+    const binaryOperands = fix.text === SENTINEL_INDENT_NORMALIZE ? 'greater' : 'greaterOrEqual';
     return block.isStandalone &&
       (options.diagnostics.some(({ code, offset }) => code === 'indent' && offset === block.tagOffset) ||
         block.tagType === 'slurp-multiline')
-      ? conventionFix('indent', { normalizeContent: true })
+      ? conventionFix('indent', { normalizeContent: true, binaryOperands })
       : null;
   } else if (fix.text === SENTINEL_FORMAT || fix.text === SENTINEL_FORMAT_MULTILINE_CLOSE) {
     const multilineCloseOnNewLine = fix.text === SENTINEL_FORMAT_MULTILINE_CLOSE;
@@ -953,8 +960,11 @@ type TagFormatState = {
  */
 type VirtualCodeMetadata = {
   tagFormat: TagFormatState[];
-  /** Index i is true when i-th non-directive slurp-multiline block needs content normalization. */
-  needsNormalize: boolean[];
+  /**
+   * Index i is true when the i-th non-directive slurp-multiline block needs content normalization, by the `binaryOperands`
+   * of `indent`: a block needing it with `greaterOrEqual` needs it with `greater`, which leaves fewer lines as written.
+   */
+  needsNormalize: Record<'greater' | 'greaterOrEqual', boolean[]>;
   /** The diagnostics of the template, `validateTemplate()` of ejs-template-parser, in its coordinates. */
   diagnostics: EjsDiagnostic[];
 };
@@ -1411,7 +1421,11 @@ export const processor: Linter.Processor = {
         return [];
       }
       const virtualCode = `${GLOBAL_VIRTUAL_OPEN}${GLOBAL_VIRTUAL_CLOSE}`;
-      virtualCodeMetadataMap.set(virtualCode, { tagFormat: [], needsNormalize: [], diagnostics });
+      virtualCodeMetadataMap.set(virtualCode, {
+        tagFormat: [],
+        needsNormalize: { greater: [], greaterOrEqual: [] },
+        diagnostics,
+      });
       return [virtualCode];
     }
 
@@ -1451,20 +1465,32 @@ export const processor: Linter.Processor = {
           isFormattedMultilineClose: originalText === buildFormattedTag(block, { multilineCloseOnNewLine: true }),
         };
       }),
-      needsNormalize: codeBlocks.map((block) => {
-        // A tag alone on its line: the fix rewrites the line from its start, which holds the
-        // text before the tag otherwise. A tag the parser diagnoses as indented otherwise is
-        // reported for its indentation, and fixed with its content.
-        if (block.tagType !== 'slurp-multiline' || !block.isStandalone || misindented.has(block.tagOffset))
-          return false;
-        // Only normalize when the close delimiter is already on its own line
-        // (last codeContent segment is all whitespace). If the close is on the
-        // same line as the last content line, normalizing it would conflict with
-        // `format: same-line`, causing a circular fix.
-        const lastSegment = block.codeContent.slice(block.codeContent.lastIndexOf('\n') + 1);
-        if (lastSegment.trim() !== '') return false;
-        return fixOf(template, { code: 'indent', offset: block.tagOffset }, { normalizeContent: true }) !== undefined;
-      }),
+      needsNormalize: (() => {
+        const greater: boolean[] = [];
+        const greaterOrEqual: boolean[] = [];
+        for (const block of codeBlocks) {
+          // A tag alone on its line: the fix rewrites the line from its start, which holds the
+          // text before the tag otherwise. A tag the parser diagnoses as indented otherwise is
+          // reported for its indentation, and fixed with its content.
+          // Only normalize when the close delimiter is already on its own line
+          // (last codeContent segment is all whitespace). If the close is on the
+          // same line as the last content line, normalizing it would conflict with
+          // `format: same-line`, causing a circular fix.
+          const lastSegment = block.codeContent.slice(block.codeContent.lastIndexOf('\n') + 1);
+          const normalizable =
+            block.tagType === 'slurp-multiline' &&
+            block.isStandalone &&
+            !misindented.has(block.tagOffset) &&
+            lastSegment.trim() === '';
+          const needs = (binaryOperands: 'greater' | 'greaterOrEqual') =>
+            fixOf(template, { code: 'indent', offset: block.tagOffset }, { normalizeContent: true, binaryOperands }) !==
+            undefined;
+          const needsGreater = normalizable && needs('greater');
+          greater.push(needsGreater);
+          greaterOrEqual.push(needsGreater && needs('greaterOrEqual'));
+        }
+        return { greater, greaterOrEqual };
+      })(),
       diagnostics,
     });
 

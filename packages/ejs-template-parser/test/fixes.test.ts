@@ -104,6 +104,34 @@ describe('fixOf', () => {
       { normalizeContent: true },
       '<%_ if (a) { _%>\n  <%_ b();\n      c();\n  _%>\n<%_ } _%>\n',
     ],
+    // The line where the right operand of a binary expression starts, apart from the left one: as written indented more
+    // than the line the expression starts on, by any amount; one level more than it otherwise.
+    [
+      'indent',
+      '<%_ if (a) { _%>\n<%_ const x = a\n          && b;\nconst y = c ||\n b;\n_%>\n<%_ } _%>\n',
+      { normalizeContent: true },
+      '<%_ if (a) { _%>\n  <%_ const x = a\n          && b;\n      const y = c ||\n        b;\n  _%>\n<%_ } _%>\n',
+    ],
+    // As much indented as that line: one level more by default, as written with `greaterOrEqual`.
+    [
+      'indent',
+      '<%_ if (a) { _%>\n<%_ b();\nconst y = c ||\n      b;\n_%>\n<%_ } _%>\n',
+      { normalizeContent: true },
+      '<%_ if (a) { _%>\n  <%_ b();\n      const y = c ||\n        b;\n  _%>\n<%_ } _%>\n',
+    ],
+    [
+      'indent',
+      '<%_ if (a) { _%>\n<%_ b();\nconst y = c ||\n      b;\n_%>\n<%_ } _%>\n',
+      { normalizeContent: true, binaryOperands: 'greaterOrEqual' },
+      '<%_ if (a) { _%>\n  <%_ b();\n      const y = c ||\n      b;\n  _%>\n<%_ } _%>\n',
+    ],
+    // An operator at a line break, of no binary expression spanning lines.
+    [
+      'indent',
+      '<%_ if (a) { _%>\n<%_ const x = a + 1;\n!a && b();\n_%>\n<%_ } _%>\n',
+      { normalizeContent: true },
+      '<%_ if (a) { _%>\n  <%_ const x = a + 1;\n      !a && b();\n  _%>\n<%_ } _%>\n',
+    ],
   ] as const)('%s %j', (code, text, options, expected) => {
     const result = fixed(text, code, options);
     expect(result).toBe(expected);

@@ -6,8 +6,9 @@
 //
 //     http://www.apache.org/licenses/LICENSE-2.0
 
-import { describe, test, expect } from 'vitest';
+import { describe, test, expect, vi } from 'vitest';
 import ejs from 'ejs';
+import stylistic from '@stylistic/eslint-plugin';
 import * as fixture1 from './fixtures/1.js';
 import * as fixture2 from './fixtures/2.js';
 import * as fixture3 from './fixtures/3.js';
@@ -171,6 +172,37 @@ describe('experimental-prefer-slurp-multiline, format and indent together', () =
       { b: false, c: false, d: false },
     ];
     expect(data.map((locals) => ejs.render(fixed, locals))).toEqual(data.map((locals) => ejs.render(input, locals)));
+  });
+});
+
+describe('indent and @stylistic/indent-binary-ops', () => {
+  // `@stylistic/indent-binary-ops` indents the line of the right operand of a binary expression from the line of its
+  // left one; `ejs-templates/indent` re-indents the lines of a tag spanning lines (`normalizeContent`). It accepts that
+  // line indented as much as or more than the line the expression starts on, which customize() sets when the rule is
+  // on: until it did, the two fixed each other until ESLint gave up (ESLintCircularFixesWarning).
+  test('fix a tag spanning lines without fixing each other', () => {
+    const config = plugin.configs.customize(
+      { stylisticBlocklist: true },
+      stylistic.configs.customize({ jsx: false, semi: true }),
+      { rules: { 'ejs-templates/indent': 'error' } },
+    );
+    const input = "  <%_ if ((a === 'x' || (a === 'y' && b === true))\n                && !c) { _%>\nx\n  <%_ } _%>\n";
+    const emitWarning = vi.spyOn(process, 'emitWarning').mockImplementation(() => undefined);
+    try {
+      const { output, messages } = makeLinter().verifyAndFix(input, config, { filename: 'template.ejs' });
+      expect(output).toMatchInlineSnapshot(`
+        "<%_ if ((a === 'x' || (a === 'y' && b === true))
+              && !c) {
+        _%>
+        x
+        <%_ } _%>
+        "
+      `);
+      expect(messages).toEqual([]);
+      expect(emitWarning).not.toHaveBeenCalled();
+    } finally {
+      emitWarning.mockRestore();
+    }
   });
 });
 
