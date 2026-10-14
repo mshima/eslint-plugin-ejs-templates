@@ -225,10 +225,22 @@ export function cleanupTemplate(template: EjsTemplate): void {
  * `syntax-error` diagnostic on the EjsSyntaxError buildTemplate throws; diagnoseTemplate gives it instead.
  */
 export function validateTemplate(template: EjsTemplate): EjsDiagnostic[] {
-  const built = builtTemplates.get(template);
-  if (!built) throw new Error('validateTemplate validates a template buildTemplate built');
-  if (built.freed) throw new Error('validateTemplate validates a template before cleanupTemplate frees it');
+  const built = liveTemplate(template, 'validateTemplate');
   return diagnose(template.text, template.nodes, built.unclosed, built.unopened);
+}
+
+/**
+ * What buildTemplate keeps of a template, which a function of the parser reads before cleanupTemplate frees it: it
+ * throws otherwise, telling the function.
+ */
+export function liveTemplate(
+  template: EjsTemplate,
+  caller: string,
+): { unclosed: EjsCodeTag[]; unopened: EjsCodeTag[] } {
+  const built = builtTemplates.get(template);
+  if (!built) throw new Error(`${caller} reads a template buildTemplate built`);
+  if (built.freed) throw new Error(`${caller} reads a template before cleanupTemplate frees it`);
+  return built;
 }
 
 /**

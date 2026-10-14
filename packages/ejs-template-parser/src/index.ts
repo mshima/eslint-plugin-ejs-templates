@@ -32,6 +32,7 @@ export {
 export { escapeText } from './escape-text.js';
 export { type EjsEdit, type EjsEditedTemplate, editTemplate } from './edit-template.js';
 export { type EjsDiagnostic, type EjsDiagnosticCode } from './diagnostics.js';
+export { type EjsFix, type EjsFixOptions, fixOf } from './fixes.js';
 export { type EjsRenderedText } from './rendered.js';
 export {
   type EjsBlock,
