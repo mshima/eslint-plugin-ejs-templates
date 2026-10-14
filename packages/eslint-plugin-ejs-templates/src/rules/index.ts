@@ -19,7 +19,7 @@ export { noComplexStatements } from './no-complex-statements.js';
 export { noCommentEmptyLine } from './no-comment-empty-line.js';
 export { noMultilineOutput } from './no-multiline-output.js';
 export { preferEncoded } from './prefer-encoded.js';
-export { outputClose } from './output-close.js';
+export { noOneSidedTrim } from './no-one-sided-trim.js';
 export { outputSemi } from './output-semi.js';
 export { preferOutput } from './prefer-output.js';
 export { noStrayCloseDelimiter } from './no-stray-close-delimiter.js';

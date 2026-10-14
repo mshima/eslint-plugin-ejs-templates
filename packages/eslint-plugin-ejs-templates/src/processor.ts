@@ -95,10 +95,16 @@ export const SENTINEL_OUTPUT_SEMI_ADD = 'OUTPUT_SEMI_ADD';
 export const SENTINEL_OUTPUT_SEMI_REMOVE = 'OUTPUT_SEMI_REMOVE';
 
 /**
- * Sentinel text written by the `output-close` fix: the `-%>` or `_%>` of an output tag written `%>` when it removes
- * nothing.
+ * Sentinel text written by the `no-one-sided-trim` fix of an output tag: its `-%>` or `_%>` written `%>`, what it
+ * removed removed from the text.
  */
 export const SENTINEL_OUTPUT_CLOSE = 'OUTPUT_CLOSE';
+
+/** Sentinel text written by the `no-one-sided-trim` fix of a code tag opened by `<%`: opened by `<%_`. */
+export const SENTINEL_CODE_OPEN = 'CODE_OPEN';
+
+/** Sentinel text written by the `no-one-sided-trim` fix of a code tag opened by `<%_` and closed by `%>`. */
+export const SENTINEL_CODE_CLOSE = 'CODE_CLOSE';
 
 /**
  * Sentinel text written by the `prefer-output` fix.
@@ -743,7 +749,7 @@ function translateFix(
     }
     return null;
   } else if (fix.text === SENTINEL_OUTPUT_CLOSE) {
-    // output-close: the `-%>` or `_%>` of an output tag written `%>`, what it removed after it removed from the text,
+    // no-one-sided-trim: the `-%>` or `_%>` of an output tag written `%>`, what it removed after it removed from the text,
     // the next line joining the line of the tag (editTemplate()). Not before a `<%%`, which writes without clearing what
     // the next text loses (docs/ejs.md, the truncation), and which editTemplate() does not follow there.
     const end = block.tagOffset + block.tagLength;
@@ -752,6 +758,19 @@ function translateFix(
     return editFix(options.template, [
       { offset: block.tagOffset, length: block.tagLength, text: [{ tag: `${source}%>` }] },
     ]);
+  } else if (fix.text === SENTINEL_CODE_OPEN) {
+    // no-one-sided-trim: a code tag opened by `<%` and closed by `-%>` or `_%>`, alone on its line, opened by `<%_`.
+    if (block.openDelim !== '<%' || block.closeDelim === '%>' || !block.isStandalone) return null;
+    return { range: [block.tagOffset, block.tagOffset + block.openDelim.length], text: '<%_' };
+  } else if (fix.text === SENTINEL_CODE_CLOSE) {
+    // no-one-sided-trim: a code tag opened by `<%_` and closed by `%>`, closed by `_%>` before the end of its line, by
+    // `-%>` before text, which drops nothing then.
+    if (block.openDelim !== '<%_' || block.closeDelim !== '%>') return null;
+    const end = block.tagOffset + block.tagLength;
+    const after = options.template.text.slice(end);
+    const lineEnd = after.search(/[\r\n]/u);
+    const endsLine = (lineEnd === -1 ? after : after.slice(0, lineEnd)).trim() === '';
+    return { range: [end - block.closeDelim.length, end], text: endsLine ? '_%>' : '-%>' };
   } else if (fix.text === SENTINEL_PREFER_OUTPUT || fix.text === SENTINEL_PREFER_OUTPUT_ELSE) {
     // prefer-output: convert wrapper conditionals to output ternary:
     // `<% if (cond) { %>a<% } %>` => `<%= cond ? 'a' : '' %>`
