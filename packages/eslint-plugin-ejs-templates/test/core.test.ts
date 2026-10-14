@@ -13,7 +13,7 @@ import { Linter } from 'eslint';
 import plugin from '../src/index.js';
 import { lint, applyFix, makeLinter, makeConfig } from './helpers.js';
 import { extractTagBlocks } from '../src/ejs-parser.js';
-import { buildTemplate } from 'ejs-template-parser';
+import { buildTemplate, validateTemplate } from 'ejs-template-parser';
 import { type Config } from 'eslint/config';
 import {
   processor,
@@ -98,18 +98,24 @@ function applyFixWithUnusedDisableDirectivesError(
 // ---------------------------------------------------------------------------
 
 describe('extractTagBlocks', () => {
+  /** The blocks of a template, with its diagnostics, which tell the comment tags leaving an empty line. */
+  const diagnosedBlocksOf = (text: string) => {
+    const template = buildTemplate(text);
+    return extractTagBlocks(template.tags, validateTemplate(template));
+  };
+
   test('skips standalone comment tags with -%> (no empty line)', () => {
-    const blocks = extractTagBlocks(buildTemplate('<%# this is a comment -%>').tags);
+    const blocks = diagnosedBlocksOf('<%# this is a comment -%>');
     expect(blocks).toHaveLength(0);
   });
 
   test('skips non-standalone comment tags (inline, no empty line)', () => {
-    const blocks = extractTagBlocks(buildTemplate('text <%# comment %>').tags);
+    const blocks = diagnosedBlocksOf('text <%# comment %>');
     expect(blocks).toHaveLength(0);
   });
 
   test('creates comment-empty-line block for standalone comment tag without -%>', () => {
-    const blocks = extractTagBlocks(buildTemplate('<%# this is a comment %>').tags);
+    const blocks = diagnosedBlocksOf('<%# this is a comment %>');
     expect(blocks).toHaveLength(1);
     expect(blocks[0].tagType).toBe('comment-empty-line');
     expect(blocks[0].isDirectiveComment).toBe(true);
@@ -1022,13 +1028,15 @@ describe('extractTagBlocks (tree-sitter parser)', () => {
     expect(b.tagType).toBe('code-multiline');
   });
 
-  test('inline slurp tag gets slurp-not-standalone type', () => {
+  // Where the tag is, on a line of its own or after text, is no part of its type: `slurp-newline` reports the
+  // diagnostic of the parser.
+  test('inline slurp tag gets slurp type', () => {
     const [b] = extractTagBlocks(buildTemplate('text<%_ doWork(); _%>').tags);
-    expect(b.tagType).toBe('slurp-not-standalone');
+    expect(b.tagType).toBe('slurp');
     expect(b.isStandalone).toBe(false);
   });
 
-  test('standalone slurp tag gets slurp type (not slurp-not-standalone)', () => {
+  test('standalone slurp tag gets slurp type', () => {
     const [b] = extractTagBlocks(buildTemplate('<%_ doWork(); _%>').tags);
     expect(b.tagType).toBe('slurp');
     expect(b.isStandalone).toBe(true);
