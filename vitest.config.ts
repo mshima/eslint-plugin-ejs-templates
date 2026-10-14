@@ -1,5 +1,5 @@
 import { fileURLToPath } from 'node:url';
-import { defineConfig } from 'vitest/config';
+import { configDefaults, defineConfig } from 'vitest/config';
 
 export default defineConfig({
   resolve: {
@@ -10,6 +10,8 @@ export default defineConfig({
     },
   },
   test: {
+    // The checkouts the benchmark lints with (benchmark/lint.ts), whose tests are theirs.
+    exclude: [...configDefaults.exclude, '.benchmark/**'],
     coverage: {
       provider: 'v8',
       include: ['packages/*/src/**/*.ts'],

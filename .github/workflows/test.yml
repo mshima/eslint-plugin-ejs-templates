@@ -7,14 +7,21 @@ on:
 
 jobs:
   test:
-    name: Test (Node ${{ matrix.node-version }})
+    name: ${{ matrix.job == 'benchmark' && 'Benchmark' || format('Test (Node {0})', matrix.node-version) }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
 
     strategy:
+      # A benchmark failing does not cancel the tests, nor the tests the benchmark.
+      fail-fast: false
       matrix:
         node-version: ['22', '24']
+        job: [test]
+        # The time a lint takes with the head of a pull request, against its base: benchmark/lint.ts.
+        include:
+          - node-version: '24'
+            job: benchmark
 
     steps:
       - uses: actions/checkout@v7
@@ -29,9 +36,11 @@ jobs:
         run: npm ci --ignore-scripts
 
       - name: Type-check
+        if: matrix.job == 'test'
         run: npm run typecheck
 
       - name: Lint
+        if: matrix.job == 'test'
         run: npm run lint
 
       - name: Build
@@ -39,12 +48,38 @@ jobs:
 
       # Node 24 runs the suite once, with coverage; the formatting `npm test` checks first is checked on Node 22.
       - name: Test
-        if: matrix.node-version != '24'
+        if: matrix.job == 'test' && matrix.node-version != '24'
         run: npm test
 
       - name: Coverage
-        if: matrix.node-version == '24'
+        if: matrix.job == 'test' && matrix.node-version == '24'
         run: npm run coverage
+
+      # The base of the pull request, built: the time its lint takes, which the head's must stay close to.
+      - name: Check out the base
+        if: matrix.job == 'benchmark' && github.event_name == 'pull_request'
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: .benchmark/pre
+
+      - name: Build the base
+        if: matrix.job == 'benchmark' && github.event_name == 'pull_request'
+        working-directory: .benchmark/pre
+        run: |
+          npm ci --ignore-scripts
+          npm run build
+
+      # The templates of a release of generator-jhipster, the project the plugin is written for.
+      - name: Check out the templates
+        if: matrix.job == 'benchmark' && github.event_name == 'pull_request'
+        run: |
+          git clone --quiet --depth 1 --branch v8.11.0 --filter=blob:none --sparse https://github.com/jhipster/generator-jhipster .benchmark/generator-jhipster
+          git -C .benchmark/generator-jhipster sparse-checkout set generators
+
+      - name: Benchmark
+        if: matrix.job == 'benchmark' && github.event_name == 'pull_request'
+        run: node benchmark/lint.ts --templates .benchmark/generator-jhipster/generators --rounds 3 --max-ratio 1.2 pre=.benchmark/pre post=.
 
   check-tests:
     permissions:
