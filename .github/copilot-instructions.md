@@ -64,6 +64,23 @@ npm run lint       # eslint .
 npm run fix        # prettier --write && eslint --fix
 ```
 
+### Benchmark
+
+`benchmark/lint.ts` times the lint of a directory of templates, without and with fixes, by the
+builds of several checkouts, and fails when one takes more than `--max-ratio` times the first:
+
+```sh
+node benchmark/lint.ts --templates <dir> --rounds 3 --max-ratio 1.2 pre=<checkout> post=.
+```
+
+Each pull request runs it in a job of the matrix of `test.yml`, `pre` its base and `post` its head,
+on the templates of generator-jhipster v8.11.0: a change making the lint more than 1.2 times slower
+fails `check-tests`. The tests guard the scaling of the parser (see "Performance invariant"); this
+guards the time of a lint as a whole, which a fix built for each message of a template can make
+grow without changing a result: the fixes of `prefer-output` and `no-multiline-output` written
+through `editTemplate()`, which prepares the whole template on each call, made it 1.9 times slower
+until they were reverted.
+
 ### Coverage
 
 `npm run coverage` requires 100% of the statements, branches, functions and lines of the sources
