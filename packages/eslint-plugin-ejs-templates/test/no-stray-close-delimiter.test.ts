@@ -123,9 +123,14 @@ describe('rule: ejs-templates/no-stray-close-delimiter', () => {
     expect(lint('a %> b\n<%= x %>\n', { 'ejs-templates/no-stray-close-delimiter': 'off' })).toEqual([]);
   });
 
-  test('reports the fatal error alone when the virtual JavaScript does not parse', () => {
-    expect(lint('<% if (x) { %>\na %> b\n<% ) %>\n', rules).map(({ fatal, ruleId }) => [fatal, ruleId])).toEqual([
-      [true, null],
+  // The parsing errors, the ones ejs-template-parser tells of the JavaScript of the template, without the stray
+  // delimiter, which no rule reports when the virtual JavaScript does not parse.
+  test('reports the parsing errors alone when the virtual JavaScript does not parse', () => {
+    expect(
+      lint('<% if (x) { %>\na %> b\n<% ) %>\n', rules).map(({ fatal, line, message }) => [fatal, line, message]),
+    ).toEqual([
+      [true, 1, 'Parsing error: No tag closes the block this tag opens'],
+      [true, 3, "Parsing error: The JavaScript of the template does not parse here: unexpected ')'"],
     ]);
   });
 });

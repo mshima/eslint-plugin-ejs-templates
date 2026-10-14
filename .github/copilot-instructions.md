@@ -182,8 +182,14 @@ translates fixes (below).
 ESLint lints the virtual file once: `preprocess()` returns it alone. Parsing it and running every
 rule on it is most of the time of a lint, so a second virtual file nearly doubles it, which the
 plugin did until it returned three (the same file unwrapped, and the wrapped one again) for the
-parsing errors of ESLint's parser. `postprocess()` reports these from the one pass: a fatal message
-at its tag, or at the end of the last tag when it is in the wrapper. A test counts the passes.
+parsing errors of ESLint's parser. A test counts the passes.
+
+When the virtual file does not parse, `postprocess()` reports as parsing errors, at their tags, the
+errors ejs-template-parser tells of the JavaScript of the template (`javascript-error`,
+`unclosed-block`, `unopened-close`), from the one parse of its program; when it tells none, the
+parsing error of ESLint's parser (an early error, such as a declaration repeated), at its tag, or at
+the end of the last tag when it is in the wrapper. The plugin does not parse the JavaScript of the
+template itself.
 
 `preprocess()` builds the template once, `buildTemplate()` of the parser: the blocks come from its
 `tags`, and its diagnostics, `validateTemplate()`, go in the metadata of the virtual code

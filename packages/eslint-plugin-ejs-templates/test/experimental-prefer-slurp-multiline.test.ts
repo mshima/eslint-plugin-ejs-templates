@@ -40,8 +40,18 @@ describe('rule: ejs-templates/experimental-prefer-slurp-multiline', () => {
 
   test('reports parse error for multiline <%_ _%> tag with missing close brace', () => {
     const msgs = lint('<%_\n  if (x) {\n_%>', { 'ejs-templates/experimental-prefer-slurp-multiline': 'error' });
-    expect(msgs).toHaveLength(1);
-    expect(msgs[0].message).toContain('Missing token');
+    expect(msgs).toEqual([
+      {
+        ruleId: null,
+        fatal: true,
+        severity: 2,
+        message: 'Parsing error: No tag closes the block this tag opens',
+        line: 1,
+        column: 1,
+        endLine: 3,
+        endColumn: 4,
+      },
+    ]);
   });
 
   test('does not report return parse error when wrapper fallback applies', () => {

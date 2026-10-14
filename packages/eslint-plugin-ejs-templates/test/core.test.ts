@@ -555,13 +555,36 @@ describe('processor position mapping', () => {
     ]);
   });
 
-  test('reports parse error at EOF when closing brace is missing', () => {
-    const ejsText = '<% if (x) { %>\n<div>body</div>';
-    const msgs = lint(ejsText, { 'no-var': 'error' });
+  // The virtual JavaScript not parsing, the errors ejs-template-parser tells of the JavaScript of the template are the
+  // parsing errors, at their tags.
+  test('reports a block no tag closes as the parsing error, at the tag opening it', () => {
+    expect(lint('<% if (x) { %>\n<div>body</div>', { 'no-var': 'error' })).toEqual([
+      {
+        ruleId: null,
+        fatal: true,
+        severity: 2,
+        message: 'Parsing error: No tag closes the block this tag opens',
+        line: 1,
+        column: 1,
+        endLine: 1,
+        endColumn: 15,
+      },
+    ]);
+  });
 
-    expect(msgs).toHaveLength(1);
-    expect(msgs[0].line).toBe(1);
-    expect(msgs[0].message).toContain('Missing token');
+  test('reports a tag closing a block no tag opens as the parsing error', () => {
+    expect(lint('<% } %>\nx')).toEqual([
+      {
+        ruleId: null,
+        fatal: true,
+        severity: 2,
+        message: 'Parsing error: This tag closes a block no tag before it opens',
+        line: 1,
+        column: 1,
+        endLine: 1,
+        endColumn: 8,
+      },
+    ]);
   });
 });
 
