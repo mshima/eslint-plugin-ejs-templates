@@ -40,7 +40,7 @@
   },
   "dependencies": {
     "debug": "^4.4.3",
-    "ejs-template-parser": "*"
+    "ejs-template-parser": "^0.2.0"
   },
   "devDependencies": {
     "ejs": "7.0.1"
