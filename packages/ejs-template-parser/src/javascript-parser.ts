@@ -86,14 +86,11 @@ const codeInTree = (root: SyntaxNode, start: number, length: number): CodeInTree
 
 /**
  * The nodes of a tree starting in each of some ranges, sorted and apart, in one walk going down only to the nodes
- * across a range: the nodes of each range by its start.
+ * across a range: the nodes of each range, in the order of the ranges.
  */
-export function collectNodesInRanges(
-  root: SyntaxNode,
-  ranges: { start: number; end: number }[],
-): Map<number, SyntaxNode[]> {
-  const nodes = new Map<number, SyntaxNode[]>(ranges.map(({ start }) => [start, []]));
-  /** The first range ending after an offset. */
+export function collectNodesInRanges(root: SyntaxNode, ranges: { start: number; end: number }[]): SyntaxNode[][] {
+  const nodes = ranges.map((): SyntaxNode[] => []);
+  /** The index of the first range ending after an offset, the number of the ranges for none. */
   const rangeAfter = (offset: number) => {
     let low = 0;
     let high = ranges.length;
@@ -102,15 +99,16 @@ export function collectNodesInRanges(
       if (ranges[middle].end <= offset) low = middle + 1;
       else high = middle;
     }
-    return ranges.at(low);
+    return low;
   };
+  /** Whether an offset is at or after the start of the range of an index, a range there. */
+  const startedAt = (index: number, offset: number) => index < ranges.length && ranges[index].start <= offset;
   const visit = (node: SyntaxNode): void => {
-    const range = rangeAfter(node.startIndex);
-    if (range && range.start <= node.startIndex) nodes.get(range.start)?.push(node);
+    const index = rangeAfter(node.startIndex);
+    if (startedAt(index, node.startIndex)) nodes[index].push(node);
     for (const child of node.children) {
       // A node starting in a range is in the children across it.
-      const next = rangeAfter(child.startIndex);
-      if (next && next.start <= child.endIndex) visit(child);
+      if (startedAt(rangeAfter(child.startIndex), child.endIndex)) visit(child);
     }
   };
   visit(root);

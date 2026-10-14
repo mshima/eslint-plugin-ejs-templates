@@ -11,7 +11,8 @@ import type { EjsTag } from '../src/tags.js';
 import { type EjsTemplate, type EjsTemplateNode, buildTemplate, cleanupTemplate } from '../src/template.js';
 
 type Summary =
-  string | { branches: { open: string; statement?: string; children: Summary[] }[]; close?: string | undefined };
+  | string
+  | { branches: { open: string; statement?: string | undefined; children: Summary[] }[]; close?: string | undefined };
 
 /** The tree of a template, each text as written, each tag by its source, each block by the code of its tags. */
 function summarize(text: string, nodes: EjsTemplateNode[]): Summary[] {

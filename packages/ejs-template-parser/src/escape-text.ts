@@ -80,11 +80,11 @@ type Place = {
   /** A `-%>` or `_%>` before the text, whose line break the text would start with EJS drops. */
   truncating: boolean;
   /** The character before the offset, when it is text, not part of a delimiter. */
-  previous?: string;
+  previous?: string | undefined;
   /** The character at the offset, when it is text. */
-  next?: string;
+  next?: string | undefined;
   /** The first delimiter at the offset or after it. */
-  nextDelimiter?: Delimiter;
+  nextDelimiter?: Delimiter | undefined;
 };
 
 /**

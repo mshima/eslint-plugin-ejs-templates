@@ -112,10 +112,10 @@ const defaultRules = ({
   ignoredRules,
   preferEncoded,
 }: {
-  allowedGlobals?: string[];
-  experimental?: boolean;
-  ignoredRules?: string[];
-  preferEncoded?: 'always' | 'never';
+  allowedGlobals?: string[] | undefined;
+  experimental?: boolean | undefined;
+  ignoredRules?: string[] | undefined;
+  preferEncoded?: 'always' | 'never' | undefined;
 }) =>
   Object.fromEntries(
     Object.entries({
