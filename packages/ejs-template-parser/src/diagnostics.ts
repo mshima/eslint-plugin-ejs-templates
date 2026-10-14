@@ -7,7 +7,7 @@
 //     http://www.apache.org/licenses/LICENSE-2.0
 
 import { type EjsCodeTag, type EjsTag, programOf } from './tags.js';
-import type { SyntaxNode } from './ts-parser.js';
+import { errorNodes, type SyntaxNode } from './ts-parser.js';
 
 /**
  * What a diagnostic tells. Errors, what EJS fails on or renders otherwise than written:
@@ -160,12 +160,7 @@ const strayCloseDelimiters = (
   return diagnostics;
 };
 
-/** The nodes of a tree with an error, not the ones inside another one. */
-// The walks go down the subtrees tree-sitter tells have an error, and look for comments inside WASM: walking a whole
-// tree in JavaScript marshals each of its nodes out of WASM.
-const errorNodes = (node: SyntaxNode): SyntaxNode[] =>
-  node.isError || node.isMissing ? [node] : node.hasError ? node.children.flatMap(errorNodes) : [];
-
+// The comments are looked for inside WASM: walking a whole tree in JavaScript marshals each of its nodes out of WASM.
 const commentNodes = (node: SyntaxNode): SyntaxNode[] => node.descendantsOfType('comment');
 
 /**

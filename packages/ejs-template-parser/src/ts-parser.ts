@@ -82,3 +82,9 @@ export function findErrorNode(node: SyntaxNode): SyntaxNode | null {
   }
   return null;
 }
+
+/** The nodes of a tree with an error, not the ones inside another one. */
+// The walk goes down the subtrees tree-sitter tells have an error alone: walking a whole tree in JavaScript marshals
+// each of its nodes out of WASM.
+export const errorNodes = (node: SyntaxNode): SyntaxNode[] =>
+  node.isError || node.isMissing ? [node] : node.hasError ? node.children.flatMap(errorNodes) : [];

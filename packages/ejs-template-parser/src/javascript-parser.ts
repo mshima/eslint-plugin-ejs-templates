@@ -11,7 +11,7 @@ import { parseJavaScript, type SyntaxNode, type Tree } from './ts-parser.js';
 export type RelativeJavascriptNode = {
   /**
    * Parser content node corresponding to the original tag content (excluding synthetic wrapper): the code parsed
-   * alone, which a tag of a template whose program has no error parses only when this is read.
+   * alone, which a tag of a template parses only when this is read.
    */
   contentNode: SyntaxNode;
   /** Whether the code parses alone: complete statements, opening and closing no block. */
@@ -91,41 +91,29 @@ const tokensOf = (node: SyntaxNode): SyntaxNode[] => {
  * its tokens in order, whatever tree-sitter recovers them as: the braces of strings, template strings, regular
  * expressions and comments are no tokens of their own, and the `${` of a template string opens the `}` closing it.
  *
- * The braces of a block comment across tags count, as the ones of the code it comments out: the tags between keep the
- * depth of that code. tree-sitter reads the start of a comment the code does not close as a `/` and a regular
- * expression starting with `*`, whose code is counted from its own tokens; and the end of a comment an earlier tag
- * opens as a `*` and a `/`, side by side, which are left aside.
+ * The braces of a block comment the code opens without closing, or closes without opening, are none either, as EJS
+ * compiles a comment across tags: tree-sitter reads the start of a comment the code does not close as a `/` and a
+ * token starting with `*`, where the braces counted end; and the end of a comment the code does not open as a `*` and
+ * a `/`, side by side, where they start.
  */
-const countBraces = (root: SyntaxNode, text: string): { open: number; close: number } => {
+const countBraces = (root: SyntaxNode): { open: number; close: number } => {
   let open = 0;
   let close = 0;
-  const closeBrace = (): void => {
-    if (open > 0) open--;
-    else close++;
-  };
   const tokens = tokensOf(root);
   for (let index = 0; index < tokens.length; index++) {
     const token = tokens[index];
     const next = tokens.at(index + 1);
     const adjacent = next?.startIndex === token.endIndex;
-    if (token.type === '/' && adjacent && next.text.startsWith('*')) {
-      const comment = text.slice(next.startIndex + 1);
-      const tree = parseJavaScript(comment);
-      try {
-        const inComment = countBraces(tree.rootNode, comment);
-        for (let closed = 0; closed < inComment.close; closed++) closeBrace();
-        open += inComment.open;
-      } finally {
-        tree.delete();
-      }
-      break;
-    }
+    if (token.type === '/' && adjacent && next.text.startsWith('*')) break;
     if (token.type === '*' && adjacent && next.type === '/') {
+      open = 0;
+      close = 0;
       index++;
     } else if (token.type === '{' || token.type === '${') {
       open++;
     } else if (token.type === '}') {
-      closeBrace();
+      if (open > 0) open--;
+      else close++;
     }
   }
   return { open, close };
@@ -361,7 +349,7 @@ export function parseJavaScriptPartial(text: string, incrementalCode = ''): Rela
   }
   // A balanced snippet has no brace to count; the others are counted by their tokens, not by the errors tree-sitter
   // recovers with, whose text ends with the last statement of the snippet rather than with the `{` it opened.
-  const braces = countBraces(contentTree.rootNode, text);
+  const braces = countBraces(contentTree.rootNode);
   const wrapperPrefix = `function __ejs_brace_probe__() {\n${incrementalCode}`;
   const bestGuess = parseJavaScript(`${wrapperPrefix}${text}\n  foo(); \n}\n${'}\n'.repeat(braces.open)}`);
   return relativeJavascriptNode(text, {
@@ -371,26 +359,6 @@ export function parseJavaScriptPartial(text: string, incrementalCode = ''): Rela
     codeIn: () => codeInTree(bestGuess.rootNode, wrapperPrefix.length, text.length),
     cleanup: () => {
       bestGuess.delete();
-      contentTree.delete();
-    },
-  });
-}
-
-/**
- * The code of a tag parsed alone, which tells its braces: balanced, its nodes are read in its own tree; otherwise in
- * `program()`, the program of its template, inside the blocks it opens and closes. `release()` is called when it is
- * freed, for the program to be freed with its last tag.
- */
-export function parseTagCode(text: string, program: () => CodeInTree, release: () => void): RelativeJavascriptNode {
-  const contentTree = parseJavaScript(text);
-  const parsesAlone = !contentTree.rootNode.hasError;
-  return relativeJavascriptNode(text, {
-    alone: () => contentTree,
-    braces: parsesAlone ? { open: 0, close: 0 } : countBraces(contentTree.rootNode, text),
-    parsesAlone,
-    codeIn: parsesAlone ? () => codeInTree(contentTree.rootNode, 0, text.length) : program,
-    cleanup: () => {
-      release();
       contentTree.delete();
     },
   });

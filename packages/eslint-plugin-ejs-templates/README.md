@@ -277,7 +277,9 @@ enabled
 ```
 
 There is no fix: only the author knows what the comment was meant to hide. The message is at the
-tag opening the comment.
+tag opening the comment. The tags in between are part of the comment, as EJS compiles them: the
+blocks their code would open and close are none, so `ejs-templates/indent` expects them at the
+depth of the comment.
 
 The rule reports the `comment-across-tags` diagnostics of
 [ejs-template-parser](https://github.com/mshima/eslint-plugin-ejs-templates/tree/main/packages/ejs-template-parser), which are in the coordinates of the

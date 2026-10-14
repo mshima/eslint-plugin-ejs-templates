@@ -376,24 +376,24 @@ whatever you were investigating. In tests, free them in a `finally` block; see t
 ### Performance invariant: one parse of the program, linear walks
 
 The parser reads the JavaScript of a template once as a whole. `getEjsTags()` builds the program of
-the template as EJS compiles it (`EjsProgram`: a function, a statement for each text and code tag)
-and parses it once. When it parses without an error, and no comment in it crosses a tag, each code
-tag is read there: its braces, its `{`, `${` and `}` tokens, and whether it parses alone
-(`javascript.parsesAlone`: they balance, and no node of the program crosses an edge of its code, the
-`;` EJS ends it with aside). An unbalanced tag (a `<% } %>`, an `if (a) {`) reads its nodes there,
-inside its blocks; a tag parsing alone is parsed alone only when its tree is read (`contentNode`,
-`nodes`, `hasStructuralBraces`, `splitStatements()`). `validateTemplate()` finds the errors and the
-comments across tags in the program too. A program with an error, or a comment across tags, does
-not tell what the tags parse as alone: each code tag is then parsed alone, as the parser did before
-it built the program, and the braces of the code a comment across tags comments out count; the
-program its unbalanced tags read their nodes in then opens the blocks they close without opening,
-and closes the ones they leave open. The program is freed with the last tag freed
-(`javascript.cleanup()`).
+the template as EJS compiles it (`EjsProgram`: a function, a statement for each text and code tag),
+parses it once, and reads each code tag there: its braces, its `{`, `${` and `}` tokens (not the
+ones tree-sitter adds to recover from an error), and whether it parses alone
+(`javascript.parsesAlone`: they balance, no error of the program is in it, and no node of the
+program crosses an edge of its code, the `;` EJS ends it with aside). An unbalanced tag (a
+`<% } %>`, an `if (a) {`) reads its nodes there, inside its blocks; a tag parsing alone is parsed
+alone only when its tree is read (`contentNode`, `nodes`, `hasStructuralBraces`,
+`splitStatements()`). `validateTemplate()` finds the errors and the comments across tags in the
+program too. The program of a partial template, whose tags close blocks they do not open or leave
+blocks open, is parsed a second time, those blocks opened before its statements and closed after
+them, and its tags are read there. The code a comment across tags comments out is a comment of the
+program, as EJS compiles it: its braces open and close no block, and the tags between are at the
+depth of the comment. The program is freed with the last tag freed (`javascript.cleanup()`).
 
 A tree read is a parse: a rule of the plugin reading the tree of every tag parses every tag alone
 again. Check what the text of a tag tells first (`no-multiline-output` reads the tree of an output
 tag only when its code has a `?` and an escaped `\n`; `prefer-output`, of a tag written `if (…) {`).
-The parser's `test/performance.test.ts` asserts that a template whose program parses is parsed once.
+The parser's `test/performance.test.ts` asserts that a template is parsed once, a partial one twice.
 
 Everything stays linear in the length of the template, which `test/performance.test.ts` guards by
 counting characters fed to the parser: doubling a template must not much more than double them (it
