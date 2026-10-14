@@ -1,6 +1,6 @@
 {
   "name": "ejs-template-parser",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Parser of EJS templates with tree-sitter: the tags, their code, and the blocks the tags open and close",
   "keywords": [
     "ejs",
