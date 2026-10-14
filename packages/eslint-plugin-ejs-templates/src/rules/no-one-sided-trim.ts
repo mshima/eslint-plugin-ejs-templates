@@ -32,8 +32,9 @@ const INCLUDE = /\binclude\s*\(/u;
  * - a code tag opened by `<%` and closed by `-%>` or `_%>`: opened by `<%_` when the tag is alone on its line, which
  *   slurps its indentation, the blanks the tag rendered at the start of the next line; reported alone when text is
  *   before it on its line, whose blanks `<%_` would slurp;
- * - a code tag opened by `<%_` and closed by `%>`: closed by `_%>` when the end of its line is after it, which drops
- *   the empty line it rendered; by `-%>` when text is after it, which drops nothing then.
+ * - a code tag opened by `<%_` and closed by `%>`: closed by `_%>` when the end of its line is after it, a line break
+ *   after it, which `_%>` slurps, the empty line the tag rendered written out; by `-%>` when text is after it, which
+ *   drops nothing then. The output unchanged either way.
  *
  * Comment tags are left alone: a comment on a line of its own closes with `-%>` (`no-comment-empty-line`).
  */

@@ -79,23 +79,30 @@ describe('autofix: no-one-sided-trim, code tags', () => {
     ['<% -%> at the start of its line, opened by <%_', '<% x = 1 -%>\nb\n', '<%_ x = 1 -%>\nb\n'],
     ['<%_ %> before text, closed by -%>, which drops nothing', '<%_ x = 1 %> b\n', '<%_ x = 1 -%> b\n'],
     ['<%_ %> at the end of the template, closed by _%>', 'b\n<%_ x = 1 %>', 'b\n<%_ x = 1 _%>'],
+    // The empty line the tag rendered written out after it, its line break the one `_%>` slurps.
+    [
+      '<%_ %> before the end of its line, closed by _%>, its empty line written',
+      '<%_ x = 1 %>\nb\n',
+      '<%_ x = 1 _%>\n\nb\n',
+    ],
+    ['<%_ %> before blanks and the end of its line', '<%_ x = 1 %>  \nb\n', '<%_ x = 1 _%>\n  \nb\n'],
+    ['<%_ %> before a CRLF', '<%_ x = 1 %>\r\nb\r\n', '<%_ x = 1 _%>\r\n\r\nb\r\n'],
   ])('%s', (_label, template, expected) => {
     const fixed = applyFix(template, rules);
     expect(fixed).toBe(expected);
     expect(ejs.render(fixed, data)).toBe(ejs.render(template, data));
   });
 
-  // The blanks of a line rendering nothing else, which the tag left: the indentation it rendered at the start of the
-  // next line, the empty line of a `<%_ … %>`.
-  test.each([
-    ['an indented <% -%>, its indentation slurped', '  <% x = 1 -%>\nb\n', '  <%_ x = 1 -%>\nb\n', 'b\n'],
-    ['<%_ %> before the end of its line, closed by _%>', '<%_ x = 1 %>\nb\n', '<%_ x = 1 _%>\nb\n', 'b\n'],
-  ])('%s', (_label, template, expected, rendered) => {
-    const fixed = applyFix(template, rules);
-    expect(fixed).toBe(expected);
-    expect(ejs.render(fixed, data)).toBe(rendered);
-    expect(lint(fixed, rules)).toEqual([]);
-  });
+  // The indentation a `<% … -%>` alone on its line rendered at the start of the next line, slurped.
+  test.each([['an indented <% -%>, its indentation slurped', '  <% x = 1 -%>\nb\n', '  <%_ x = 1 -%>\nb\n', 'b\n']])(
+    '%s',
+    (_label, template, expected, rendered) => {
+      const fixed = applyFix(template, rules);
+      expect(fixed).toBe(expected);
+      expect(ejs.render(fixed, data)).toBe(rendered);
+      expect(lint(fixed, rules)).toEqual([]);
+    },
+  );
 
   // `<%_` would slurp the blanks of the text before it.
   test('leaves a <% tag with text before it on its line', () => {

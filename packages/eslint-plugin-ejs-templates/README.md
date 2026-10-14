@@ -751,11 +751,11 @@ A tag trims on both sides of it or on none. `<%_` slurps the blanks before a tag
 `-%>` drops the line break after it, `_%>` the blanks after it and the line break. A tag trimming
 one side alone is reported:
 
-| Tag                                                 | Fix                                                                      |
-| --------------------------------------------------- | ------------------------------------------------------------------------ |
-| An output tag (`<%=`, `<%-`) closed by `-%>`, `_%>` | `%>`, what the close removed removed from the text, the output unchanged |
-| A code tag opened by `<%`, closed by `-%>`, `_%>`   | opened by `<%_`, when the tag is alone on its line                       |
-| A code tag opened by `<%_`, closed by `%>`          | `_%>` before the end of its line, `-%>` before text                      |
+| Tag                                                 | Fix                                                                                        |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| An output tag (`<%=`, `<%-`) closed by `-%>`, `_%>` | `%>`, what the close removed removed from the text, the output unchanged                   |
+| A code tag opened by `<%`, closed by `-%>`, `_%>`   | opened by `<%_`, when the tag is alone on its line                                         |
+| A code tag opened by `<%_`, closed by `%>`          | `_%>` and a blank line before the end of its line, `-%>` before text: the output unchanged |
 
 An output tag cannot open with `<%_`. Two are left alone: one whose code has an `include(…)`, the
 output of a partial ending with a line break, which a `-%>` keeps from doubling the line break of
@@ -787,21 +787,23 @@ text
 <!-- ✓ fixed -->
   <%_ if (show) { -%>
 
-<!-- ✗ violation: renders an empty line -->
+<!-- ✗ violation: renders an empty line, which the closing delimiter does not tell -->
 <%_ } %>
 
-<!-- ✓ fixed -->
+<!-- ✓ fixed: the empty line written out -->
 <%_ } _%>
+
 
 <!-- ✓ allowed -->
 <%- include('partial') -%>
 ```
 
-The fix of an output tag keeps the output: before a `<%%`, which writes without clearing what the
-next text loses, the tag is reported without a fix. The fixes of code tags change the blanks and the
-line breaks the template renders, which is what they are about: the indentation a `<% … -%>` alone
-on its line renders at the start of the next line, the empty line a `<%_ … %>` renders. A `<%` tag
-with text before it on its line is reported without a fix, `<%_` slurping the blanks of the text.
+The fixes of output tags and of `<%_ … %>` keep the output: a `<%_ … %>` before the end of its line
+gets a line break after its `_%>`, which slurps it, the empty line the tag rendered written out. Before
+a `<%%`, which writes without clearing what the next text loses, an output tag is reported without
+a fix. The fix of a `<% … -%>` changes the blanks the template renders: the indentation it renders
+at the start of the next line when it is alone on its line, indented. A `<%` tag with text before it
+on its line is reported without a fix, `<%_` slurping the blanks of the text.
 
 ### `ejs-templates/output-semi`
 

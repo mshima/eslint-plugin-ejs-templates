@@ -763,14 +763,18 @@ function translateFix(
     if (block.openDelim !== '<%' || block.closeDelim === '%>' || !block.isStandalone) return null;
     return { range: [block.tagOffset, block.tagOffset + block.openDelim.length], text: '<%_' };
   } else if (fix.text === SENTINEL_CODE_CLOSE) {
-    // no-one-sided-trim: a code tag opened by `<%_` and closed by `%>`, closed by `_%>` before the end of its line, by
-    // `-%>` before text, which drops nothing then.
+    // no-one-sided-trim: a code tag opened by `<%_` and closed by `%>`, closed by `-%>` before text, which drops nothing
+    // then; by `_%>` before the end of its line, and a line break after it, which `_%>` slurps: what is after the tag
+    // renders as it did, the empty line the tag rendered written out. Nothing after the tag, nothing to keep.
     if (block.openDelim !== '<%_' || block.closeDelim !== '%>') return null;
     const end = block.tagOffset + block.tagLength;
     const after = options.template.text.slice(end);
     const lineEnd = after.search(/[\r\n]/u);
-    const endsLine = (lineEnd === -1 ? after : after.slice(0, lineEnd)).trim() === '';
-    return { range: [end - block.closeDelim.length, end], text: endsLine ? '_%>' : '-%>' };
+    if ((lineEnd === -1 ? after : after.slice(0, lineEnd)).trim() !== '') {
+      return { range: [end - block.closeDelim.length, end], text: '-%>' };
+    }
+    const lineBreak = /\r\n|\r|\n/u.exec(after)?.[0] ?? '\n';
+    return { range: [end - block.closeDelim.length, end], text: after === '' ? '_%>' : `_%>${lineBreak}` };
   } else if (fix.text === SENTINEL_PREFER_OUTPUT || fix.text === SENTINEL_PREFER_OUTPUT_ELSE) {
     // prefer-output: convert wrapper conditionals to output ternary:
     // `<% if (cond) { %>a<% } %>` => `<%= cond ? 'a' : '' %>`
