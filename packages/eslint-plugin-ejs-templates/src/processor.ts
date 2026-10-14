@@ -28,7 +28,7 @@ import {
   validateTemplate,
 } from 'ejs-template-parser';
 import { EJS_MARKER_PREFIX, extractTagBlocks, type TagBlock } from './ejs-parser.js';
-import type { VirtualMarkerComment } from './utils.js';
+import { ifOpening, tokensAre, tokensOf, type VirtualMarkerComment } from './utils.js';
 
 type VitualJavascriptCode = {
   virtualCode: string;
@@ -539,58 +539,36 @@ function invertNegatedTest(conditionNode: SyntaxNode): string | null {
  * branch to swap with is decided by the caller from the surrounding blocks.
  */
 export function getNegatedIfCondition(block: TagBlock): string | null {
-  const partialNode = block.javascriptPartialNode;
-  if (!partialNode || partialNode.multilineOriginal || partialNode.contentNode.childCount !== 1) {
+  const javascript = block.javascriptPartialNode;
+  if (!javascript || javascript.multilineOriginal) {
     return null;
   }
-
-  const ifStatement = partialNode.contentNode.child(0);
-  if (ifStatement?.type !== 'if_statement' || ifStatement.child(ifStatement.childCount - 1)?.text !== '{') {
-    return null;
-  }
-
-  const conditionNode = ifStatement.childForFieldName('condition') ?? ifStatement.child(1);
+  const conditionNode = ifOpening(tokensOf(javascript), 0)?.childForFieldName('condition');
   return conditionNode ? invertNegatedTest(conditionNode) : null;
 }
 
-/** Whether the code of a tag is exactly `} else {` — an `else if` continuation deliberately does not match. */
+/** Whether the code of a tag is exactly `} else {`, a comment aside — an `else if` continuation deliberately does not match. */
 function isElseOpening(javascript: RelativeJavascriptNode): boolean {
-  const errorNode = javascript.contentNode.child(0);
-  return (
-    errorNode?.type === 'ERROR' &&
-    errorNode.childCount === 3 &&
-    errorNode.child(0)?.type === '}' &&
-    errorNode.child(1)?.type === 'else' &&
-    errorNode.child(2)?.type === '{'
-  );
+  return tokensAre(tokensOf(javascript, { comments: false }), '}', 'else', '{');
 }
 
-/**
- * Positive form of a negated `} else if (…) {` link's test, or null when it is not one.
- *
- * The link parses as an `ERROR` node — `}`, `else`, `if`, the condition, `{` — rather than an
- * `if_statement`, because the braces it opens and closes live in other tags.
- */
+/** Positive form of a negated `} else if (…) {` link's test, or null when it is not one. */
 export function getNegatedElseIfCondition(block: TagBlock): string | null {
-  const errorNode = block.javascriptPartialNode?.contentNode.child(0);
-  if (
-    errorNode?.type !== 'ERROR' ||
-    errorNode.child(0)?.type !== '}' ||
-    errorNode.child(1)?.type !== 'else' ||
-    errorNode.child(2)?.type !== 'if' ||
-    errorNode.child(errorNode.childCount - 1)?.type !== '{'
-  ) {
+  const javascript = block.javascriptPartialNode;
+  if (!javascript || javascript.multilineOriginal) {
     return null;
   }
-
-  const conditionNode = errorNode.child(3);
+  const tokens = tokensOf(javascript);
+  if (!tokensAre(tokens.slice(0, 2), '}', 'else')) {
+    return null;
+  }
+  const conditionNode = ifOpening(tokens, 2)?.childForFieldName('condition');
   return conditionNode ? invertNegatedTest(conditionNode) : null;
 }
 
-/** Whether the code of a tag is exactly `}`, closing a block without opening another. */
+/** Whether the code of a tag is exactly `}`, a comment aside, closing a block without opening another. */
 function isBlockClosing(javascript: RelativeJavascriptNode): boolean {
-  const errorNode = javascript.contentNode.child(0);
-  return errorNode?.type === 'ERROR' && errorNode.childCount === 1 && errorNode.child(0)?.type === '}';
+  return tokensAre(tokensOf(javascript, { comments: false }), '}');
 }
 
 /**

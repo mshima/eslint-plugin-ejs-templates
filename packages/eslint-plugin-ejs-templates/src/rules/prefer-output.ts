@@ -8,7 +8,7 @@
 
 import type { Rule } from 'eslint';
 import { getFileBlocks, SENTINEL_PREFER_OUTPUT, SENTINEL_PREFER_OUTPUT_ELSE } from '../processor.js';
-import { getTagTypeComments } from '../utils.js';
+import { getTagTypeComments, ifOpening, tokensAre, tokensOf } from '../utils.js';
 
 /**
  * ESLint rule: suggest converting conditional output patterns to ternary expressions.
@@ -70,12 +70,9 @@ export const preferOutput: Rule.RuleModule = {
           // are read, are read for code written so alone.
           if (!/^\s*if\b/u.test(firstBlock.codeContent) || !/\{\s*$/u.test(firstBlock.codeContent)) continue;
           const firstPartialNode = firstBlock.javascriptPartialNode;
-          if (!firstPartialNode || firstPartialNode.multilineOriginal || firstPartialNode.contentNode.childCount !== 1)
+          if (!firstPartialNode || firstPartialNode.multilineOriginal || !ifOpening(tokensOf(firstPartialNode), 0)) {
             continue;
-
-          const ifStatement = firstPartialNode.contentNode.child(0);
-          if (ifStatement?.type !== 'if_statement' || ifStatement.child(ifStatement.childCount - 1)?.text !== '{')
-            continue;
+          }
 
           const nextTagTypeComment = tagTypeComments.at(i + 1);
           if (nextTagTypeComment?.tagType !== 'code') continue;
@@ -84,17 +81,13 @@ export const preferOutput: Rule.RuleModule = {
           if (nextBlock?.tagType !== 'code') continue;
           if (nextBlock.originalLine !== firstBlock.originalLine || !/^\s*\}/u.test(nextBlock.codeContent)) continue;
           const nextPartialNode = nextBlock.javascriptPartialNode;
-          if (!nextPartialNode || nextPartialNode.multilineOriginal || nextPartialNode.contentNode.childCount !== 1) {
-            continue;
-          }
+          if (!nextPartialNode || nextPartialNode.multilineOriginal) continue;
 
-          const errorNode = nextPartialNode.contentNode.child(0);
-          if (errorNode?.type !== 'ERROR' || errorNode.child(0)?.type !== '}') continue;
-
+          // `}`, or `} else {` and the `}` closing it on the line too.
+          const nextTokens = tokensOf(nextPartialNode);
           let hasElseClause = false;
-          if (errorNode.childCount > 1) {
-            // Treat else clauses
-            if (errorNode.child(1)?.type !== 'else' || errorNode.child(2)?.type !== '{') continue;
+          if (!tokensAre(nextTokens, '}')) {
+            if (!tokensAre(nextTokens, '}', 'else', '{')) continue;
 
             const elseCloseBlock = nonDirectiveSegments.at(i + 2)?.block;
             if (
@@ -103,8 +96,8 @@ export const preferOutput: Rule.RuleModule = {
             ) {
               continue;
             }
-            const elseCloseErrorNode = elseCloseBlock.javascriptPartialNode?.contentNode.child(0);
-            if (elseCloseErrorNode?.type !== 'ERROR' || elseCloseErrorNode.child(0)?.type !== '}') continue;
+            const elseCloseNode = elseCloseBlock.javascriptPartialNode;
+            if (!elseCloseNode || !tokensAre(tokensOf(elseCloseNode), '}')) continue;
 
             hasElseClause = true;
           }

@@ -258,7 +258,10 @@ tag opens a branch of, with the index of that branch: the `if` is branch 0, each
 and `} else {` the next one, and `block.close` the tag closing it. The translator **re-validates
 the shape of those tags before using them** (a plain `} else {`, a plain `}`): the reporting rule
 and the translator run at different times, so the translator never assumes the rule's view still
-holds.
+holds. The shape of a tag is told by its tokens (`tokensOf()` in `src/utils.ts`: `}`, `else`, `{`
+for a plain `} else {`; `ifOpening()` for an `if (…) {` left open), which an unbalanced tag reads in
+the program of its template without a parse, rather than by the error tree-sitter recovers its code
+alone with.
 
 Do not locate related tags positionally, nor by counting braces from tag to tag: a branch body
 normally contains further tags, and the tree already pairs each tag with its block. An `else if`
