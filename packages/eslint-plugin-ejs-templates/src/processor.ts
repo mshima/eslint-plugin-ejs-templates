@@ -20,20 +20,12 @@ import {
   type EjsTemplateNode,
   type EjsText,
   editTemplate,
-  findErrorNode,
-  getDirectiveCodeText,
-  parseJavaScript,
   type RelativeJavascriptNode,
   type SyntaxNode,
   validateTemplate,
 } from 'ejs-template-parser';
 import { EJS_MARKER_PREFIX, extractTagBlocks, type TagBlock } from './ejs-parser.js';
 import { ifOpening, tokensAre, tokensOf, type VirtualMarkerComment } from './utils.js';
-
-type VitualJavascriptCode = {
-  virtualCode: string;
-  getPosition: (offset: number) => { node: SyntaxNode; startOffset: number; endOffset: number } | null;
-};
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -639,6 +631,9 @@ function renderedOf(children: EjsTemplateNode[]): string | null {
   return rendered;
 }
 
+/** The errors of ejs-template-parser which the JavaScript of a template does not parse by. */
+const JAVASCRIPT_ERRORS = new Set<EjsDiagnosticCode>(['javascript-error', 'unclosed-block', 'unopened-close']);
+
 /** Rule id of the built-in ESLint rule this plugin supplies an autofix for. */
 const CORE_NO_NEGATED_CONDITION = 'no-negated-condition';
 
@@ -1127,7 +1122,6 @@ const processedFilesMap = new Map<
     sourceText: string;
     template: EjsTemplate;
     diagnostics: EjsDiagnostic[];
-    javascriptVitualCode: VitualJavascriptCode;
   }
 >();
 
@@ -1357,6 +1351,21 @@ function strayCloseDelimiterSuggestions(diagnostic: EjsDiagnostic, template: Ejs
  * diagnostic of the code of the rule, in the template, with the severity and the `suppressions` of the request, which
  * ESLint passes to postprocess() suppressed by a directive comment.
  */
+/** The range of a diagnostic of ejs-template-parser in an ESLint message: 1-based columns, a tag spanning lines. */
+function rangeOf(
+  diagnostic: EjsDiagnostic,
+  sourceText: string,
+): Pick<Linter.LintMessage, 'line' | 'column' | 'endLine' | 'endColumn'> {
+  const lines = sourceText.slice(diagnostic.offset, diagnostic.offset + diagnostic.length).split('\n');
+  const lastLine = lines[lines.length - 1];
+  return {
+    line: diagnostic.line,
+    column: diagnostic.column + 1,
+    endLine: diagnostic.line + lines.length - 1,
+    endColumn: (lines.length === 1 ? diagnostic.column + 1 : 1) + lastLine.length,
+  };
+}
+
 function answerDiagnosticRequests(
   requests: (Linter.LintMessage | Linter.SuppressedLintMessage)[],
   diagnostics: EjsDiagnostic[],
@@ -1370,18 +1379,12 @@ function answerDiagnosticRequests(
     return diagnostics
       .filter((diagnostic) => diagnostic.code === code)
       .map((diagnostic) => {
-        // ESLint columns are 1-based, the parser's 0-based; a tag may span lines.
-        const lines = sourceText.slice(diagnostic.offset, diagnostic.offset + diagnostic.length).split('\n');
-        const lastLine = lines[lines.length - 1];
         const message: Linter.LintMessage | Linter.SuppressedLintMessage = {
           ...('suppressions' in request && { suppressions: request.suppressions }),
           ruleId,
           severity,
           message: diagnostic.message,
-          line: diagnostic.line,
-          column: diagnostic.column + 1,
-          endLine: diagnostic.line + lines.length - 1,
-          endColumn: (lines.length === 1 ? diagnostic.column + 1 : 1) + lastLine.length,
+          ...rangeOf(diagnostic, sourceText),
         };
         if (code === 'stray-close-delimiter') {
           message.suggestions = strayCloseDelimiterSuggestions(diagnostic, template);
@@ -1590,50 +1593,6 @@ function translateUnusedDirectiveFix(
   return result;
 }
 
-/**
- * Build the virtual JavaScript code for the entire EJS template.
- *
- * Extracts the JavaScript portions from EJS directives and concatenates them
- * into a single virtual code block, separated by newlines. Also creates a
- * position mapping to translate virtual code offsets back to original EJS nodes.
- *
- * Used early in preprocess() to detect overall syntax issues before individual
- * tag extraction. The getPosition() function enables error positioning relative
- * to original EJS source.
- */
-const buildVirtualCode = (nodes: SyntaxNode[]): VitualJavascriptCode => {
-  const codeNodes = nodes
-    .filter((n) => ['output_directive', 'directive'].includes(n.type))
-    // `getDirectiveCodeText` drops the `_` tree-sitter absorbs from a `_%>` close delimiter;
-    // emitting it verbatim would put a stray `_` into the virtual JavaScript and fail the parse.
-    .map((n) => ({ node: n.children[1], text: getDirectiveCodeText(n) }));
-  let virtualCode = '';
-  const nodeWithPositions: { node: SyntaxNode; startOffset: number; endOffset: number }[] = [];
-  for (const { node, text } of codeNodes) {
-    virtualCode += text + '\n';
-    nodeWithPositions.push({
-      node,
-      startOffset: virtualCode.length - text.length - 1,
-      endOffset: virtualCode.length - 1,
-    });
-  }
-  return {
-    virtualCode,
-    getPosition(offset: number) {
-      for (const { node, startOffset, endOffset } of nodeWithPositions) {
-        if (offset >= startOffset && offset <= endOffset) {
-          return {
-            node,
-            startOffset,
-            endOffset,
-          };
-        }
-      }
-      return null;
-    },
-  };
-};
-
 // ---------------------------------------------------------------------------
 // ESLint processor
 // ---------------------------------------------------------------------------
@@ -1690,7 +1649,6 @@ export const processor: Linter.Processor = {
         sourceText: text,
         template,
         diagnostics,
-        javascriptVitualCode: buildVirtualCode(template.tags.map((tag) => tag.node)),
       });
     } catch (error) {
       processedFilesMap.delete(filename);
@@ -1786,41 +1744,6 @@ export const processor: Linter.Processor = {
     }
     try {
       const sourceText = processedFile.sourceText;
-      const fullTree = parseJavaScript(processedFile.javascriptVitualCode.virtualCode);
-      if (fullTree.rootNode.hasError) {
-        const errorNode = findErrorNode(fullTree.rootNode);
-        if (!errorNode) {
-          throw new Error('Unexpectedly did not find error or missing node in tree with hasError=true');
-        }
-        const ejsErrorNode = processedFile.javascriptVitualCode.getPosition(errorNode.startIndex);
-        let line = 1;
-        let column = 1;
-        let endLine = 1;
-        let endColumn = 1;
-        if (ejsErrorNode) {
-          const { startPosition } = ejsErrorNode.node;
-          const { row: endPositionRow, column: endPositionColumn } = errorNode.endPosition;
-          line = startPosition.row + 1;
-          column = startPosition.column + errorNode.startPosition.column + 1;
-          endLine = startPosition.row + endPositionRow + 1;
-          endColumn = startPosition.column + endPositionColumn + 1;
-        }
-        fullTree.delete();
-        return [
-          {
-            fatal: true,
-            ruleId: null,
-            severity: 2,
-            message: `Failed to parse virtual JavaScript code generated from EJS template, ${errorNode.isError ? 'Unexpected' : 'Missing'} token: ${errorNode.text}`,
-            line,
-            column,
-            endLine,
-            endColumn,
-          },
-        ];
-      }
-      fullTree.delete();
-
       const { segments = [] } = fileBlocksMap.get(filename) ?? {};
       fileBlocksMap.delete(filename);
       const currentVirtualCode = `${GLOBAL_VIRTUAL_OPEN}${segments.map((s) => s.block.virtualCode).join('\n')}${GLOBAL_VIRTUAL_CLOSE}`;
@@ -1976,36 +1899,53 @@ export const processor: Linter.Processor = {
           return [mapped];
         });
 
-      // The parsing error ESLint's parser finds where tree-sitter finds none (above), such as a declaration repeated: at
-      // its tag, or past the code of the last tag (in the wrapper), at its end.
-      const fatalMessages = virtualMessages
-        .filter((msg) => msg.fatal)
-        .map((msg) => {
-          const segment = segments.find((s) => msg.line >= s.startLine && msg.line <= s.endLine);
-          if (!segment) {
-            const { block } = segments[segments.length - 1];
-            let line = block.originalLine;
-            let column = block.originalColumn + 1;
-            for (const ch of block.codeContent) {
-              if (ch === '\n') {
-                line += 1;
-                column = 1;
-              } else {
-                column += 1;
+      // The virtual JavaScript does not parse: the errors ejs-template-parser tells of the JavaScript of the template, at
+      // their tags (a block no tag closes, a tag closing a block none opens, code not parsing); otherwise the parsing
+      // error of ESLint's parser (an early error, such as a declaration repeated), at its tag, or past the code of the
+      // last tag (in the wrapper), at its end.
+      const javascriptErrors = virtualMessages.some((msg) => msg.fatal)
+        ? processedFile.diagnostics.filter((diagnostic) => JAVASCRIPT_ERRORS.has(diagnostic.code))
+        : [];
+      const fatalMessages: Linter.LintMessage[] = javascriptErrors.length
+        ? javascriptErrors.map((diagnostic) => ({
+            ruleId: null,
+            fatal: true,
+            severity: 2,
+            message: `Parsing error: ${diagnostic.message}`,
+            ...rangeOf(diagnostic, sourceText),
+          }))
+        : virtualMessages
+            .filter((msg) => msg.fatal)
+            .map((msg) => {
+              const segment = segments.find((s) => msg.line >= s.startLine && msg.line <= s.endLine);
+              if (!segment) {
+                const { block } = segments[segments.length - 1];
+                let line = block.originalLine;
+                let column = block.originalColumn + 1;
+                for (const ch of block.codeContent) {
+                  if (ch === '\n') {
+                    line += 1;
+                    column = 1;
+                  } else {
+                    column += 1;
+                  }
+                }
+                const fatalMsg: Linter.LintMessage = { ...msg, line, column };
+                delete fatalMsg.fix;
+                return fatalMsg;
               }
-            }
-            const fatalMsg: Linter.LintMessage = { ...msg, line, column };
-            delete fatalMsg.fix;
-            return fatalMsg;
-          }
-          const localMsg: Linter.LintMessage = { ...msg, line: msg.line - segment.startLine + 1, column: msg.column };
-          if (msg.endLine !== undefined) {
-            localMsg.endLine = msg.endLine - segment.startLine + 1;
-            localMsg.endColumn = msg.endColumn;
-          }
-          delete localMsg.fix;
-          return mapMessage(localMsg, segment.block);
-        });
+              const localMsg: Linter.LintMessage = {
+                ...msg,
+                line: msg.line - segment.startLine + 1,
+                column: msg.column,
+              };
+              if (msg.endLine !== undefined) {
+                localMsg.endLine = msg.endLine - segment.startLine + 1;
+                localMsg.endColumn = msg.endColumn;
+              }
+              delete localMsg.fix;
+              return mapMessage(localMsg, segment.block);
+            });
 
       const formatMessages = mappedMessages.filter((msg) => msg.ruleId === 'ejs-templates/format');
       const nonFormatMessages = mappedMessages.filter((msg) => msg.ruleId !== 'ejs-templates/format');
