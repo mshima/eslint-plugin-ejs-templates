@@ -703,7 +703,7 @@ configure yourself untouched:
 Disallows a close delimiter (`%>`, `-%>`, `_%>`) in the text of a template, outside of any tag.
 EJS drops it from the output, along with the line break after a `-%>` or a `_%>` and the blanks
 after a `_%>`. It is usually a typo, a delimiter left behind by an edit; `%%>` writes a literal
-`%>`.
+`%>`. Whatever is before it: text alone, or a code tag, an output tag or none.
 
 |                 |                                  |
 | --------------- | -------------------------------- |
@@ -711,7 +711,10 @@ after a `_%>`. It is usually a typo, a delimiter left behind by an edit; `%%>` w
 | **Suggestions** | Write it literally, or delete it |
 
 ```ejs
-<!-- ✗ violation: EJS drops the %> -->
+<!-- ✗ violation: in text alone, EJS renders `plain text  more` -->
+plain text %> more
+
+<!-- ✗ violation: after an output tag, EJS drops the %> -->
 CREATE INDEX ON `<%= bucket %>` %>(tokenDate);
 
 <!-- ✓ suggestion: write it literally, the output then has it -->
