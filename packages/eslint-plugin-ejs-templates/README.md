@@ -21,7 +21,7 @@ EJS files are parsed by [ejs-template-parser](https://github.com/mshima/eslint-p
 - [`ejs-templates/prefer-output`](#ejs-templatesprefer-output) – suggests (and auto-fixes) simple if-wrappers into output ternaries
 - [`ejs-templates/prefer-single-line-tags`](#ejs-templatesprefer-single-line-tags) – collapses multiline EJS tags to single-line tags
 - [`ejs-templates/prefer-slurping-codeonly`](#ejs-templatespreferslurpingcodeonly) – flags `<% … %>` code tags that can be safely converted to `<%_ … _%>`
-- [`ejs-templates/experimental-prefer-slurp-multiline`](#ejs-templatesexperimental-prefer-slurp-multiline) – converts multiline `<% … %>` to `<%_ … _%>`
+- [`ejs-templates/prefer-slurp-multiline`](#ejs-templatesprefer-slurp-multiline) – flags `<% … %>` code tags spanning lines, written `<%_ … _%>`
 - [`ejs-templates/format`](#ejs-templatesformat) – normalizes spacing inside tags and multiline closing delimiter layout
 - [`ejs-templates/indent-tag`](#ejs-templatesindent-tag) – enforces brace-depth–based indentation on standalone `<%_ … _%>` tags
 - [`ejs-templates/indent-content`](#ejs-templatesindent-content) – indents the lines of a `<%_ … _%>` tag spanning lines with the tag
@@ -64,7 +64,7 @@ export default defineConfig([
       'ejs-templates/prefer-output': 'error',
       'ejs-templates/prefer-encoded': 'error', // 'always' (default) or 'never'
       // Apply remaining rules in this order:
-      'ejs-templates/experimental-prefer-slurp-multiline': 'error',
+      'ejs-templates/prefer-slurp-multiline': 'error',
       'ejs-templates/prefer-slurping-codeonly': 'error',
       'ejs-templates/prefer-single-line-tags': 'error',
       'ejs-templates/slurp-newline': 'error',
@@ -85,7 +85,7 @@ import ejs from 'eslint-plugin-ejs-templates';
 export default defineConfig([
   ...ejs.configs.customize({
     // allowedGlobals: ['include'],   // extra global functions to allow (default: [])
-    // experimental: true,            // enable experimental rules (default: false)
+    // experimental: true,            // enable experimental rules: none at the moment (default: false)
     // html: 'extension',             // 'always' | 'never' | 'extension' (default)
     // stylisticBlocklist: false,     // disable conflicting @stylistic rules (default: false)
     // prettierBlocklist: false,      // disable prettier/prettier rule (default: false)
@@ -115,13 +115,12 @@ export default defineConfig([
 | Option               | Type                                 | Default       | Description                                                                                                                                              |
 | -------------------- | ------------------------------------ | ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `allowedGlobals`     | `string[]`                           | `[]`          | Extra global function names that `no-global-function-call` will not flag                                                                                 |
-| `experimental`       | `boolean`                            | `false`       | Enables experimental features                                                                                                                            |
+| `experimental`       | `boolean`                            | `false`       | Turns on the experimental rules: none at the moment                                                                                                      |
 | `html`               | `'always' \| 'never' \| 'extension'` | `'extension'` | Controls the `prefer-encoded` option: `always` for all `.ejs` files, `never` for all `.ejs` files, or `always` for `*.html.ejs` and `never` for the rest |
 | `stylisticBlocklist` | `boolean`                            | `false`       | Turns off `@stylistic` rules that conflict with EJS formatting (`eol-last`, `brace-style` and `multiline-ternary`)                                       |
 | `prettierBlocklist`  | `boolean`                            | `false`       | Turns off the `prettier/prettier` rule when Prettier is also configured                                                                                  |
 
-`customize()` turns on every rule of the plugin with `error` but
-`experimental-prefer-slurp-multiline` (with `experimental`) and `prefer-encoded` (by `html`). It
+`customize()` turns on every rule of the plugin with `error` but `prefer-encoded` (by `html`). It
 leaves alone an `ejs-templates` rule the configurations it is given set, and reads the rules of
 `@stylistic` they turn on:
 
@@ -136,7 +135,7 @@ A configuration like generator-jhipster's:
 ```js
 export default defineConfig([
   ...ejs.configs.customize(
-    { html: 'never', stylisticBlocklist: true, prettierBlocklist: true, experimental: true },
+    { html: 'never', stylisticBlocklist: true, prettierBlocklist: true },
     js.configs.recommended,
     stylistic.configs.customize({ jsx: false, semi: true }),
   ),
@@ -202,7 +201,7 @@ in the base EJS rules and applying `prefer-encoded` in later config entries.
 
 Apply the remaining rules in the following order for best results:
 
-1. [`experimental-prefer-slurp-multiline`](#ejs-templatesexperimental-prefer-slurp-multiline) — convert multiline `<% %>` to `<%_ %>` first
+1. [`prefer-slurp-multiline`](#ejs-templatesprefer-slurp-multiline) — convert multiline `<% %>` to `<%_ %>` first
 2. [`prefer-slurping-codeonly`](#ejs-templatespreferslurpingcodeonly) — convert single-line `<% %>` to `<%_ %>`
 3. [`prefer-single-line-tags`](#ejs-templatesprefer-single-line-tags) — collapse remaining multiline tags
 4. [`slurp-newline`](#ejs-templatesslurp-newline) — ensure slurp tags are on their own line
@@ -210,26 +209,54 @@ Apply the remaining rules in the following order for best results:
 6. [`indent-content`](#ejs-templatesindent-content) — indent the lines of a tag spanning lines with it
 7. [`format`](#ejs-templatesformat) — apply final whitespace/layout normalization
 
-### `ejs-templates/experimental-prefer-slurp-multiline`
+### `ejs-templates/prefer-slurp-multiline`
 
-Converts multiline `<% … %>` tags to `<%_ … _%>`. Apply this rule **before**
-`prefer-single-line-tags` so that multiline `<% %>` tags get their delimiters changed
-before being collapsed.
+Prefers `<%_ … _%>` (whitespace-slurping) over `<% … %>` for code tags spanning lines, as
+[`prefer-slurping-codeonly`](#ejs-templatespreferslurpingcodeonly) does for the ones on one line.
 
-|             |                                                              |
-| ----------- | ------------------------------------------------------------ |
-| **Fixable** | Yes — `eslint --fix` changes `<%` to `<%_` and `%>` to `_%>` |
+A code tag opening with `<%` and spanning lines, closed by `%>` or `-%>`, is reported, whether its
+code opens or closes blocks or not. The fix writes it `<%_ … _%>`, its code trimmed: the first line
+of the code joins the opening delimiter, and the closing one follows the last line. Output tags
+(`<%=`, `<%-`), comments and tags already opening with `<%_` are not reported.
+
+The fix changes the blanks and the line breaks EJS renders, which slurp tags are for: `<%_` slurps
+the blanks before the tag on its line, `_%>` the blanks after it and the line break that follows.
+On a tag inside text, the blanks of the text next to the tag are slurped too, which
+[`slurp-newline`](#ejs-templatesslurp-newline) then puts on a line of its own.
+
+Apply it **before** [`prefer-single-line-tags`](#ejs-templatesprefer-single-line-tags), which
+splits the slurp tag it writes into tags of one line each, joined by their slurp delimiters.
+
+|             |                                                                   |
+| ----------- | ----------------------------------------------------------------- |
+| **Fixable** | Yes — `eslint --fix` writes the tag `<%_ … _%>`, its code trimmed |
 
 ```ejs
 <!-- ✗ violation -->
 <%
   if (condition) {
 %>
+x
+<% } %>
 
 <!-- ✓ fixed -->
-<%_
-  if (condition) {
-_%>
+<%_ if (condition) { _%>
+x
+<% } %>
+```
+
+A tag of several statements keeps its lines:
+
+```ejs
+<!-- ✗ violation -->
+  <%
+  const a = 1;
+  const b = 2;
+  %>
+
+<!-- ✓ fixed -->
+  <%_ const a = 1;
+  const b = 2; _%>
 ```
 
 ### `ejs-templates/format`
@@ -719,7 +746,7 @@ Enforces semicolon style at the end of the content of output tags, `<%= ... %>` 
 on one line or spanning lines.
 
 This rule is independent from the ordered formatting pipeline
-(`experimental-prefer-slurp-multiline` → `format`) and does not affect the
+(`prefer-slurp-multiline` → `format`) and does not affect the
 behavior of the other plugin rules.
 
 |             |                                                      |
@@ -981,6 +1008,11 @@ some text
 ```
 
 ## Removed and renamed rules
+
+### `ejs-templates/experimental-prefer-slurp-multiline`
+
+No longer experimental: [`prefer-slurp-multiline`](#ejs-templatesprefer-slurp-multiline), which
+`customize()` turns on without the `experimental` option.
 
 ### `ejs-templates/indent`
 

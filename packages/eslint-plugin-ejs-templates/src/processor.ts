@@ -45,7 +45,7 @@ const debug = createDebug('ejs-templates:processor');
 // ---------------------------------------------------------------------------
 
 /**
- * Sentinel text written by the `experimental-prefer-slurp-multiline` fix.
+ * Sentinel text written by the `prefer-slurp-multiline` fix.
  * Using a non-empty distinct value lets `translateFix` tell this sentinel
  * apart from the generic `''` sentinel used by all other plugin rules.
  */
@@ -653,7 +653,7 @@ function buildNegatedConditionFix(
  * - Generic sentinel (`text === ''`): used by `prefer-encoded`.
  * - `conventionSentinel(code)`: used by the rules of the conventions ejs-template-parser
  *   diagnoses, whose fixes `fixOf()` of the parser gives.
- * - `SENTINEL_PREFER_SLURP_MULTILINE`: used by `experimental-prefer-slurp-multiline`.
+ * - `SENTINEL_PREFER_SLURP_MULTILINE`: used by `prefer-slurp-multiline`.
  *
  * **General JS fixes** (from standard ESLint rules such as `no-var`,
  * `prefer-const`, etc.): the fix offsets are positions within the virtual
@@ -707,7 +707,7 @@ function translateFix(
   if (fix.range[0] !== 0) {
     // Fall through to the general JS fix handler below.
   } else if (fix.text === SENTINEL_PREFER_SLURP_MULTILINE) {
-    // experimental-prefer-slurp-multiline: change multiline `<% … %>` → `<%_ … _%>` (content unchanged)
+    // prefer-slurp-multiline: change multiline `<% … %>` → `<%_ … _%>` (content unchanged)
     if (block.tagType === 'code-multiline' || block.tagType === 'code-slurpable-multiline') {
       return {
         range: [block.tagOffset, block.tagOffset + block.tagLength],
