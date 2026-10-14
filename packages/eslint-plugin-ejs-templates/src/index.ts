@@ -43,7 +43,7 @@ const pluginCore = {
   },
   rules: {
     'prefer-slurping-codeonly': preferSlurpingCodeonly,
-    'experimental-prefer-slurp-multiline': preferSlurpMultiline,
+    'prefer-slurp-multiline': preferSlurpMultiline,
     'prefer-single-line-tags': preferSingleLineTags,
     'slurp-newline': slurpNewline,
     'indent-tag': indentTag,
@@ -119,14 +119,12 @@ const ruleEnabled = (configs: Config[], rule: string): boolean => {
 
 const defaultRules = ({
   allowedGlobals,
-  experimental,
   ignoredRules,
   preferEncoded,
   indentBinaryOps,
   stylisticIndent,
 }: {
   allowedGlobals?: string[] | undefined;
-  experimental?: boolean | undefined;
   ignoredRules?: string[] | undefined;
   preferEncoded?: 'always' | 'never' | undefined;
   /** Whether `@stylistic/indent-binary-ops` is on, which asks for some lines of right operands as much indentation. */
@@ -152,7 +150,7 @@ const defaultRules = ({
       [`${pluginName}/prefer-single-line-tags`]: 'error',
       [`${pluginName}/slurp-newline`]: 'error',
       [`${pluginName}/prefer-slurping-codeonly`]: 'error',
-      [`${pluginName}/experimental-prefer-slurp-multiline`]: experimental ? 'error' : 'off',
+      [`${pluginName}/prefer-slurp-multiline`]: 'error',
       [`${pluginName}/indent-tag`]: 'error',
       [`${pluginName}/indent-content`]: stylisticIndent
         ? 'off'
@@ -167,12 +165,12 @@ const defaultRules = ({
 const customize = (
   {
     allowedGlobals,
-    experimental,
     html = 'extension',
     stylisticBlocklist = false,
     prettierBlocklist = false,
   }: {
     allowedGlobals?: string[];
+    /** The experimental rules turned on: none at the moment, the option kept for the ones to come. */
     experimental?: boolean;
     html?: 'always' | 'never' | 'extension';
     stylisticBlocklist?: boolean;
@@ -195,7 +193,6 @@ const customize = (
       rules: {
         ...defaultRules({
           allowedGlobals,
-          experimental,
           preferEncoded: html === 'extension' ? undefined : html,
           ignoredRules: collectEjsRules(otherConfigs),
           indentBinaryOps: ruleEnabled(otherConfigs, '@stylistic/indent-binary-ops'),

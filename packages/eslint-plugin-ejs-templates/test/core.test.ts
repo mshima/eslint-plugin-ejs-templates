@@ -385,12 +385,7 @@ describe('processor position mapping', () => {
   // delimiter to past its closing one, in 1-based columns as ESLint's.
   test.each([
     ['a tag on one line', '  <%_ a(); _%>\n', { 'ejs-templates/indent-tag': 'error' }, [1, 3, 1, 15]],
-    [
-      'a tag spanning lines',
-      '<%\n  a();\n%>\n',
-      { 'ejs-templates/experimental-prefer-slurp-multiline': 'error' },
-      [1, 1, 3, 3],
-    ],
+    ['a tag spanning lines', '<%\n  a();\n%>\n', { 'ejs-templates/prefer-slurp-multiline': 'error' }, [1, 1, 3, 3]],
   ] as const)('a message on the marker of %s covers the tag', (_label, input, rules, range) => {
     expect(
       lint(input, rules).map(({ line, column, endLine, endColumn }) => [line, column, endLine, endColumn]),
@@ -876,9 +871,9 @@ describe('plugin shape', () => {
     expect(configs[2].rules?.['ejs-templates/prefer-encoded']).toEqual(['error', 'never']);
   });
 
-  test('customize enables experimental-prefer-slurp-multiline with experimental', () => {
-    const [config] = plugin.configs.customize({ experimental: true });
-    expect(config.rules?.['ejs-templates/experimental-prefer-slurp-multiline']).toBe('error');
+  test('customize enables prefer-slurp-multiline', () => {
+    const [config] = plugin.configs.customize({});
+    expect(config.rules?.['ejs-templates/prefer-slurp-multiline']).toBe('error');
   });
 
   test('customize turns off the stylistic rules of the blocklist with stylisticBlocklist', () => {
@@ -926,7 +921,6 @@ describe('plugin shape', () => {
     const config = configs[0];
     expect(config.rules).toMatchInlineSnapshot(`
       {
-        "ejs-templates/experimental-prefer-slurp-multiline": "off",
         "ejs-templates/format": "error",
         "ejs-templates/indent-content": "error",
         "ejs-templates/indent-tag": "error",
@@ -949,6 +943,7 @@ describe('plugin shape', () => {
         ],
         "ejs-templates/prefer-output": "error",
         "ejs-templates/prefer-single-line-tags": "error",
+        "ejs-templates/prefer-slurp-multiline": "error",
         "ejs-templates/prefer-slurping-codeonly": "error",
         "ejs-templates/slurp-newline": "error",
       }
@@ -979,10 +974,10 @@ describe('plugin shape', () => {
     const config = configs.at(-1);
     expect(config?.rules).toMatchInlineSnapshot(`
       {
-        "ejs-templates/experimental-prefer-slurp-multiline": "off",
         "ejs-templates/no-comment-across-tags": "error",
         "ejs-templates/no-multiline-output": "error",
         "ejs-templates/no-stray-close-delimiter": "error",
+        "ejs-templates/prefer-slurp-multiline": "error",
       }
     `);
   });

@@ -63,7 +63,6 @@ const configOf = (plugin: Plugin): Linter.Config[] =>
       html: 'never',
       prettierBlocklist: true,
       stylisticBlocklist: true,
-      experimental: true,
       allowedGlobals: ['wrapMono', 'generateEntityClientEnumImports', 'getOriginalField', 'generateFakeData'],
     },
     js.configs.recommended,

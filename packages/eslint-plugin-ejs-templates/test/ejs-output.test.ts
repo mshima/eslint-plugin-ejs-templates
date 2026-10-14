@@ -39,7 +39,7 @@ const pluginRules = (rules: Linter.RulesRecord): Config[] => [
 
 /** A configuration like generator-jhipster's: every rule of the plugin, and fixable JavaScript rules. */
 const configuration: Config[] = plugin.configs.customize(
-  { html: 'never', prettierBlocklist: true, stylisticBlocklist: true, experimental: true },
+  { html: 'never', prettierBlocklist: true, stylisticBlocklist: true },
   js.configs.recommended,
   stylistic.configs.customize({ jsx: false, semi: true }),
   {
@@ -101,9 +101,9 @@ const RUNS: Run[] = [
     config: pluginRules({ 'ejs-templates/prefer-slurping-codeonly': 'error' }),
   },
   {
-    name: 'experimental-prefer-slurp-multiline',
+    name: 'prefer-slurp-multiline',
     level: 'whitespace',
-    config: pluginRules({ 'ejs-templates/experimental-prefer-slurp-multiline': 'error' }),
+    config: pluginRules({ 'ejs-templates/prefer-slurp-multiline': 'error' }),
   },
   {
     name: 'no-comment-empty-line',
@@ -144,7 +144,7 @@ const RUNS: Run[] = [
       'ejs-templates/output-semi': ['error', 'never'],
       'ejs-templates/slurp-newline': 'error',
       'ejs-templates/prefer-slurping-codeonly': 'error',
-      'ejs-templates/experimental-prefer-slurp-multiline': 'error',
+      'ejs-templates/prefer-slurp-multiline': 'error',
       'ejs-templates/no-comment-empty-line': 'error',
     }),
   },
@@ -174,7 +174,7 @@ const TEMPLATES: string[] = [
   'a  <%# eslint-disable no-var -%>\n<%_ y(); _%>\nb\n',
   // output-semi
   '<%= x; %> <%- y %>\n',
-  // slurp-newline, prefer-slurping-codeonly, experimental-prefer-slurp-multiline, no-comment-empty-line
+  // slurp-newline, prefer-slurping-codeonly, prefer-slurp-multiline, no-comment-empty-line
   'text <%_ x(); _%>\nmore\n',
   '  <% x(); %>\nmore\n',
   '<%\n  x();\n%>\nmore\n',
@@ -292,7 +292,6 @@ describe('autofix: what EJS renders', () => {
     expect(Object.fromEntries(RUNS.map((run) => [run.name, fixedCount(run)]))).toMatchInlineSnapshot(`
       {
         "configs.customize()": 28,
-        "experimental-prefer-slurp-multiline": 5,
         "format": 10,
         "indent-content": 5,
         "indent-tag": 7,
@@ -307,6 +306,7 @@ describe('autofix: what EJS renders', () => {
         "prefer-encoded never": 6,
         "prefer-output": 5,
         "prefer-single-line-tags": 6,
+        "prefer-slurp-multiline": 5,
         "prefer-slurping-codeonly": 5,
         "slurp-newline": 4,
       }

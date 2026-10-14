@@ -21,7 +21,7 @@ import { reportConventions } from '../processor.js';
  * The tags are the ones ejs-template-parser reports with its `slurp-newline`
  * diagnostic (`validateTemplate()`); the processor marks them with the
  * `slurp-not-standalone` type, which picks the fix.
- * Apply this rule **after** `prefer-slurping-codeonly` / `experimental-prefer-slurp-multiline`
+ * Apply this rule **after** `prefer-slurping-codeonly` / `prefer-slurp-multiline`
  * and **before** `indent` in your ESLint config.
  *
  * ```ejs

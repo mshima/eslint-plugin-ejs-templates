@@ -148,13 +148,13 @@ describe('eslint-disable-next-line partly unused', () => {
 // Rules on a file the processor did not read
 // ---------------------------------------------------------------------------
 
-describe('experimental-prefer-slurp-multiline, format and indent together', () => {
+describe('prefer-slurp-multiline, format and indent together', () => {
   // Each pass fixes the tags the one before rewrote: slurp delimiters, the close on a line of its own, then the
   // indentation, which leaves alone a tag with text before it on its line.
   test('keep the texts of an else if chain written inline', () => {
     const input = 'a(<%\n  if (b) { %>B(<% } else\n  if (c) { %>C(<% } else\n  if (d) { %>D(<% } %>x\n';
     const fixed = applyFix(input, {
-      'ejs-templates/experimental-prefer-slurp-multiline': 'error',
+      'ejs-templates/prefer-slurp-multiline': 'error',
       'ejs-templates/format': 'error',
       'ejs-templates/indent-tag': 'error',
       'ejs-templates/indent-content': 'error',
@@ -239,7 +239,7 @@ describe('indent fixture tests', () => {
 
 describe('rules on a JavaScript file', () => {
   test.each([
-    'experimental-prefer-slurp-multiline',
+    'prefer-slurp-multiline',
     'format',
     'indent-content',
     'indent-tag',
