@@ -306,7 +306,8 @@ escaped alone, and the errors tell what EJS would not render.
   parsed once, inside the blocks the tags before it left open; parsed alone when its tree is read.
 - `parseJavaScriptPartial(code, context)` — a best-guess parse of a snippet of JavaScript with
   unbalanced braces: the braces it leaves open (`missingCloseBracesCount`) and the ones it closes
-  (`missingOpenBracesCount`), its nodes, and `splitStatements()`.
+  (`missingOpenBracesCount`), but the ones of a comment it opens or closes alone, its nodes, and
+  `splitStatements()`.
 - `parseEjs(text)`, `parseJavaScript(text)`, `findErrorNode(node)` — the tree-sitter parsers.
 - `hasAbsorbedSlurpClose(node)`, `getDirectiveCodeText(node)`, `getCommentCloseDelimiter(text)`,
   `EJS_OPENING_DELIMS`, `EJS_CLOSING_DELIMS` — the delimiters of a tag node.
