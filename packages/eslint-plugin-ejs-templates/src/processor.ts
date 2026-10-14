@@ -780,10 +780,17 @@ function translateFix(
     // delimiter of the last tag stays, with the line break or the blanks it drops after it.
     const openDelim = HTML_ESCAPED.test(truthyContent + falsyContent) ? '<%-' : '<%=';
 
-    return {
-      range: [block.tagOffset, close.offset + close.length],
-      text: `${openDelim} ${condition} ? '${escapedTruthyContent}' : '${escapedFalsyContent}' ${close.closeDelim}`,
-    };
+    return editFix(options.template, [
+      {
+        offset: block.tagOffset,
+        length: close.offset + close.length - block.tagOffset,
+        text: [
+          {
+            tag: `${openDelim} ${condition} ? '${escapedTruthyContent}' : '${escapedFalsyContent}' ${close.closeDelim}`,
+          },
+        ],
+      },
+    ]);
   } else if (fix.text === SENTINEL_NO_MULTILINE_OUTPUT) {
     // no-multiline-output: `<%- cond ? 'a\nb' : '' %>` => a conditional block.
     const parts = getMultilineOutputConditionalParts(block);
@@ -807,16 +814,13 @@ function translateFix(
     // line breaks reproduces the original output exactly, wherever the tag sits. The last tag
     // closes with the delimiter of the output tag, and drops after it what that one dropped:
     // the line break after a `-%>`, the blanks and the line break after a `_%>`.
-    const pieces = [`<% if (${parts.condition}) { %>`, parts.consequent];
+    const pieces: (string | { tag: string })[] = [{ tag: `<% if (${parts.condition}) { %>` }, parts.consequent];
     if (parts.alternate.length > 0) {
-      pieces.push('<% } else { %>', parts.alternate);
+      pieces.push({ tag: '<% } else { %>' }, parts.alternate);
     }
-    pieces.push(`<% } ${block.closeDelim}`);
+    pieces.push({ tag: `<% } ${block.closeDelim}` });
 
-    return {
-      range: [block.tagOffset, block.tagOffset + block.tagLength],
-      text: pieces.join(''),
-    };
+    return editFix(options.template, [{ offset: block.tagOffset, length: block.tagLength, text: pieces }]);
   } else if (fix.text === '') {
     // ── Generic sentinel (fix.text === '') ────────────────────────────────
 
@@ -1106,27 +1110,37 @@ function droppedEnd(sourceText: string, texts: EjsText[], offset: number): numbe
  * tag, which `editTemplate()` refuses.
  */
 function editFix(template: EjsTemplate, edits: EjsEdit[]): Rule.Fix {
-  const edited = editTemplate(template, edits).template;
+  const { replacements } = editTemplate(template, edits);
   const source = template.text;
-  // The edits, with what is written again around them but not what is left as it was. Never short of an edit: a
-  // deletion followed by the characters it starts with would otherwise move onto them.
+  // The ranges written again, as one: what is between them is left as it was.
+  const spanStart = Math.min(...replacements.map(({ offset }) => offset));
+  const spanEnd = Math.max(...replacements.map(({ offset, length }) => offset + length));
+  let replaced = '';
+  let at = spanStart;
+  for (const { offset, length, text } of replacements) {
+    replaced += source.slice(at, offset) + text;
+    at = offset + length;
+  }
+  // Without what is written again as it was. Never short of an edit: a deletion followed by the characters it starts
+  // with would otherwise move onto them.
   const first = Math.min(...edits.map(({ offset }) => offset));
   const last = Math.max(...edits.map(({ offset, length }) => offset + length));
-  let start = 0;
-  while (start < first && source[start] === edited[start]) start++;
-  let end = source.length;
-  let editedEnd = edited.length;
-  while (end > last && editedEnd > start && source[end - 1] === edited[editedEnd - 1]) {
+  let start = spanStart;
+  let end = spanEnd;
+  let replacedEnd = replaced.length;
+  const sameAt = (offset: number, replacedOffset: number) => source[offset] === replaced[replacedOffset];
+  while (start < first && sameAt(start, start - spanStart)) start++;
+  while (end > last && replacedEnd > start - spanStart && sameAt(end - 1, replacedEnd - 1)) {
     end--;
-    editedEnd--;
+    replacedEnd--;
   }
   // Then, inside the edits, what they leave as it was.
-  while (start < end && start < editedEnd && source[start] === edited[start]) start++;
-  while (end > start && editedEnd > start && source[end - 1] === edited[editedEnd - 1]) {
+  while (start < end && start - spanStart < replacedEnd && sameAt(start, start - spanStart)) start++;
+  while (end > start && replacedEnd > start - spanStart && sameAt(end - 1, replacedEnd - 1)) {
     end--;
-    editedEnd--;
+    replacedEnd--;
   }
-  return { range: [start, end], text: edited.slice(start, editedEnd) };
+  return { range: [start, end], text: replaced.slice(start - spanStart, replacedEnd) };
 }
 
 /** The fix removing a tag, with what EJS drops after it, the rest of the template rendering as before. */
