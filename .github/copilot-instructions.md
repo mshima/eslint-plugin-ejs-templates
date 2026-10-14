@@ -440,6 +440,13 @@ program once for each tag: its nodes are collected in one walk for all the unbal
 (`collectNodesInRanges()`), which goes down only to the nodes across their code. The plugin's
 `extractTagBlocks()` reads each tag of `getEjsTags()` once, for the same reason.
 
+`editTemplate()` reads a template built already once for all its calls (a `WeakMap` of what it
+reads of it), and writes the texts of each region in the part of the template around it, from the
+tag before to the second tag after, where EJS reads them as in the whole of it: a call costs what it
+writes again, so that a fix built with it for each message of a template stays linear. The same
+test counts the characters `escapeText` reads for an edit of each tag, and the reads of the
+template.
+
 ### The conventions of the tags, shared
 
 The parser classifies each code tag as eslint-plugin-ejs-templates does (`shape`: `slurp`,
