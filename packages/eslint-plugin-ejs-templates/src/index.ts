@@ -11,7 +11,8 @@ import { preferSlurpingCodeonly } from './rules/prefer-slurping-codeonly.js';
 import { preferSlurpMultiline } from './rules/prefer-slurp-multiline.js';
 import { preferSingleLineTags } from './rules/prefer-single-line-tags.js';
 import { slurpNewline } from './rules/slurp-newline.js';
-import { indent } from './rules/indent.js';
+import { indentContent } from './rules/indent-content.js';
+import { indentTag } from './rules/indent-tag.js';
 import { format } from './rules/format.js';
 import { noGlobalFunctionCall } from './rules/no-global-function-call.js';
 import { noFunctionBlock } from './rules/no-function-block.js';
@@ -45,7 +46,8 @@ const pluginCore = {
     'experimental-prefer-slurp-multiline': preferSlurpMultiline,
     'prefer-single-line-tags': preferSingleLineTags,
     'slurp-newline': slurpNewline,
-    indent,
+    'indent-tag': indentTag,
+    'indent-content': indentContent,
     format,
     'no-global-function-call': noGlobalFunctionCall,
     'no-function-block': noFunctionBlock,
@@ -148,7 +150,8 @@ const defaultRules = ({
       [`${pluginName}/slurp-newline`]: 'error',
       [`${pluginName}/prefer-slurping-codeonly`]: 'error',
       [`${pluginName}/experimental-prefer-slurp-multiline`]: experimental ? 'error' : 'off',
-      [`${pluginName}/indent`]: indentBinaryOps ? ['error', { binaryOperands: 'greaterOrEqual' }] : 'error',
+      [`${pluginName}/indent-tag`]: 'error',
+      [`${pluginName}/indent-content`]: indentBinaryOps ? ['error', { binaryOperands: 'greaterOrEqual' }] : 'error',
       [`${pluginName}/format`]: 'error',
       ...(preferEncoded ? { [`${pluginName}/prefer-encoded`]: ['error', preferEncoded] } : {}),
     }).filter(([rule]) => !ignoredRules?.includes(rule)),
@@ -238,7 +241,8 @@ export {
   preferSlurpMultiline,
   preferSingleLineTags,
   slurpNewline,
-  indent,
+  indentTag,
+  indentContent,
   format,
   noGlobalFunctionCall,
   noFunctionBlock,

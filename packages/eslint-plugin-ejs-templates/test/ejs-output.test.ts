@@ -76,7 +76,8 @@ const javascriptRules: Config[] = [
 
 const RUNS: Run[] = [
   { name: 'format', level: 'exact', config: pluginRules({ 'ejs-templates/format': 'error' }) },
-  { name: 'indent', level: 'exact', config: pluginRules({ 'ejs-templates/indent': 'error' }) },
+  { name: 'indent-tag', level: 'exact', config: pluginRules({ 'ejs-templates/indent-tag': 'error' }) },
+  { name: 'indent-content', level: 'exact', config: pluginRules({ 'ejs-templates/indent-content': 'error' }) },
   {
     name: 'prefer-single-line-tags',
     level: 'exact',
@@ -137,7 +138,8 @@ const RUNS: Run[] = [
     level: 'whitespace',
     config: pluginRules({
       'ejs-templates/format': 'error',
-      'ejs-templates/indent': 'error',
+      'ejs-templates/indent-tag': 'error',
+      'ejs-templates/indent-content': 'error',
       'ejs-templates/prefer-single-line-tags': 'error',
       'ejs-templates/output-semi': ['error', 'never'],
       'ejs-templates/slurp-newline': 'error',
@@ -292,7 +294,8 @@ describe('autofix: what EJS renders', () => {
         "configs.customize()": 28,
         "experimental-prefer-slurp-multiline": 5,
         "format": 10,
-        "indent": 8,
+        "indent-content": 5,
+        "indent-tag": 7,
         "javascript rules": 4,
         "layout rules together": 20,
         "no-comment-empty-line": 3,
