@@ -42,16 +42,15 @@ const { values, positionals } = parseArgs({
   },
   allowPositionals: true,
 });
-const { templates } = values;
 const rounds = Number(values.rounds);
 const maxRatio = Number(values['max-ratio']);
-const builds = positionals.map((positional) => {
-  const [name = '', checkout = ''] = positional.split('=');
-  return { name, checkout: resolve(checkout) };
-});
-if (templates === undefined || builds.length === 0 || builds.some(({ name, checkout }) => !name || !checkout)) {
+const named = positionals.map((positional) => positional.split('='));
+if (values.templates === undefined || named.length === 0 || named.some(([name, checkout]) => !name || !checkout)) {
   throw new Error('Usage: node benchmark/lint.ts --templates <dir> [--rounds 3] [--max-ratio 1.2] <name>=<checkout>…');
 }
+// Absolute, as ESLint wants its cwd.
+const templates = resolve(values.templates);
+const builds = named.map(([name = '', checkout = '']) => ({ name, checkout: resolve(checkout) }));
 
 const files = globSync('**/*.ejs', { cwd: templates })
   .sort()
