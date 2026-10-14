@@ -282,7 +282,9 @@ What a deletion leaves rendering as before:
 - a close delimiter whose literal mode it ends is written `%%>`, as is a delimiter the deletion
   would make in a text (`%x%>` without its `x`);
 - the blanks and the line break a deleted tag slurped (before a `<%_`, after a `_%>` or a `-%>`)
-  are deleted with it; the blanks next to what is written again, which a delimiter could slurp
+  are deleted with it, but where the text of the edit starts with a tag opening `<%_`, or ends
+  with a tag closing as the deleted one did, which slurps and drops them again: they stay (a tag
+  written in place of one keeps its indentation and its line); the blanks next to what is written again, which a delimiter could slurp
   once joined, are written again with what EJS rendered of them (`<%- '  ' %>`), and the blanks a
   delimiter kept slurps stay slurped.
 

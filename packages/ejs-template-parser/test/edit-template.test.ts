@@ -128,6 +128,20 @@ describe('editTemplate', () => {
     expect(() => editTemplate('<% a %>', [...edits])).toThrow(RangeError);
   });
 
+  // A tag written in place of one, opening or closing as it does, slurps and drops again what the other did: the
+  // blanks before a `<%_`, the line break after a `-%>`, the blanks and the line break after a `_%>` stay.
+  test.each([
+    ['a -%> by a -%>', 'a\n<% x() -%>\nb\n', '<% x() -%>', '<% y() -%>', 'a\n<% y() -%>\nb\n'],
+    ['a _%> by a _%>', 'a\n<%_ x() _%>  \nb\n', '<%_ x() _%>', '<%_ y() _%>', 'a\n<%_ y() _%>  \nb\n'],
+    ['an indented <%_ by a <%_', 'a\n  <%_ x() _%>\nb\n', '<%_ x() _%>', '<%_ y() _%>', 'a\n  <%_ y() _%>\nb\n'],
+    ['a -%> by a %>, which drops nothing', 'a\n<% x() -%>\nb\n', '<% x() -%>', '<% y() %>', 'a\n<% y() %>b\n'],
+  ])('writes a tag in place of %s', (_label, template, replaced, tag, expected) => {
+    const edited = edit(template, [{ offset: template.indexOf(replaced), length: replaced.length, text: [{ tag }] }]);
+    expect(edited).toBe(expected);
+    const data = { x: () => undefined, y: () => undefined };
+    expect(ejs.render(edited, data)).toBe(ejs.render(template, data));
+  });
+
   test('applies the edits at an offset in their order', () => {
     expect(
       edit('a\n', [
@@ -206,6 +220,32 @@ describe('editTemplate', () => {
         return undefined;
       }
     };
+
+    // A literal mode an edit is next to is written again, its close delimiter %%>, as escapeText writes it: the
+    // templates without one.
+    test('writes a tag in place of itself without changing the template', () => {
+      const failures: string[] = [];
+      let checked = 0;
+      for (const template of templates.keys()) {
+        if (template.includes('<%%') || template.includes('%%>') || renderOrFail(template) === undefined) continue;
+        const built = buildTemplate(template);
+        let replaced: { offset: number; length: number }[];
+        try {
+          replaced = built.tags.map(({ offset, length }) => ({ offset, length }));
+        } finally {
+          cleanupTemplate(built);
+        }
+        for (const { offset, length } of replaced) {
+          const tag = template.slice(offset, offset + length);
+          const edited = edit(template, [{ offset, length, text: [{ tag }] }]);
+          if (edited !== template)
+            failures.push(`${JSON.stringify(template)} at ${String(offset)}: ${JSON.stringify(edited)}`);
+          checked++;
+        }
+      }
+      expect(failures).toEqual([]);
+      expect(checked).toBeGreaterThan(1000);
+    });
 
     test('renders the template with the edit applied to what it renders', { timeout: 120_000 }, () => {
       const failures: string[] = [];
