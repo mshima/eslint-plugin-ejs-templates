@@ -7,9 +7,18 @@
 //     http://www.apache.org/licenses/LICENSE-2.0
 
 import { describe, expect, test } from 'vitest';
+import { getTagTypeFromLine } from '../src/ejs-parser.js';
 import { getTagTypeComments } from '../src/utils.js';
 
 describe('utils: getTagTypeComments', () => {
+  test('skips a marker of a type it does not know', () => {
+    expect(getTagTypeComments('//@ejs-tag:unknown\n//@ejs-tag:code\n').map(({ tagType }) => tagType)).toEqual(['code']);
+  });
+
+  test('reads no type from a line that is no marker', () => {
+    expect([getTagTypeFromLine('code'), getTagTypeFromLine('@ejs-tag:code')]).toEqual([null, 'code']);
+  });
+
   test('extracts marker comments from virtual source text', () => {
     const text = ['//@ejs-tag:code', 'const x = 1;', '//@ejs-tag:escaped-output', ' value;'].join('\n');
 

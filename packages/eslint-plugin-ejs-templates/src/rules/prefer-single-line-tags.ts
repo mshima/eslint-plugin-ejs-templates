@@ -42,9 +42,9 @@ export const preferSingleLineTags: Rule.RuleModule = {
           // it at a single depth. The fix puts each boundary in its own tag, as it does for the
           // multiline case; only the message differs.
           const isMultiline = block.tagType.includes('-multiline');
-          const { range = [0, 0] } = comment;
+          const { range } = comment;
           context.report({
-            loc: comment.loc ?? { line: 0, column: 0 },
+            loc: comment.loc,
             messageId: isMultiline ? 'preferSingleLineTags' : 'oneBraceBoundaryPerTag',
             fix(fixer) {
               return fixer.replaceTextRange([range[0], range[1]], SENTINEL_PREFER_SINGLE_LINE_TAGS_BRACES);

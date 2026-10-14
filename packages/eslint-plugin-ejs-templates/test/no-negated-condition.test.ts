@@ -224,6 +224,17 @@ describe('autofix: core no-negated-condition', () => {
     expect(applyFix(template, rules)).toBe(template);
   });
 
+  // Reported, but not fixed: a tag spanning lines is rewritten by no fix, and the code of a closing tag of its own
+  // would run after the other body.
+  test.each([
+    ['an if opening spanning lines', '<% if (!a\n) { %>A<% } else { %>B<% } %>'],
+    ['an else if link spanning lines', '<% if (a) { %>A<% } else if (!b\n) { %>B<% } else { %>C<% } %>'],
+    ['a closing tag with code of its own', '<% if (!a) { %>A<% } else { %>B<% } c(); %>'],
+  ])('leaves %s untouched', (_label, template) => {
+    expect(lint(template, rules).map((msg) => msg.ruleId)).toEqual(['no-negated-condition']);
+    expect(applyFix(template, rules)).toBe(template);
+  });
+
   test('produces output that is stable and no longer reports', () => {
     const template = '<% if (!ok) { %>\n  <div><%= x %></div>\n<% } else { %>\n  <span><%- y %></span>\n<% } %>\n';
     const fixed = applyFix(template, rules);
@@ -279,6 +290,9 @@ describe('output ternaries', () => {
     ],
     ['a ternary alongside other content', '<%- prefix + (!c ? a : b) %>', '<%- prefix + (c ? b : a) %>'],
     ['a ternary in a slurp tag', '<%_ const v = !c ? a : b; _%>', '<%_ const v = c ? b : a; _%>'],
+    // Each message is fixed at its ternary: the one it is in, the innermost one of nested ternaries.
+    ['two ternaries side by side', '<%- (!a ? x : y) + (!b ? z : w) %>', '<%- (a ? y : x) + (b ? w : z) %>'],
+    ['a ternary in the branch of another', '<%- !a ? (!b ? x : y) : z %>', '<%- a ? z : (b ? y : x) %>'],
   ])('inverts %s', (_label, template, expected) => {
     expect(applyFix(template, rules)).toBe(expected);
   });

@@ -147,7 +147,7 @@ function createDirectiveCommentBlock(params: {
   tagColumn: number;
   lineIndent: string;
   isStandalone: boolean;
-  closeDelim?: EjsClosingDelimiter;
+  closeDelim: EjsClosingDelimiter;
   nextLineDirective?: 'disable' | 'enable';
 }): TagBlock {
   const {
@@ -177,7 +177,7 @@ function createDirectiveCommentBlock(params: {
     codeContent: directiveText,
     lintCodeContent: directiveText,
     openDelim: '<%#',
-    closeDelim: closeDelim ?? '%>',
+    closeDelim,
     lineIndent,
     expectedIndent: lineIndent,
     virtualBodyInlineSuffix: '',

@@ -49,7 +49,7 @@ export const preferOutput: Rule.RuleModule = {
         const fileBlocks = getFileBlocks(context.filename);
 
         if (!fileBlocks) {
-          throw new Error(`Unexpected missing file blocks for file ${context.filename}`);
+          return;
         }
 
         const { nonDirectiveSegments } = fileBlocks;
@@ -73,9 +73,6 @@ export const preferOutput: Rule.RuleModule = {
           if (!firstPartialNode || firstPartialNode.multilineOriginal || !ifOpening(tokensOf(firstPartialNode), 0)) {
             continue;
           }
-
-          const nextTagTypeComment = tagTypeComments.at(i + 1);
-          if (nextTagTypeComment?.tagType !== 'code') continue;
 
           const nextBlock = nonDirectiveSegments.at(i + 1)?.block;
           if (nextBlock?.tagType !== 'code') continue;
@@ -103,16 +100,13 @@ export const preferOutput: Rule.RuleModule = {
           }
 
           context.report({
-            loc: comment.loc ?? { start: { line: 1, column: 0 }, end: { line: 1, column: 0 } },
+            loc: comment.loc,
             messageId: 'preferOutput',
-            fix: (fixer) => {
-              const range = comment.range;
-              if (!range) return null;
-              return fixer.replaceTextRange(
-                [range[0], range[1]],
+            fix: (fixer) =>
+              fixer.replaceTextRange(
+                comment.range,
                 hasElseClause ? SENTINEL_PREFER_OUTPUT_ELSE : SENTINEL_PREFER_OUTPUT,
-              );
-            },
+              ),
           });
         }
       },

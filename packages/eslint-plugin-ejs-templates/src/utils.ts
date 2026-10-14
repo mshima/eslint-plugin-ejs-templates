@@ -9,8 +9,8 @@ type CommentWithTagType<C extends { type: string; value: string }> = {
 export type VirtualMarkerComment = {
   type: 'Line';
   value: string;
-  range?: [number, number];
-  loc?: {
+  range: [number, number];
+  loc: {
     start: { line: number; column: number };
     end: { line: number; column: number };
   };

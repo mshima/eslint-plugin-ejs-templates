@@ -53,9 +53,9 @@ export const preferEncoded: Rule.RuleModule = {
         const tagTypeComments = getTagTypeComments(sourceCode.text);
         for (const { comment, tagType } of tagTypeComments) {
           if (when === 'always' && tagType === 'raw-output') {
-            const { range = [0, 0] } = comment;
+            const { range } = comment;
             context.report({
-              loc: comment.loc ?? { line: 0, column: 0 },
+              loc: comment.loc,
               messageId: 'preferEncoded',
               fix(fixer) {
                 // Sentinel fix: the processor replaces `-` with `=` in `<%-`.
@@ -63,9 +63,9 @@ export const preferEncoded: Rule.RuleModule = {
               },
             });
           } else if (when === 'never' && tagType === 'escaped-output') {
-            const { range = [0, 0] } = comment;
+            const { range } = comment;
             context.report({
-              loc: comment.loc ?? { line: 0, column: 0 },
+              loc: comment.loc,
               messageId: 'preferRaw',
               fix(fixer) {
                 // Sentinel fix: the processor replaces `=` with `-` in `<%=`.

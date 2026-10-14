@@ -7,7 +7,7 @@
 //     http://www.apache.org/licenses/LICENSE-2.0
 
 import { describe, test, expect } from 'vitest';
-import { getEjsNodes } from '../src/ejs-parser.js';
+import { getCommentCloseDelimiter, getDirectiveCodeText, getEjsNodes } from '../src/ejs-parser.js';
 import type { RelativeJavascriptNode } from '../src/javascript-parser.js';
 import { type EjsTag, getEjsTags, programOf } from '../src/tags.js';
 
@@ -46,6 +46,28 @@ function fieldsOf(tag: EjsTag): Partial<EjsTag> {
 }
 
 describe('getEjsNodes', () => {
+  // The code of a tag node, without the `_` tree-sitter absorbs from the `_%>` of an output tag.
+  test.each([
+    ['<% a %>', ' a '],
+    ['<%- identifier _%>', ' identifier '],
+  ])('the code of the node of %s', (text, code) => {
+    const nodes = getEjsNodes(text);
+    try {
+      expect(getDirectiveCodeText(nodes[0])).toBe(code);
+    } finally {
+      nodes[0].tree.delete();
+    }
+  });
+
+  test.each([
+    ['<%# a -%>', '-%>'],
+    ['<%# a _%>', '_%>'],
+    ['<%# a %>', '%>'],
+    ['<%# a', '%>'],
+  ])('the close delimiter of the comment %s', (text, closeDelim) => {
+    expect(getCommentCloseDelimiter(text)).toBe(closeDelim);
+  });
+
   test('gives each node the text before it on its line', () => {
     const nodes = getEjsNodes('Hello\n  <%= name %>!');
     try {
@@ -369,5 +391,39 @@ describe('the code of a tag', () => {
         javascript.nodes.filter((node) => node.isNamed).map((node) => [node.type, node.startIndex - javascript.start]),
       ),
     ).toEqual(nodes);
+  });
+});
+
+// The trees of the code of the tags and of the program live in WASM memory, freed with `javascript.cleanup()`.
+describe('the trees of the tags', () => {
+  test('the tree of the code of a tag is read before its cleanup, which frees it once', () => {
+    const nodes = getEjsNodes('<% a %><% if (b) { %>B<% } %>');
+    const [first, ...others] = getEjsTags(nodes);
+    try {
+      if (first.type === 'comment') throw new Error('A code tag');
+      first.javascript.cleanup();
+      expect(() => first.javascript.contentNode).toThrow(
+        'The code of the tag is freed: read its tree before javascript.cleanup()',
+      );
+      // Freed again, it leaves the program to the tags it still has.
+      first.javascript.cleanup();
+      const [other] = others;
+      expect(other.type !== 'comment' && programOf(other)?.root.type).toBe('program');
+    } finally {
+      for (const tag of others) if (tag.type !== 'comment') tag.javascript.cleanup();
+      nodes[0].tree.delete();
+    }
+  });
+
+  test('the program is freed with the last tag freed', () => {
+    const [tag] = tagsOf('<% a %>');
+    const program = tag.type === 'comment' ? undefined : programOf(tag);
+    expect(() => program?.root).toThrow(
+      'The program of the template is freed: read it before the code of its tags is freed',
+    );
+  });
+
+  test('a tag without code', () => {
+    expect(tagsOf('<%=%>').map((tag) => [tag.code, tag.codeLine, tag.codeColumn])).toEqual([['', 1, 3]]);
   });
 });

@@ -59,9 +59,9 @@ export const preferSlurpMultiline: Rule.RuleModule = {
         for (const tagComment of tagTypeComments) {
           const { comment, tagType } = tagComment;
           if (tagType === 'code-multiline' || tagType === 'code-slurpable-multiline') {
-            const { range = [0, 0] } = comment;
+            const { range } = comment;
             context.report({
-              loc: comment.loc ?? { line: 0, column: 0 },
+              loc: comment.loc,
               messageId: 'preferSlurpMultiline',
               fix(fixer) {
                 // Use a distinct sentinel text so that `translateFix` in the

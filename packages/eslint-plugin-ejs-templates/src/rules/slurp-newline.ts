@@ -51,9 +51,9 @@ export const slurpNewline: Rule.RuleModule = {
     return {
       Program() {
         for (const { comment } of getDiagnosticBlocks(context, 'slurp-newline')) {
-          const { range = [0, 0] } = comment;
+          const { range } = comment;
           context.report({
-            loc: comment.loc ?? { line: 0, column: 0 },
+            loc: comment.loc,
             messageId: 'slurpNewline',
             fix(fixer) {
               // Use a distinct sentinel text so that `translateFix` in the

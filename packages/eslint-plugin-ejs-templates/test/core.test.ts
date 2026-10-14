@@ -696,6 +696,8 @@ describe('processor: a fix that does not fit its tag is dropped', () => {
     ['no-multiline-output on a code tag', '<% a(); %>', SENTINEL_NO_MULTILINE_OUTPUT],
     ['no-comment-empty-line on a code tag', '<% a(); %>', SENTINEL_COMMENT_EMPTY_LINE],
     ['an unknown sentinel', '<% a(); %>', 'UNKNOWN'],
+    ['the fix of prefer-encoded or prefer-slurping-codeonly on a slurp tag', '<%_ a(); _%>', ''],
+    ['prefer-output on a branch holding a tag', '<% if (a) { %><%= x %><% } %>', SENTINEL_PREFER_OUTPUT],
   ])('%s', (_label, ejsText, text) => {
     expect(postprocessFix(ejsText, text)).toEqual([
       { ruleId: 'ejs-templates/test', severity: 2, message: 'test', line: 1, column: 1 },
@@ -715,7 +717,57 @@ describe('processor: a fix that does not fit its tag is dropped', () => {
   });
 });
 
+describe('processor: messages without a fix of their own', () => {
+  test('postprocesses the messages of a template it preprocessed', () => {
+    expect(() => processor.postprocess?.([[]], 'never-preprocessed.ejs')).toThrow(
+      'Unexpectedly did not find processed file data for never-preprocessed.ejs',
+    );
+  });
+
+  // A parsing error of ESLint's parser in the wrapper, past the code of the last tag, the parser telling no error of
+  // the JavaScript of the template, is at the end of that code.
+  test('maps a parsing error past the code of the last tag to its end', () => {
+    const filename = 'fatal-past-the-tags.ejs';
+    const [virtualCode] = processor.preprocess?.('<% a();\n b(); %>\nx', filename) ?? [];
+    if (typeof virtualCode !== 'string') throw new Error('preprocess gave no virtual code');
+    const line = virtualCode.split('\n').length;
+    expect(
+      processor.postprocess?.(
+        [[{ ruleId: null, fatal: true, severity: 2, message: 'Parsing error: x', line, column: 1 }]],
+        filename,
+      ),
+    ).toEqual([{ ruleId: null, fatal: true, severity: 2, message: 'Parsing error: x', line: 2, column: 7 }]);
+  });
+
+  test("reportUnusedDisableDirectives='error': autofix removes an unused eslint-disable without a rule list", () => {
+    const input = '<%# eslint-disable -%>\n<% a(); %>\n';
+    expect(lintWithUnusedDisableDirectivesError(input)).toEqual([
+      {
+        ruleId: null,
+        message: 'Unused eslint-disable directive (no problems were reported).',
+        line: 1,
+        column: 1,
+        severity: 2,
+        fix: { range: [0, 23], text: '' },
+      },
+    ]);
+    const output = applyFixWithUnusedDisableDirectivesError(input);
+    expect(output).toBe('<% a(); %>\n');
+    expect(ejs.render(output, { a: () => undefined })).toBe(ejs.render(input, { a: () => undefined }));
+  });
+});
+
 describe('plugin shape', () => {
+  // A configuration enabling the rules for files the processor does not preprocess: they report nothing there, a
+  // line reading as a marker of the virtual JavaScript included, rather than throwing.
+  test('the rules lint a file the processor does not preprocess', () => {
+    const rules = Object.fromEntries(
+      Object.keys(plugin.rules).map((name) => [`ejs-templates/${name}`, 'error' as const]),
+    );
+    const config: Config[] = [{ files: ['**/*.js'], plugins: { 'ejs-templates': plugin }, rules }];
+    expect(makeLinter().verify('const a = 1;\n//@ejs-tag:code\na;\n', config, { filename: 'file.js' })).toEqual([]);
+  });
+
   test('plugin has meta', () => {
     expect(plugin.meta.name).toBe('eslint-plugin-ejs-templates');
   });

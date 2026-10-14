@@ -39,6 +39,11 @@ describe('rule: ejs-templates/indent', () => {
     ['blanks', '<%_ if (x) { _%>\n    <%_ doWork(); _%>\n<%_ } _%>\n', 'expected 2 spaces, got 4 spaces'],
     ['a tab', '<%_ if (x) { _%>\n\t<%_ doWork(); _%>\n<%_ } _%>\n', 'expected 2 spaces, got 1 tab'],
     ['none, at a depth of 0', '  <%_ doWork(); _%>\n', 'expected 0 spaces, got 2 spaces'],
+    [
+      'spaces and a tab',
+      '<%_ if (x) { _%>\n  \t<%_ doWork(); _%>\n<%_ } _%>\n',
+      'expected 2 spaces, got 2 spaces and 1 tab',
+    ],
   ])('tells the indentation expected and the one written: %s', (_label, input, values) => {
     expect(lint(input, { 'ejs-templates/indent': 'error' }).map(({ message }) => message)).toEqual([
       `Incorrect indentation for EJS tag; ${values}.`,

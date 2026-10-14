@@ -61,8 +61,7 @@ export const outputSemi: Rule.RuleModule = {
         for (const { comment, tagType } of tagTypeComments) {
           if (!isOutputTagType(tagType)) continue;
 
-          const commentLine = comment.loc?.start.line;
-          if (commentLine === undefined) continue;
+          const commentLine = comment.loc.start.line;
           const block = nonDirectiveSegments.find((segment) => segment.startLine === commentLine)?.block;
           if (!block) continue;
 
@@ -73,18 +72,18 @@ export const outputSemi: Rule.RuleModule = {
           const hasTrailingSemi = block.codeContent.trimEnd().endsWith(';');
 
           if (option === 'always' && !hasTrailingSemi) {
-            const { range = [0, 0] } = comment;
+            const { range } = comment;
             context.report({
-              loc: comment.loc ?? { line: 0, column: 0 },
+              loc: comment.loc,
               messageId: 'missingSemi',
               fix(fixer) {
                 return fixer.replaceTextRange([range[0], range[1]], SENTINEL_OUTPUT_SEMI_ADD);
               },
             });
           } else if (option === 'never' && hasTrailingSemi) {
-            const { range = [0, 0] } = comment;
+            const { range } = comment;
             context.report({
-              loc: comment.loc ?? { line: 0, column: 0 },
+              loc: comment.loc,
               messageId: 'extraSemi',
               fix(fixer) {
                 return fixer.replaceTextRange([range[0], range[1]], SENTINEL_OUTPUT_SEMI_REMOVE);
