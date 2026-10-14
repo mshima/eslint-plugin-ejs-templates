@@ -125,12 +125,14 @@ A node of the tree is one of:
     partial template, whose tags close blocks another template opens.
   - A code or output tag also has `parsedCode` — `code` without the line break or the blank
     separating it from the closing delimiter — and `javascript`: `parsedCode` read in the program of
-    the template, its braces, whether it parses alone (`parsesAlone`), its nodes, read there when
-    it does not, and `contentNode`, the code parsed alone, parsed when read (see
-    `parseJavaScriptPartial`); `shape`, how it renders the blanks around it, as
-    eslint-plugin-ejs-templates classifies it (`slurp` for `<%_` or `_%>`, `code-slurpable` for a
-    `<% %>` opening no block, `code`, or the type of an output tag); and `expectedIndent`, the
-    indentation of a slurp tag on a line of its own, two blanks for each block it is in.
+    the template, the braces it leaves open (`missingCloseBracesCount`) and the ones it closes
+    without opening (`missingOpenBracesCount`), whether it parses alone (`parsesAlone`), its nodes,
+    read there when it does not, its statements, each opening and closing of a block apart
+    (`splitStatements()`), and `contentNode`, the code parsed alone, parsed when read; `shape`, how
+    it renders the blanks around it, as eslint-plugin-ejs-templates classifies it (`slurp` for `<%_`
+    or `_%>`, `code-slurpable` for a `<% %>` opening no block, `code`, or the type of an output
+    tag); and `expectedIndent`, the indentation of a slurp tag on a line of its own, two blanks for
+    each block it is in.
 - **`EjsBlock`** — `{ kind: 'block', branches, close }`: tags opening and closing braces.
   - `branches` — `{ open, statement, children }` each: the tag opening the branch (`<% if (a) { %>`,
     or the continuation `<% } else { %>` of the branch before), the tree-sitter type of its
@@ -304,10 +306,6 @@ escaped alone, and the errors tell what EJS would not render.
   throws the `EjsSyntaxError` of a template that does not parse.
 - `getEjsTags(nodes)` — the tags of those nodes, each code tag read in the program of the template,
   parsed once, inside the blocks the tags before it left open; parsed alone when its tree is read.
-- `parseJavaScriptPartial(code, context)` — a best-guess parse of a snippet of JavaScript with
-  unbalanced braces: the braces it leaves open (`missingCloseBracesCount`) and the ones it closes
-  (`missingOpenBracesCount`), but the ones of a comment it opens or closes alone, its nodes, and
-  `splitStatements()`.
 - `parseEjs(text)`, `parseJavaScript(text)`, `findErrorNode(node)` — the tree-sitter parsers.
 - `hasAbsorbedSlurpClose(node)`, `getDirectiveCodeText(node)`, `getCommentCloseDelimiter(text)`,
   `EJS_OPENING_DELIMS`, `EJS_CLOSING_DELIMS` — the delimiters of a tag node.

@@ -8,6 +8,7 @@
 
 import { describe, test, expect } from 'vitest';
 import { getEjsNodes } from '../src/ejs-parser.js';
+import type { RelativeJavascriptNode } from '../src/javascript-parser.js';
 import { type EjsTag, getEjsTags, programOf } from '../src/tags.js';
 
 /**
@@ -20,6 +21,20 @@ function tagsOf(text: string): EjsTag[] {
   for (const tag of tags) if (tag.type !== 'comment') tag.javascript.cleanup();
   nodes[0]?.tree.delete();
   return tags;
+}
+
+/** What `read` reads of the code of the code tag at `index` among the tags of `text`, their trees freed after it. */
+function readCode<T>(text: string, index: number, read: (javascript: RelativeJavascriptNode) => T): T {
+  const nodes = getEjsNodes(text);
+  const tags = getEjsTags(nodes);
+  try {
+    const tag = tags[index];
+    if (tag.type === 'comment') throw new Error(`The tag ${String(index)} is a comment`);
+    return read(tag.javascript);
+  } finally {
+    for (const tag of tags) if (tag.type !== 'comment') tag.javascript.cleanup();
+    nodes[0]?.tree.delete();
+  }
 }
 
 /** The fields of a tag a test asserts, without its tree-sitter node and its JavaScript. */
@@ -261,5 +276,98 @@ describe('getEjsTags', () => {
     expect(first.type !== 'comment' && programOf(first)?.source).toBe(
       'function __ejs_template__() {\n{\n;__append(0)\n; } \n;__append(0)\n; c \n;__append(0)\n; if (d) { \n;__append(0)\n}\n}\n',
     );
+  });
+});
+
+// The code of a code tag, read in the program of its template: the statements eslint-plugin-ejs-templates splits it
+// into, its braces, its nodes.
+describe('the code of a tag', () => {
+  // The opening and the closing of each block the code leaves open, or closes, are statements of their own.
+  test.each([
+    ['an expression', '<% x + 1 %>', 0, ['x + 1']],
+    ['a block opened, with a statement', '<% if (x) { y; %>A<% } %>', 0, ['if (x) {', 'y;']],
+    [
+      'a callback opened and closed',
+      '<% arr.forEach(x => { console.log(x); }) %>',
+      0,
+      ['arr.forEach(x => { console.log(x); })'],
+    ],
+    ['a block opened and closed over lines', '<% if (a) {\n  b();\n} %>', 0, ['if (a) {\n  b();\n}']],
+    ['a block opened', '<% for (const item of items) { %>A<% } %>', 0, ['for (const item of items) {']],
+    ['a block closed', '<% if (a) { %>A<% } %>', 1, ['}']],
+    ['two blocks closed', '<% if (a) { %><% if (b) { %>A<% }} %>', 2, ['}', '}']],
+    ['an else', '<% if (a) { %>A<% } else { %>B<% } %>', 1, ['} else {']],
+    ['an else without a block', '<% if (a) { %>A<% } else foo; %>', 1, ['} else foo;']],
+    [
+      'an else if with its block',
+      '<% if (a) { %>A<% } else if (foo) { bar() } %>',
+      1,
+      ['} else if (foo) {', 'bar() ', '}'],
+    ],
+    [
+      'an else with its statements over lines',
+      "<% if (foo) { %>A<%\n  } else {\n  const foo = 'bar'\n} %>",
+      1,
+      ['} else {', "const foo = 'bar'\n", '}'],
+    ],
+    ['a catch', '<% try { %>A<% } catch (e) { %>B<% } %>', 1, ['} catch (e) {']],
+  ])('the statements of %s', (_label, text, index, statements) => {
+    expect(readCode(text, index, (javascript) => javascript.splitStatements())).toEqual(statements);
+  });
+
+  // Its braces are its `{`, `${` and `}` tokens in the program: not the ones of a string, and the `}` ending the
+  // substitution of a template string closes its `${`.
+  test.each([
+    ['a statement after the brace a callback opens', '<% x.forEach((f) => {\n  const u = f; %>', [1, 0]],
+    [
+      'statements after the braces of blocks',
+      '<% for (r of rs) {\n  if (a) {\n    x.forEach((f) => {\n      const u = 1; %>',
+      [3, 0],
+    ],
+    ['the braces of a callback and of blocks closed', '<% });\n  }\n} %>', [0, 3]],
+    ['a block closed before the one left open', '<% if (a) { b(); } else { %>', [1, 0]],
+    ['a continuation', '<% } else { %>', [1, 1]],
+    ['a brace in a string', "<% x('{'); if (a) { %>", [1, 0]],
+    ['the substitution of a template string', '<% x(`${a}`); if (b) { %>', [1, 0]],
+  ])('the braces of %s', (_label, text, braces) => {
+    expect(
+      readCode(text, 0, (javascript) => [javascript.missingCloseBracesCount, javascript.missingOpenBracesCount]),
+    ).toEqual(braces);
+  });
+
+  // A tag not parsing alone reads its nodes in the program, the ones starting in its code; a tag parsing alone, in its
+  // own tree.
+  test.each([
+    [
+      'read in the program',
+      '<% if (a) {\nfoo(); %>A<% } %>',
+      [
+        ['if_statement', 1],
+        ['parenthesized_expression', 4],
+        ['identifier', 5],
+        ['statement_block', 8],
+        ['expression_statement', 10],
+        ['call_expression', 10],
+        ['identifier', 10],
+        ['arguments', 13],
+      ],
+    ],
+    [
+      'parsing alone',
+      '<% const x = 1; %>',
+      [
+        ['program', 1],
+        ['lexical_declaration', 1],
+        ['variable_declarator', 7],
+        ['identifier', 7],
+        ['number', 11],
+      ],
+    ],
+  ])('the named nodes of a tag %s', (_label, text, nodes) => {
+    expect(
+      readCode(text, 0, (javascript) =>
+        javascript.nodes.filter((node) => node.isNamed).map((node) => [node.type, node.startIndex - javascript.start]),
+      ),
+    ).toEqual(nodes);
   });
 });

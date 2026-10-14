@@ -8,23 +8,18 @@
 
 import { parseJavaScript, type SyntaxNode, type Tree } from './ts-parser.js';
 
+/** The code of a tag, read in the program of its template (`readTagCode`). */
 export type RelativeJavascriptNode = {
-  /**
-   * Parser content node corresponding to the original tag content (excluding synthetic wrapper): the code parsed
-   * alone, which a tag of a template parses only when this is read.
-   */
+  /** The root of the code parsed alone, which a tag parses only when this is read. */
   contentNode: SyntaxNode;
   /** Whether the code parses alone: complete statements, opening and closing no block. */
   parsesAlone: boolean;
   /**
-   * Guessed nodes in the content subtree that start within the original content range.
-   * Should be used with start offset correction (virtualOffset - start) to map back to original source positions.
+   * The nodes starting in the code, of the program of its template when it does not parse alone, of its own tree
+   * otherwise: a node is at `node.startIndex - start` in the code.
    */
   nodes: SyntaxNode[];
-  /**
-   * Character offset of the content start in the virtual code (after synthetic wrapper) relative to the original content.
-   * Should be used nodes position correction when mapping virtual code positions back to original source (virtualOffset - start + originalColumn).
-   */
+  /** Where the code starts in the tree of its nodes: the program of its template, or its own tree (0). */
   start: number;
 
   cleanup: () => void;
@@ -78,45 +73,6 @@ const collectNodesStartingInRange = (node: SyntaxNode, contentStart = 0, content
     nodes.push(...collectNodesStartingInRange(child, contentStart, contentEnd));
   }
   return nodes;
-};
-
-/** The tokens of a tree, in order: its leaves, but the ones tree-sitter adds to recover (a missing `}`). */
-const tokensOf = (node: SyntaxNode): SyntaxNode[] => {
-  if (node.childCount === 0) return node.isMissing ? [] : [node];
-  return node.children.flatMap(tokensOf);
-};
-
-/**
- * The braces some code leaves open (a `{` without its `}`) and closes without opening (a `}` without its `{`), from
- * its tokens in order, whatever tree-sitter recovers them as: the braces of strings, template strings, regular
- * expressions and comments are no tokens of their own, and the `${` of a template string opens the `}` closing it.
- *
- * The braces of a block comment the code opens without closing, or closes without opening, are none either, as EJS
- * compiles a comment across tags: tree-sitter reads the start of a comment the code does not close as a `/` and a
- * token starting with `*`, where the braces counted end; and the end of a comment the code does not open as a `*` and
- * a `/`, side by side, where they start.
- */
-const countBraces = (root: SyntaxNode): { open: number; close: number } => {
-  let open = 0;
-  let close = 0;
-  const tokens = tokensOf(root);
-  for (let index = 0; index < tokens.length; index++) {
-    const token = tokens[index];
-    const next = tokens.at(index + 1);
-    const adjacent = next?.startIndex === token.endIndex;
-    if (token.type === '/' && adjacent && next.text.startsWith('*')) break;
-    if (token.type === '*' && adjacent && next.type === '/') {
-      open = 0;
-      close = 0;
-      index++;
-    } else if (token.type === '{' || token.type === '${') {
-      open++;
-    } else if (token.type === '}') {
-      if (open > 0) open--;
-      else close++;
-    }
-  }
-  return { open, close };
 };
 
 /** A tree some code is read in, and the offset the code starts at in it. */
@@ -326,42 +282,6 @@ function relativeJavascriptNode(text: string, parts: CodeParts): RelativeJavascr
       return statements.map((s) => s.text.trimStart()).filter((s) => s.trim().length > 0);
     },
   };
-}
-
-/**
- * Tries to generate a approximate node for a Javascript partial code: parsed alone, and, when its braces do not
- * balance, again after `incrementalCode` (the code of the blocks open before it) in a function closing what it leaves
- * open, which its nodes are read in.
- */
-export function parseJavaScriptPartial(text: string, incrementalCode = ''): RelativeJavascriptNode {
-  const contentTree = parseJavaScript(text);
-  const alone = () => contentTree;
-  if (!contentTree.rootNode.hasError) {
-    return relativeJavascriptNode(text, {
-      alone,
-      braces: { open: 0, close: 0 },
-      parsesAlone: true,
-      codeIn: () => codeInTree(contentTree.rootNode, 0, text.length),
-      cleanup: () => {
-        contentTree.delete();
-      },
-    });
-  }
-  // A balanced snippet has no brace to count; the others are counted by their tokens, not by the errors tree-sitter
-  // recovers with, whose text ends with the last statement of the snippet rather than with the `{` it opened.
-  const braces = countBraces(contentTree.rootNode);
-  const wrapperPrefix = `function __ejs_brace_probe__() {\n${incrementalCode}`;
-  const bestGuess = parseJavaScript(`${wrapperPrefix}${text}\n  foo(); \n}\n${'}\n'.repeat(braces.open)}`);
-  return relativeJavascriptNode(text, {
-    alone,
-    braces,
-    parsesAlone: false,
-    codeIn: () => codeInTree(bestGuess.rootNode, wrapperPrefix.length, text.length),
-    cleanup: () => {
-      bestGuess.delete();
-      contentTree.delete();
-    },
-  });
 }
 
 /**
