@@ -2,10 +2,9 @@
 
 ## [0.2.1](https://github.com/mshima/eslint-plugin-ejs-templates/compare/ejs-template-parser-v0.2.0...ejs-template-parser-v0.2.1) (2026-10-14)
 
-
 ### Bug Fixes
 
-* funding on GitHub Sponsors in the package metadata ([#184](https://github.com/mshima/eslint-plugin-ejs-templates/issues/184)) ([54f43b1](https://github.com/mshima/eslint-plugin-ejs-templates/commit/54f43b1f0d65b87a29c11956e008c1c7b5244c5b))
+- funding on GitHub Sponsors in the package metadata ([#184](https://github.com/mshima/eslint-plugin-ejs-templates/issues/184)) ([54f43b1](https://github.com/mshima/eslint-plugin-ejs-templates/commit/54f43b1f0d65b87a29c11956e008c1c7b5244c5b))
 
 ## [0.2.0](https://github.com/mshima/eslint-plugin-ejs-templates/compare/ejs-template-parser-v0.1.1...ejs-template-parser-v0.2.0) (2026-10-14)
 
