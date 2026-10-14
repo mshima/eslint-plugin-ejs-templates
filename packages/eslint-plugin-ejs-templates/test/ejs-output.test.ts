@@ -95,7 +95,7 @@ const RUNS: Run[] = [
   },
   {
     name: 'no-one-sided-trim',
-    level: 'whitespace',
+    level: 'exact',
     config: pluginRules({ 'ejs-templates/no-one-sided-trim': 'error' }),
   },
   // Moving a slurp tag to a line of its own renders the line break, and the blanks the tag slurped before it.

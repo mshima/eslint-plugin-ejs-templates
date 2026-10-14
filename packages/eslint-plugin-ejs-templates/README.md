@@ -754,7 +754,7 @@ one side alone is reported:
 | Tag                                                 | Fix                                                                                        |
 | --------------------------------------------------- | ------------------------------------------------------------------------------------------ |
 | An output tag (`<%=`, `<%-`) closed by `-%>`, `_%>` | `%>`, what the close removed removed from the text, the output unchanged                   |
-| A code tag opened by `<%`, closed by `-%>`, `_%>`   | opened by `<%_`, when the tag is alone on its line                                         |
+| A code tag opened by `<%`, closed by `-%>`, `_%>`   | opened by `<%_` at the start of its line; reported alone when blanks or text are before it |
 | A code tag opened by `<%_`, closed by `%>`          | `_%>` and a blank line before the end of its line, `-%>` before text: the output unchanged |
 
 An output tag cannot open with `<%_`. Two are left alone: one whose code has an `include(…)`, the
@@ -781,11 +781,11 @@ text
 <!-- ✓ fixed, the line joined, the output unchanged -->
 <%= name %>text
 
-<!-- ✗ violation: the indentation renders, at the start of the next line -->
-  <% if (show) { -%>
+<!-- ✗ violation: trims what is after it alone -->
+<% if (show) { -%>
 
 <!-- ✓ fixed -->
-  <%_ if (show) { -%>
+<%_ if (show) { -%>
 
 <!-- ✗ violation: renders an empty line, which the closing delimiter does not tell -->
 <%_ } %>
@@ -798,12 +798,11 @@ text
 <%- include('partial') -%>
 ```
 
-The fixes of output tags and of `<%_ … %>` keep the output: a `<%_ … %>` before the end of its line
-gets a line break after its `_%>`, which slurps it, the empty line the tag rendered written out. Before
-a `<%%`, which writes without clearing what the next text loses, an output tag is reported without
-a fix. The fix of a `<% … -%>` changes the blanks the template renders: the indentation it renders
-at the start of the next line when it is alone on its line, indented. A `<%` tag with text before it
-on its line is reported without a fix, `<%_` slurping the blanks of the text.
+Every fix keeps the output. A `<%_ … %>` before the end of its line gets a line break after its
+`_%>`, which slurps it, the empty line the tag rendered written out. A `<% … -%>` is opened by `<%_`
+at the start of its line alone, where `<%_` slurps nothing: indented or with text before it, `<%_`
+would slurp the blanks it renders, and the tag is reported without a fix. Before a `<%%`, which
+writes without clearing what the next text loses, an output tag is reported without a fix.
 
 ### `ejs-templates/output-semi`
 

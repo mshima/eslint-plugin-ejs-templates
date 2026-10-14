@@ -94,17 +94,8 @@ export const SENTINEL_OUTPUT_SEMI_ADD = 'OUTPUT_SEMI_ADD';
  */
 export const SENTINEL_OUTPUT_SEMI_REMOVE = 'OUTPUT_SEMI_REMOVE';
 
-/**
- * Sentinel text written by the `no-one-sided-trim` fix of an output tag: its `-%>` or `_%>` written `%>`, what it
- * removed removed from the text.
- */
-export const SENTINEL_OUTPUT_CLOSE = 'OUTPUT_CLOSE';
-
-/** Sentinel text written by the `no-one-sided-trim` fix of a code tag opened by `<%`: opened by `<%_`. */
-export const SENTINEL_CODE_OPEN = 'CODE_OPEN';
-
-/** Sentinel text written by the `no-one-sided-trim` fix of a code tag opened by `<%_` and closed by `%>`. */
-export const SENTINEL_CODE_CLOSE = 'CODE_CLOSE';
+/** Sentinel text written by the `no-one-sided-trim` fix, chosen by the tag (`oneSidedTrimFix()`). */
+export const SENTINEL_ONE_SIDED_TRIM = 'ONE_SIDED_TRIM';
 
 /**
  * Sentinel text written by the `prefer-output` fix.
@@ -492,6 +483,38 @@ const OUTPUT_TAG_TYPES = new Set<string>([
 /** Whether a tag renders a value, regardless of whether its content spans lines. */
 export const isOutputTagType = (tagType: string): boolean => OUTPUT_TAG_TYPES.has(tagType);
 
+/**
+ * The fix of a tag trimming one side alone (`no-one-sided-trim`), the output unchanged, or null:
+ * - an output tag, its `-%>` or `_%>` written `%>`, what it removed after it removed from the text, the next line
+ *   joining the line of the tag (`editTemplate()`); not before a `<%%`, which writes without clearing what the next
+ *   text loses (docs/ejs.md, the truncation), and which `editTemplate()` does not follow there;
+ * - a code tag opened by `<%` at the start of its line, opened by `<%_`, which slurps nothing there; indented, `<%_`
+ *   would slurp its indentation, which the tag renders;
+ * - a code tag opened by `<%_` and closed by `%>`, closed by `-%>` before text, which drops nothing then; by `_%>`
+ *   before the end of its line, and a line break after it, which `_%>` slurps: what is after the tag renders as it
+ *   did, the empty line the tag rendered written out.
+ */
+function oneSidedTrimFix(block: CodeTagBlock, template: EjsTemplate): Rule.Fix | null {
+  const end = block.tagOffset + block.tagLength;
+  const closeStart = end - block.closeDelim.length;
+  if (isOutputTagType(block.tagType)) {
+    if (template.text.startsWith('<%%', end)) return null;
+    const source = template.text.slice(block.tagOffset, closeStart);
+    return editFix(template, [{ offset: block.tagOffset, length: block.tagLength, text: [{ tag: `${source}%>` }] }]);
+  }
+  if (block.openDelim === '<%') {
+    return block.closeDelim !== '%>' && block.isStandalone && block.lineIndent === ''
+      ? { range: [block.tagOffset, block.tagOffset + block.openDelim.length], text: '<%_' }
+      : null;
+  }
+  if (block.closeDelim !== '%>') return null;
+  const after = template.text.slice(end);
+  const [restOfLine] = after.split(/\r\n|\r|\n/u, 1);
+  if (restOfLine.trim() !== '') return { range: [closeStart, end], text: '-%>' };
+  const lineBreak = /\r\n|\r|\n/u.exec(after)?.[0] ?? '\n';
+  return { range: [closeStart, end], text: after === '' ? '_%>' : `_%>${lineBreak}` };
+}
+
 /** The characters `<%=` escapes, as EJS escapes them (`escapeXML`). */
 const HTML_ESCAPED = /[&<>'"]/u;
 
@@ -748,33 +771,8 @@ function translateFix(
       }
     }
     return null;
-  } else if (fix.text === SENTINEL_OUTPUT_CLOSE) {
-    // no-one-sided-trim: the `-%>` or `_%>` of an output tag written `%>`, what it removed after it removed from the text,
-    // the next line joining the line of the tag (editTemplate()). Not before a `<%%`, which writes without clearing what
-    // the next text loses (docs/ejs.md, the truncation), and which editTemplate() does not follow there.
-    const end = block.tagOffset + block.tagLength;
-    if (!isOutputTagType(block.tagType) || options.template.text.startsWith('<%%', end)) return null;
-    const source = options.template.text.slice(block.tagOffset, end - block.closeDelim.length);
-    return editFix(options.template, [
-      { offset: block.tagOffset, length: block.tagLength, text: [{ tag: `${source}%>` }] },
-    ]);
-  } else if (fix.text === SENTINEL_CODE_OPEN) {
-    // no-one-sided-trim: a code tag opened by `<%` and closed by `-%>` or `_%>`, alone on its line, opened by `<%_`.
-    if (block.openDelim !== '<%' || block.closeDelim === '%>' || !block.isStandalone) return null;
-    return { range: [block.tagOffset, block.tagOffset + block.openDelim.length], text: '<%_' };
-  } else if (fix.text === SENTINEL_CODE_CLOSE) {
-    // no-one-sided-trim: a code tag opened by `<%_` and closed by `%>`, closed by `-%>` before text, which drops nothing
-    // then; by `_%>` before the end of its line, and a line break after it, which `_%>` slurps: what is after the tag
-    // renders as it did, the empty line the tag rendered written out. Nothing after the tag, nothing to keep.
-    if (block.openDelim !== '<%_' || block.closeDelim !== '%>') return null;
-    const end = block.tagOffset + block.tagLength;
-    const after = options.template.text.slice(end);
-    const lineEnd = after.search(/[\r\n]/u);
-    if ((lineEnd === -1 ? after : after.slice(0, lineEnd)).trim() !== '') {
-      return { range: [end - block.closeDelim.length, end], text: '-%>' };
-    }
-    const lineBreak = /\r\n|\r|\n/u.exec(after)?.[0] ?? '\n';
-    return { range: [end - block.closeDelim.length, end], text: after === '' ? '_%>' : `_%>${lineBreak}` };
+  } else if (fix.text === SENTINEL_ONE_SIDED_TRIM) {
+    return oneSidedTrimFix(block, options.template);
   } else if (fix.text === SENTINEL_PREFER_OUTPUT || fix.text === SENTINEL_PREFER_OUTPUT_ELSE) {
     // prefer-output: convert wrapper conditionals to output ternary:
     // `<% if (cond) { %>a<% } %>` => `<%= cond ? 'a' : '' %>`

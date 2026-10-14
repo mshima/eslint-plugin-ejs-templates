@@ -7,14 +7,7 @@
 //     http://www.apache.org/licenses/LICENSE-2.0
 
 import type { Rule } from 'eslint';
-import {
-  getTagBlocks,
-  getVirtualCodeMetadata,
-  isOutputTagType,
-  SENTINEL_CODE_CLOSE,
-  SENTINEL_CODE_OPEN,
-  SENTINEL_OUTPUT_CLOSE,
-} from '../processor.js';
+import { getTagBlocks, getVirtualCodeMetadata, isOutputTagType, SENTINEL_ONE_SIDED_TRIM } from '../processor.js';
 
 /** An `include(…)` in the code of a tag: its output ends with a line break, which a `-%>` keeps from doubling. */
 const INCLUDE = /\binclude\s*\(/u;
@@ -29,9 +22,9 @@ const INCLUDE = /\binclude\s*\(/u;
  *   alone: one whose code has an `include(…)`, the output of a partial ending with a line break, which a `-%>` keeps
  *   from doubling; and one ending the template, before its final line break alone, which a `-%>` keeps out of the
  *   output of a partial;
- * - a code tag opened by `<%` and closed by `-%>` or `_%>`: opened by `<%_` when the tag is alone on its line, which
- *   slurps its indentation, the blanks the tag rendered at the start of the next line; reported alone when text is
- *   before it on its line, whose blanks `<%_` would slurp;
+ * - a code tag opened by `<%` and closed by `-%>` or `_%>`: opened by `<%_` when the tag is at the start of its line,
+ *   where it slurps nothing; reported alone when blanks or text are before it on its line, which `<%_` would slurp,
+ *   changing the output;
  * - a code tag opened by `<%_` and closed by `%>`: closed by `_%>` when the end of its line is after it, a line break
  *   after it, which `_%>` slurps, the empty line the tag rendered written out; by `-%>` when text is after it, which
  *   drops nothing then. The output unchanged either way.
@@ -64,22 +57,23 @@ export const noOneSidedTrim: Rule.RuleModule = {
         const endsTemplate = getVirtualCodeMetadata(context.sourceCode.text)?.endsTemplate;
         for (const [index, { block, comment }] of getTagBlocks(context).entries()) {
           const { openDelim, closeDelim } = block;
-          const report = (messageId: string, sentinel: string) => {
-            context.report({
-              loc: comment.loc,
-              messageId,
-              data: { closeDelim },
-              fix: (fixer) => fixer.replaceTextRange(comment.range, sentinel),
-            });
-          };
+          let messageId: string;
           if (isOutputTagType(block.tagType)) {
             if (closeDelim === '%>' || INCLUDE.test(block.codeContent) || endsTemplate?.[index] === true) continue;
-            report('outputClose', SENTINEL_OUTPUT_CLOSE);
+            messageId = 'outputClose';
           } else if (openDelim === '<%' && closeDelim !== '%>') {
-            report('codeOpen', SENTINEL_CODE_OPEN);
+            messageId = 'codeOpen';
           } else if (openDelim === '<%_' && closeDelim === '%>') {
-            report('codeClose', SENTINEL_CODE_CLOSE);
+            messageId = 'codeClose';
+          } else {
+            continue;
           }
+          context.report({
+            loc: comment.loc,
+            messageId,
+            data: { closeDelim },
+            fix: (fixer) => fixer.replaceTextRange(comment.range, SENTINEL_ONE_SIDED_TRIM),
+          });
         }
       },
     };

@@ -93,20 +93,11 @@ describe('autofix: no-one-sided-trim, code tags', () => {
     expect(ejs.render(fixed, data)).toBe(ejs.render(template, data));
   });
 
-  // The indentation a `<% … -%>` alone on its line rendered at the start of the next line, slurped.
-  test.each([['an indented <% -%>, its indentation slurped', '  <% x = 1 -%>\nb\n', '  <%_ x = 1 -%>\nb\n', 'b\n']])(
-    '%s',
-    (_label, template, expected, rendered) => {
-      const fixed = applyFix(template, rules);
-      expect(fixed).toBe(expected);
-      expect(ejs.render(fixed, data)).toBe(rendered);
-      expect(lint(fixed, rules)).toEqual([]);
-    },
-  );
-
-  // `<%_` would slurp the blanks of the text before it.
-  test('leaves a <% tag with text before it on its line', () => {
-    const template = 'a <% x = 1 _%> b\n';
+  // `<%_` would slurp the blanks before it, which the tag renders: reported, not fixed.
+  test.each([
+    ['indented, alone on its line', '  <% x = 1 -%>\nb\n'],
+    ['with text before it on its line', 'a <% x = 1 _%> b\n'],
+  ])('leaves a <% tag %s', (_label, template) => {
     expect(lint(template, rules)).toHaveLength(1);
     expect(applyFix(template, rules)).toBe(template);
   });
