@@ -1392,7 +1392,7 @@ describe('synthetic semicolon in virtual code', () => {
       expect(block.virtualBodyInlineSuffix).toBe('');
       expect(block.virtualCode.endsWith(';;')).toBe(false);
     } finally {
-      block.javascriptPartialNode?.cleanup();
+      if (!block.isDirectiveComment) block.javascriptPartialNode.cleanup();
     }
   });
 });

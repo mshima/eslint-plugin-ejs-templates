@@ -7,8 +7,7 @@
 //     http://www.apache.org/licenses/LICENSE-2.0
 
 import type { Rule } from 'eslint';
-import { SENTINEL_PREFER_SLURP_MULTILINE } from '../processor.js';
-import { getTagTypeComments } from '../utils.js';
+import { getTagBlocks, SENTINEL_PREFER_SLURP_MULTILINE } from '../processor.js';
 
 /**
  * ESLint rule: convert multiline `<% … %>` tags to `<%_ … _%>`.
@@ -54,11 +53,8 @@ export const preferSlurpMultiline: Rule.RuleModule = {
   create(context) {
     return {
       Program() {
-        const sourceCode = context.sourceCode;
-        const tagTypeComments = getTagTypeComments(sourceCode.text);
-        for (const tagComment of tagTypeComments) {
-          const { comment, tagType } = tagComment;
-          if (tagType === 'code-multiline' || tagType === 'code-slurpable-multiline') {
+        for (const { block, comment } of getTagBlocks(context)) {
+          if (block.tagType === 'code-multiline' || block.tagType === 'code-slurpable-multiline') {
             const { range } = comment;
             context.report({
               loc: comment.loc,

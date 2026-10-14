@@ -10,10 +10,9 @@ import type { Rule } from 'eslint';
 import {
   SENTINEL_FORMAT,
   SENTINEL_FORMAT_MULTILINE_CLOSE,
-  getFileBlocks,
+  getTagBlocks,
   getVirtualCodeMetadata,
 } from '../processor.js';
-import { getTagTypeComments } from '../utils.js';
 import { isRecord } from '../utils.js';
 
 export const format: Rule.RuleModule = {
@@ -51,22 +50,11 @@ export const format: Rule.RuleModule = {
     return {
       Program() {
         const sourceCode = context.sourceCode;
-        const tagTypeComments = getTagTypeComments(sourceCode.text);
-        const metadata = getVirtualCodeMetadata(sourceCode.text);
-        const tagFormatState = metadata?.tagFormat;
-        const fileBlocks = getFileBlocks(context.filename);
-        const nonDirectiveSegments = fileBlocks?.nonDirectiveSegments;
+        // Indexed as the blocks of the tags.
+        const tagFormatState = getVirtualCodeMetadata(sourceCode.text)?.tagFormat;
 
-        for (let i = 0; i < tagTypeComments.length; i++) {
-          const { comment } = tagTypeComments[i];
-          const firstBlock = nonDirectiveSegments?.[i]?.block;
-          if (!firstBlock) continue;
-
-          const firstPartialNode = firstBlock.javascriptPartialNode;
-          // The block of a code tag has its JavaScript.
-          /* v8 ignore next -- @preserve */
-          if (!firstPartialNode) continue;
-
+        for (const [i, { block, comment }] of getTagBlocks(context).entries()) {
+          const firstPartialNode = block.javascriptPartialNode;
           const state = tagFormatState?.[i];
           const needsFormat =
             multilineClose === 'new-line'

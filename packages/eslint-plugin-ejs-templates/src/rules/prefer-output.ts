@@ -7,8 +7,8 @@
 //     http://www.apache.org/licenses/LICENSE-2.0
 
 import type { Rule } from 'eslint';
-import { getFileBlocks, SENTINEL_PREFER_OUTPUT, SENTINEL_PREFER_OUTPUT_ELSE } from '../processor.js';
-import { getTagTypeComments, ifOpening, tokensAre, tokensOf } from '../utils.js';
+import { getTagBlocks, SENTINEL_PREFER_OUTPUT, SENTINEL_PREFER_OUTPUT_ELSE } from '../processor.js';
+import { ifOpening, tokensAre, tokensOf } from '../utils.js';
 
 /**
  * ESLint rule: suggest converting conditional output patterns to ternary expressions.
@@ -41,48 +41,21 @@ export const preferOutput: Rule.RuleModule = {
   },
 
   create(context) {
-    const sourceCode = context.sourceCode;
-
     return {
       Program() {
-        const tagTypeComments = getTagTypeComments(sourceCode.text);
-        const fileBlocks = getFileBlocks(context.filename);
-
-        if (!fileBlocks) {
-          return;
-        }
-
-        const { nonDirectiveSegments } = fileBlocks;
-        // A block of a tag has a marker.
-        /* v8 ignore next -- @preserve */
-        if (nonDirectiveSegments.length !== tagTypeComments.length) {
-          throw new Error(
-            `Unexpected mismatch between tag type comments (${String(tagTypeComments.length)}) and file blocks (${String(nonDirectiveSegments.length)}) for file ${context.filename}`,
-          );
-        }
-
-        for (let i = 0; i < tagTypeComments.length; i++) {
-          const { comment, tagType } = tagTypeComments[i];
-          if (tagType !== 'code') continue;
-
-          const firstSegment = nonDirectiveSegments[i];
-          const firstBlock = firstSegment.block;
+        const blocks = getTagBlocks(context);
+        for (const [i, { block: firstBlock, comment }] of blocks.entries()) {
+          if (firstBlock.tagType !== 'code') continue;
 
           // `if (…) {`, then `}` or `} else {`: the trees of the tags, which ejs-template-parser parses only when they
           // are read, are read for code written so alone.
           if (!/^\s*if\b/u.test(firstBlock.codeContent) || !/\{\s*$/u.test(firstBlock.codeContent)) continue;
-          const firstPartialNode = firstBlock.javascriptPartialNode;
-          if (!firstPartialNode || firstPartialNode.multilineOriginal || !ifOpening(tokensOf(firstPartialNode), 0)) {
-            continue;
-          }
+          if (!ifOpening(tokensOf(firstBlock.javascriptPartialNode), 0)) continue;
 
-          const nextBlock = nonDirectiveSegments.at(i + 1)?.block;
+          const nextBlock = blocks.at(i + 1)?.block;
           if (nextBlock?.tagType !== 'code') continue;
           if (nextBlock.originalLine !== firstBlock.originalLine || !/^\s*\}/u.test(nextBlock.codeContent)) continue;
           const nextPartialNode = nextBlock.javascriptPartialNode;
-          // The block of a code tag has its JavaScript.
-          /* v8 ignore next -- @preserve */
-          if (!nextPartialNode) continue;
 
           // `}`, or `} else {` and the `}` closing it on the line too.
           const nextTokens = tokensOf(nextPartialNode);
@@ -90,15 +63,14 @@ export const preferOutput: Rule.RuleModule = {
           if (!tokensAre(nextTokens, '}')) {
             if (!tokensAre(nextTokens, '}', 'else', '{')) continue;
 
-            const elseCloseBlock = nonDirectiveSegments.at(i + 2)?.block;
+            const elseCloseBlock = blocks.at(i + 2)?.block;
             if (
               elseCloseBlock?.originalLine !== firstBlock.originalLine ||
               !/^\s*\}/u.test(elseCloseBlock.codeContent)
             ) {
               continue;
             }
-            const elseCloseNode = elseCloseBlock.javascriptPartialNode;
-            if (!elseCloseNode || !tokensAre(tokensOf(elseCloseNode), '}')) continue;
+            if (!tokensAre(tokensOf(elseCloseBlock.javascriptPartialNode), '}')) continue;
 
             hasElseClause = true;
           }

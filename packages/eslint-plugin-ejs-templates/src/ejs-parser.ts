@@ -4,35 +4,17 @@ import {
   type EjsOpeningDelimiter,
   type EjsSyntaxNode,
   type EjsTag,
+  type EjsTagShape,
   type RelativeJavascriptNode,
 } from 'ejs-template-parser';
 
 export const EJS_MARKER_PREFIX = '@ejs-tag:';
 
-export const getTagTypeFromLine = (line: string): EjsTagType | null => {
-  line = line.trim();
-  if (!line.startsWith(EJS_MARKER_PREFIX)) return null;
-  const tagType = line.slice(EJS_MARKER_PREFIX.length);
-  // Matched against the known set rather than asserted: the marker is read back out of the
-  // virtual file, so anything unrecognised should be reported as "no tag type" rather than
-  // travelling on as a tag type the rest of the code will never match.
-  return EJS_TAG_TYPES.find((known) => known === tagType) ?? null;
-};
+/** The type of the block of a code or output tag: its shape, `-multiline` when its code spans lines. */
+export type CodeTagType = EjsTagShape | `${EjsTagShape}-multiline`;
 
-const _TAG_TYPES_WITH_MULTILINE = ['escaped-output', 'raw-output', 'slurp', 'code', 'code-slurpable'] as const;
-const _TAG_TYPES = ['directive-comment', 'comment-empty-line'] as const;
-type EjsBaseTagType = (typeof _TAG_TYPES_WITH_MULTILINE)[number];
-type EjsTagType = EjsBaseTagType | (typeof _TAG_TYPES)[number] | `${EjsBaseTagType}-multiline`;
-
-/** Every value {@link EjsTagType} admits, for validating a marker read back out of a file. */
-const EJS_TAG_TYPES: readonly EjsTagType[] = [
-  ..._TAG_TYPES_WITH_MULTILINE,
-  ..._TAG_TYPES,
-  ..._TAG_TYPES_WITH_MULTILINE.map((base): EjsTagType => `${base}-multiline`),
-];
-
-/** A single extracted EJS tag together with its position in the original file. */
-export type TagBlock = {
+/** What the blocks of a template have in common: their tag, its position in the original file, their virtual code. */
+type BlockBase = {
   ejsNode: EjsSyntaxNode;
   /**
    * Virtual JS code for this block (original content only — no synthetic braces).
@@ -62,18 +44,6 @@ export type TagBlock = {
   tagOffset: number;
   /** Total length of the original tag (opening delimiter + content + closing delimiter). */
   tagLength: number;
-  /**
-   * Determined tag type (same value as the `//@ejs-tag:<type>` marker).
-   *
-   * Base types: `escaped-output` | `raw-output` | `slurp` | `code` | `code-slurpable`
-   *
-   * Suffixes added for violations:
-   * - `-multiline`         → content contains `\n` (triggers `prefer-single-line-tags` rule)
-   * - `-needs-indent`      → standalone `<%_ _%>` tag whose indentation does not match
-   *                          the brace-depth expected indent (triggers `indent` rule)
-   * - `-not-standalone`    → slurp tag that is inline (triggers `slurp-newline` rule)
-   */
-  tagType: EjsTagType;
   /** Raw JS content captured between the delimiters. */
   codeContent: string;
   /**
@@ -84,7 +54,6 @@ export type TagBlock = {
    * boundary, while keeping `codeContent` untouched for source-accurate fixes.
    */
   lintCodeContent: string;
-  javascriptPartialNode?: RelativeJavascriptNode;
   /** Full opening delimiter string (e.g. `<%`, `<%_`, `<%=`, `<%-`). */
   openDelim: EjsOpeningDelimiter;
   /** Full closing delimiter string (e.g. `%>`, `_%>`, `-%>`). */
@@ -116,8 +85,24 @@ export type TagBlock = {
   virtualBodyExtraLine: string;
   /** Whether the tag is standalone (only whitespace before it on the same line). */
   isStandalone: boolean;
-  /** Whether this block is a virtualized ESLint directive comment from an EJS comment tag. */
-  isDirectiveComment: boolean;
+};
+
+/** The block of a code or output tag, its virtual code its JavaScript after the `//@ejs-tag:<type>` marker. */
+export type CodeTagBlock = BlockBase & {
+  /** The type of the tag, the one of its marker. */
+  tagType: CodeTagType;
+  /** The JavaScript of the tag, read in the program of its template. */
+  javascriptPartialNode: RelativeJavascriptNode;
+  isDirectiveComment: false;
+};
+
+/**
+ * The block of a comment tag: an ESLint directive (`directive-comment`), its virtual code the comment, or a comment
+ * leaving an empty line (`comment-empty-line`), its virtual code a marker for `no-comment-empty-line` to report on.
+ */
+export type CommentTagBlock = BlockBase & {
+  tagType: 'directive-comment' | 'comment-empty-line';
+  isDirectiveComment: true;
   /**
    * The half of an `eslint-disable-next-line` comment tag this directive block is: `disable`
    * covers the comment tag itself, `enable` is synthesized after the next tag and carries that
@@ -125,6 +110,9 @@ export type TagBlock = {
    */
   nextLineDirective?: 'disable' | 'enable';
 };
+
+/** A single extracted EJS tag together with its position in the original file. */
+export type TagBlock = CodeTagBlock | CommentTagBlock;
 
 function extractEslintDirectiveFromEjsComment(commentText: string): string | null {
   const content = commentText
@@ -139,7 +127,6 @@ function extractEslintDirectiveFromEjsComment(commentText: string): string | nul
 
 function createDirectiveCommentBlock(params: {
   ejsNode: EjsSyntaxNode;
-  javascriptPartialNode?: RelativeJavascriptNode;
   directiveText: string;
   tagOffset: number;
   tagLength: number;
@@ -149,10 +136,9 @@ function createDirectiveCommentBlock(params: {
   isStandalone: boolean;
   closeDelim: EjsClosingDelimiter;
   nextLineDirective?: 'disable' | 'enable';
-}): TagBlock {
+}): CommentTagBlock {
   const {
     ejsNode,
-    javascriptPartialNode,
     directiveText,
     tagOffset,
     tagLength,
@@ -165,7 +151,6 @@ function createDirectiveCommentBlock(params: {
   } = params;
   return {
     ejsNode,
-    javascriptPartialNode,
     virtualCode: `/* ${directiveText} */`,
     tagLine,
     tagColumn,
@@ -256,7 +241,6 @@ export function extractTagBlocks(tags: EjsTag[], diagnostics: readonly EjsDiagno
             tagType: 'comment-empty-line',
             codeContent: '',
             lintCodeContent: '',
-            javascriptPartialNode: undefined,
             openDelim: '<%#',
             closeDelim,
             lineIndent,
@@ -318,7 +302,6 @@ export function extractTagBlocks(tags: EjsTag[], diagnostics: readonly EjsDiagno
       blocks.push(
         createDirectiveCommentBlock({
           ejsNode: node,
-          javascriptPartialNode,
           directiveText: pendingNextLineDirective.disableText,
           tagOffset: pendingNextLineDirective.tagOffset,
           tagLength: pendingNextLineDirective.tagLength,
@@ -334,7 +317,7 @@ export function extractTagBlocks(tags: EjsTag[], diagnostics: readonly EjsDiagno
 
     // ── Multiline detection ────────────────────────────────────────────────
     const isMultiline = codeContent.includes('\n');
-    const tagType: EjsTagType = isMultiline ? `${baseType}-multiline` : baseType;
+    const tagType: CodeTagType = isMultiline ? `${baseType}-multiline` : baseType;
 
     // ── Virtual body extras (void-expression wrapping) ────────────────────
     // For output tags: append `;` so the expression is a valid statement in
@@ -399,7 +382,6 @@ export function extractTagBlocks(tags: EjsTag[], diagnostics: readonly EjsDiagno
       blocks.push(
         createDirectiveCommentBlock({
           ejsNode: node,
-          javascriptPartialNode,
           directiveText: pendingNextLineDirective.enableText,
           tagOffset,
           tagLength,

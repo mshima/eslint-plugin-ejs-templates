@@ -7,8 +7,7 @@
 //     http://www.apache.org/licenses/LICENSE-2.0
 
 import type { Rule } from 'eslint';
-import { getFileBlocks, isOutputTagType, SENTINEL_OUTPUT_SEMI_ADD, SENTINEL_OUTPUT_SEMI_REMOVE } from '../processor.js';
-import { getTagTypeComments } from '../utils.js';
+import { getTagBlocks, isOutputTagType, SENTINEL_OUTPUT_SEMI_ADD, SENTINEL_OUTPUT_SEMI_REMOVE } from '../processor.js';
 
 /**
  * ESLint rule: enforce or disallow semicolons at the end of output tag content.
@@ -50,22 +49,8 @@ export const outputSemi: Rule.RuleModule = {
 
     return {
       Program() {
-        const sourceCode = context.sourceCode;
-        const tagTypeComments = getTagTypeComments(sourceCode.text);
-        const fileBlocks = getFileBlocks(context.filename);
-        if (!fileBlocks) {
-          return;
-        }
-        const { nonDirectiveSegments } = fileBlocks;
-
-        for (const { comment, tagType } of tagTypeComments) {
-          if (!isOutputTagType(tagType)) continue;
-
-          const commentLine = comment.loc.start.line;
-          const block = nonDirectiveSegments.find((segment) => segment.startLine === commentLine)?.block;
-          // A marker is the first line of its block.
-          /* v8 ignore next -- @preserve */
-          if (!block) continue;
+        for (const { block, comment } of getTagBlocks(context)) {
+          if (!isOutputTagType(block.tagType)) continue;
 
           // Read the tag's own content rather than the virtual line. The previous check looked
           // for a doubled `;;` on the first virtual line — the tag's semicolon plus the

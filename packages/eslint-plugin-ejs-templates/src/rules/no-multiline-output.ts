@@ -7,8 +7,7 @@
 //     http://www.apache.org/licenses/LICENSE-2.0
 
 import type { Rule } from 'eslint';
-import { getFileBlocks, getMultilineOutputConditionalParts, SENTINEL_NO_MULTILINE_OUTPUT } from '../processor.js';
-import { getTagTypeComments } from '../utils.js';
+import { getMultilineOutputConditionalParts, getTagBlocks, SENTINEL_NO_MULTILINE_OUTPUT } from '../processor.js';
 
 /**
  * ESLint rule: prefer a conditional block over an output tag that renders multiple lines.
@@ -46,27 +45,10 @@ export const noMultilineOutput: Rule.RuleModule = {
   },
 
   create(context) {
-    const sourceCode = context.sourceCode;
-
     return {
       Program() {
-        const tagTypeComments = getTagTypeComments(sourceCode.text);
-        const fileBlocks = getFileBlocks(context.filename);
-        if (!fileBlocks) {
-          return;
-        }
-        const { nonDirectiveSegments } = fileBlocks;
-
-        for (const { comment, tagType } of tagTypeComments) {
-          if (tagType !== 'escaped-output' && tagType !== 'raw-output') {
-            continue;
-          }
-
-          const commentLine = comment.loc.start.line;
-          const block = nonDirectiveSegments.find((segment) => segment.startLine === commentLine)?.block;
-          if (!block || !getMultilineOutputConditionalParts(block)) {
-            continue;
-          }
+        for (const { block, comment } of getTagBlocks(context)) {
+          if (!getMultilineOutputConditionalParts(block)) continue;
 
           // Reported whether or not it can be fixed: `translateFix` withholds the fix for a
           // `<%=` tag whose text needs escaping, where no rewrite preserves the output.

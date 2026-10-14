@@ -24,7 +24,7 @@ import {
   type SyntaxNode,
   validateTemplate,
 } from 'ejs-template-parser';
-import { EJS_MARKER_PREFIX, extractTagBlocks, type TagBlock } from './ejs-parser.js';
+import { type CodeTagBlock, EJS_MARKER_PREFIX, extractTagBlocks, type TagBlock } from './ejs-parser.js';
 import { ifOpening, tokensAre, tokensOf, type VirtualMarkerComment } from './utils.js';
 
 // ---------------------------------------------------------------------------
@@ -239,11 +239,8 @@ function mapMessage(
  * The tag is one `prefer-single-line-tags` reports, of several statements (`splitStatements()`), which split at the
  * braces of its blocks alone: one tag a statement, never the tag itself.
  */
-function buildCollapsedTag(
-  block: TagBlock,
-  javascriptPartialNode: RelativeJavascriptNode,
-  applyIndent: boolean,
-): string {
+function buildCollapsedTag(block: CodeTagBlock, applyIndent: boolean): string {
+  const { javascriptPartialNode } = block;
   const tags = javascriptPartialNode.splitStatements();
 
   // An inline tag has template text either side of it, so the tags it splits into stay adjacent
@@ -437,10 +434,7 @@ export function getMultilineOutputConditionalParts(block: TagBlock): MultilineOu
     return null;
   }
 
-  // An output tag on one line, its block has its JavaScript.
   const partialNode = block.javascriptPartialNode;
-  /* v8 ignore next -- @preserve */
-  if (!partialNode) return null;
 
   // A ternary whose strings render a line break has a `?` and an escaped `\n`: the tree of any other code is not read,
   // which ejs-template-parser parses only when it is.
@@ -534,9 +528,9 @@ function invertNegatedTest(conditionNode: SyntaxNode): string | null {
  * Only the opening tag is inspected here; whether the statement actually has an `else`
  * branch to swap with is decided by the caller from the surrounding blocks.
  */
-export function getNegatedIfCondition(block: TagBlock): string | null {
+export function getNegatedIfCondition(block: CodeTagBlock): string | null {
   const javascript = block.javascriptPartialNode;
-  if (!javascript || javascript.multilineOriginal) {
+  if (javascript.multilineOriginal) {
     return null;
   }
   const conditionNode = ifOpening(tokensOf(javascript), 0)?.childForFieldName('condition');
@@ -549,9 +543,9 @@ function isElseOpening(javascript: RelativeJavascriptNode): boolean {
 }
 
 /** Positive form of a negated `} else if (…) {` link's test, or null when it is not one. */
-export function getNegatedElseIfCondition(block: TagBlock): string | null {
+export function getNegatedElseIfCondition(block: CodeTagBlock): string | null {
   const javascript = block.javascriptPartialNode;
-  if (!javascript || javascript.multilineOriginal) {
+  if (javascript.multilineOriginal) {
     return null;
   }
   const tokens = tokensOf(javascript);
@@ -662,13 +656,10 @@ function offsetOfPosition(sourceText: string, line: number, column: number): num
  * and only the reported one should be rewritten.
  */
 function buildNegatedTernaryFix(
-  block: TagBlock,
+  block: CodeTagBlock,
   targetOffset: number | undefined,
 ): { range: [number, number]; text: string } | null {
   const partialNode = block.javascriptPartialNode;
-  // The block of a code tag has its JavaScript.
-  /* v8 ignore next -- @preserve */
-  if (!partialNode) return null;
 
   const contentStart = block.tagOffset + block.openDelim.length;
   let best: { range: [number, number]; text: string } | null = null;
@@ -723,7 +714,7 @@ function buildNegatedTernaryFix(
  * and a negated ternary inside a single output tag. Returns null for anything else.
  */
 function buildNegatedConditionFix(
-  block: TagBlock,
+  block: CodeTagBlock,
   template: EjsTemplate,
   sourceText: string,
   targetOffset?: number,
@@ -825,6 +816,9 @@ function translateFix(
     }
     return null;
   }
+  // A comment tag has no fix but that one: no rule fixes the comment of a directive, the virtual code of its block.
+  /* v8 ignore next -- @preserve */
+  if (block.isDirectiveComment) return null;
 
   const { applyIndentForSingleLineTags } = options;
   const trimmedCodeContent = block.codeContent.trim();
@@ -893,9 +887,8 @@ function translateFix(
     // prefer-single-line-tags: collapse a multiline tag while keeping content between braces in
     // a single tag, and split a single-line tag that carries more than one brace boundary, a tag
     // the parser diagnoses. `buildCollapsedTag` produces one tag per boundary either way.
-    const { javascriptPartialNode } = block;
-    if (!javascriptPartialNode || !diagnosed('prefer-single-line-tags')) return null;
-    const fixedText = buildCollapsedTag(block, javascriptPartialNode, applyIndentForSingleLineTags);
+    if (!diagnosed('prefer-single-line-tags')) return null;
+    const fixedText = buildCollapsedTag(block, applyIndentForSingleLineTags);
     const bracesModeIndentStart =
       applyIndentForSingleLineTags && block.isStandalone ? block.tagOffset - block.tagColumn : block.tagOffset;
     return {
@@ -943,7 +936,7 @@ function translateFix(
       return null;
     }
 
-    const condition = block.javascriptPartialNode?.nodes.find((n) => n.type === 'parenthesized_expression')?.text;
+    const condition = block.javascriptPartialNode.nodes.find((n) => n.type === 'parenthesized_expression')?.text;
     // The rule reports an `if (…) {`, whose condition is in parentheses.
     /* v8 ignore next -- @preserve */
     if (!condition) return null;
@@ -1083,8 +1076,8 @@ function translateFix(
  * They are used during postprocess() to locate ESLint messages and map them back to
  * the corresponding TagBlock for translation to original EJS source positions.
  */
-type VirtualBlockSegment = {
-  block: TagBlock;
+type VirtualBlockSegment<Block extends TagBlock = TagBlock> = {
+  block: Block;
   /** 1-based start line of this block inside the combined virtual file. */
   startLine: number;
   /** 1-based end line of this block inside the combined virtual file. */
@@ -1110,7 +1103,8 @@ const processedFilesMap = new Map<
 
 type FileBlocks = {
   segments: VirtualBlockSegment[];
-  nonDirectiveSegments: VirtualBlockSegment[];
+  /** The segments of the code and output tags, in order: the blocks with a marker. */
+  codeSegments: VirtualBlockSegment<CodeTagBlock>[];
 };
 
 /**
@@ -1118,7 +1112,7 @@ type FileBlocks = {
  *
  * Stores two VirtualBlockSegment arrays for each file:
  * - segments: Block positions in the virtual code
- * - nonDirectiveSegments: The segments excluding directive-comment blocks
+ * - codeSegments: The segments of the code and output tags, without the comment ones
  *
  * Lifecycle: set in preprocess(), deleted in postprocess().
  */
@@ -1209,18 +1203,33 @@ export function getDiagnosticBlocks(
   /* v8 ignore next -- @preserve */
   return (getFileBlocks(context.filename)?.segments ?? [])
     .filter(({ block }) => block.tagType !== 'directive-comment' && offsets.has(block.tagOffset))
-    .map(({ block, startLine, startOffset }) => {
-      const [marker] = block.virtualCode.split('\n', 1);
-      return {
-        block,
-        comment: {
-          type: 'Line',
-          value: marker.slice(2),
-          range: [startOffset, startOffset + marker.length],
-          loc: { start: { line: startLine, column: 0 }, end: { line: startLine, column: marker.length } },
-        },
-      };
-    });
+    .map(withMarkerComment);
+}
+
+/** The block of a segment, with the marker comment its virtual code starts with, which a rule reports on. */
+const withMarkerComment = <Block extends TagBlock>({
+  block,
+  startLine,
+  startOffset,
+}: VirtualBlockSegment<Block>): { block: Block; comment: VirtualMarkerComment } => {
+  const [marker] = block.virtualCode.split('\n', 1);
+  return {
+    block,
+    comment: {
+      type: 'Line',
+      value: marker.slice(2),
+      range: [startOffset, startOffset + marker.length],
+      loc: { start: { line: startLine, column: 0 }, end: { line: startLine, column: marker.length } },
+    },
+  };
+};
+
+/**
+ * The block of each code and output tag of the template, in order, with the marker comment its virtual code starts
+ * with: the tags the rules of the plugin report on. None for a file the processor did not preprocess.
+ */
+export function getTagBlocks(context: Rule.RuleContext): { block: CodeTagBlock; comment: VirtualMarkerComment }[] {
+  return (getFileBlocks(context.filename)?.codeSegments ?? []).map(withMarkerComment);
 }
 
 /**
@@ -1397,10 +1406,6 @@ function findMatchingEnableDirective(
   currentBlockIndex: number,
   disableRuleIds: string[],
 ): { block: TagBlock; index: number; ruleIds: string[] } | null {
-  // An `eslint-disable-next-line` ends with its synthesized `eslint-enable`, which is no tag of the template.
-  if (blocks[currentBlockIndex].nextLineDirective) {
-    return null;
-  }
   const disabled = new Set(disableRuleIds);
   for (let i = currentBlockIndex + 1; i < blocks.length; i++) {
     const block = blocks[i];
@@ -1555,7 +1560,7 @@ export const processor: Linter.Processor = {
     }
 
     if (blocks.length === 0) {
-      fileBlocksMap.set(filename, { segments: [], nonDirectiveSegments: [] });
+      fileBlocksMap.set(filename, { segments: [], codeSegments: [] });
       // No rule runs without a virtual file: the wrapper alone, for the rules to request the diagnostics of the
       // template, a stray close delimiter the only one a template without blocks can have.
       const reported = new Set<EjsDiagnosticCode>(Object.values(DIAGNOSTIC_RULES));
@@ -1587,21 +1592,23 @@ export const processor: Linter.Processor = {
       offsetCursor += block.virtualCode.length + 1; // +1 for separator newline
     }
 
-    const nonDirectiveSegments = segments.filter(({ block }) => !block.isDirectiveComment);
-    fileBlocksMap.set(filename, { segments, nonDirectiveSegments });
+    const codeSegments = segments.filter(
+      (segment): segment is VirtualBlockSegment<CodeTagBlock> => !segment.block.isDirectiveComment,
+    );
+    fileBlocksMap.set(filename, { segments, codeSegments });
 
     const virtualCode = `${GLOBAL_VIRTUAL_OPEN}${blocks.map((b) => b.virtualCode).join('\n')}${GLOBAL_VIRTUAL_CLOSE}`;
-    const nonDirectiveBlocks = blocks.filter((block) => !block.isDirectiveComment);
+    const codeBlocks = codeSegments.map(({ block }) => block);
     const misindented = new Set(diagnostics.filter(({ code }) => code === 'indent').map(({ offset }) => offset));
     virtualCodeMetadataMap.set(virtualCode, {
-      tagFormat: nonDirectiveBlocks.map((block) => {
+      tagFormat: codeBlocks.map((block) => {
         const originalText = block.openDelim + block.codeContent + block.closeDelim;
         return {
           isFormattedDefault: originalText === buildFormattedTag(block, { multilineCloseOnNewLine: false }),
           isFormattedMultilineClose: originalText === buildFormattedTag(block, { multilineCloseOnNewLine: true }),
         };
       }),
-      needsNormalize: nonDirectiveBlocks.map((block) => {
+      needsNormalize: codeBlocks.map((block) => {
         // A tag alone on its line: the fix rewrites the line from its start, which holds the
         // text before the tag otherwise. A tag the parser diagnoses as indented otherwise is
         // reported for its indentation, and fixed with its content.
@@ -1774,7 +1781,7 @@ export const processor: Linter.Processor = {
           // Supply the fix core ESLint cannot produce itself. The report is already correct;
           // only the edit is missing, so it is attached to the core rule's own message rather
           // than duplicated into a plugin rule.
-          if (mapped.ruleId === CORE_NO_NEGATED_CONDITION) {
+          if (mapped.ruleId === CORE_NO_NEGATED_CONDITION && !segment.block.isDirectiveComment) {
             const negatedConditionFix = buildNegatedConditionFix(
               segment.block,
               processedFile.template,

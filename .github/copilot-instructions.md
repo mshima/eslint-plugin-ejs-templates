@@ -140,8 +140,7 @@ src/
   index.ts              – plugin entry: registers processor, rules, and built-in configs
   processor.ts          – ESLint processor: virtual JS, position mapping, fix translation
   ejs-parser.ts         – the tags of the parser -> TagBlock[] (extractTagBlocks)
-  types.ts              – shared TypeScript types
-  utils.ts              – getTagTypeComments and friends
+  utils.ts              – VirtualMarkerComment, the tokens of a tag (tokensOf, ifOpening)
   rules/
     index.ts            – re-exports all rule modules
     format.ts
@@ -180,11 +179,12 @@ starts with a marker comment, and all blocks are concatenated inside a function 
 <the tag's JS content>
 ```
 
-Rules find their tags by scanning for these markers (`getTagTypeComments()` in `src/utils.ts`)
-and then look up the matching `TagBlock` via `getFileBlocks(context.filename)`. The rules of the
-conventions the parser diagnoses (see "The conventions of the tags, shared") take their tags from
-its diagnostics instead: `getDiagnosticBlocks(context, code)` gives the block of each tag with a
-diagnostic of that code, and the marker comment the rule reports on.
+Rules take their tags from `getTagBlocks(context)`: the block of each code and output tag, in
+order, with the marker comment its virtual code starts with, which they report on; none for a file
+the processor did not preprocess. The rules of the conventions the parser diagnoses (see "The
+conventions of the tags, shared") take their tags from its diagnostics instead:
+`getDiagnosticBlocks(context, code)` gives the block of each tag with a diagnostic of that code,
+and the marker comment the rule reports on.
 
 `postprocess()` maps messages from virtual-file positions back to EJS source positions and
 translates fixes (below). A position in the code of a tag maps to its character; one on the marker
@@ -236,7 +236,7 @@ Standalone types: `directive-comment`, `comment-empty-line` (a comment tag with 
 other convention a tag breaks: those are the diagnostics of the parser.
 
 Base types additionally take a **`-multiline` suffix** when the content spans lines — for
-example `code-multiline`, not `multiline-code`. See `EjsTagType` in `src/ejs-parser.ts`.
+example `code-multiline`, not `multiline-code`. See `CodeTagType` in `src/ejs-parser.ts`.
 
 ---
 
@@ -502,22 +502,26 @@ under them and fails in Node ("require is not defined in ES module scope") — w
 
 ## TagBlock structure (key fields)
 
+`TagBlock` is a `CodeTagBlock`, the block of a code or output tag (`isDirectiveComment: false`),
+whose `javascriptPartialNode` is always there, or a `CommentTagBlock` (`isDirectiveComment: true`),
+a directive or a `comment-empty-line`, which has none: test `isDirectiveComment` to narrow.
+
 ```ts
 {
-  tagType: EjsTagType;      // see "Tag types" above
-  virtualCode: string;      // virtual JS for this block (starts with //@ejs-tag:<type>)
-  tagOffset: number;        // offset of the opening delimiter in the EJS source
-  tagLength: number;        // full tag length (open delim + content + close delim)
-  openDelim: string;        // '<%' | '<%_' | '<%-' | '<%=' | '<%#'
-  closeDelim: string;       // '%>' | '-%>' | '_%>'
-  originalLine: number;     // 1-based line of the JS content in the EJS source
-  originalColumn: number;   // 0-based column of the JS content
-  codeContent: string;      // raw JS between the delimiters
-  lintCodeContent: string;  // content as sent to rules (trailing blank line removed)
-  lineIndent: string;       // whitespace before the tag, when standalone
-  isStandalone: boolean;    // only whitespace precedes the tag on its line
-  isDirectiveComment: boolean;
-  javascriptPartialNode?: RelativeJavascriptNode;
+  tagType: CodeTagType; // see "Tag types" above; 'directive-comment' | 'comment-empty-line' for a comment
+  virtualCode: string; // virtual JS for this block (starts with //@ejs-tag:<type>)
+  tagOffset: number; // offset of the opening delimiter in the EJS source
+  tagLength: number; // full tag length (open delim + content + close delim)
+  openDelim: string; // '<%' | '<%_' | '<%-' | '<%=' | '<%#'
+  closeDelim: string; // '%>' | '-%>' | '_%>'
+  originalLine: number; // 1-based line of the JS content in the EJS source
+  originalColumn: number; // 0-based column of the JS content
+  codeContent: string; // raw JS between the delimiters
+  lintCodeContent: string; // content as sent to rules (trailing blank line removed)
+  lineIndent: string; // whitespace before the tag, when standalone
+  isStandalone: boolean; // only whitespace precedes the tag on its line
+  isDirectiveComment: false;
+  javascriptPartialNode: RelativeJavascriptNode;
 }
 ```
 
