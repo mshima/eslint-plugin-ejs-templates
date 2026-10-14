@@ -130,7 +130,7 @@ leaves alone an `ejs-templates` rule the configurations it is given set, and rea
 - `@stylistic/indent-binary-ops` asks for some lines of right operands as much indentation as the
   line their expression starts on: `indent-content` accepts it (`binaryOperands: 'greaterOrEqual'`).
 
-A configuration like generator-jhipster's:
+A configuration with the recommended JavaScript rules and `@stylistic`, its conflicting rules off:
 
 ```js
 export default defineConfig([
