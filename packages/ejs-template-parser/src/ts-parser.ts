@@ -22,10 +22,10 @@ const require = createRequire(import.meta.url);
 
 function resolveWasm(localFileName: string): string {
   const localPath = resolve(moduleDir, '../wasm', localFileName);
-  if (existsSync(localPath)) {
-    return localPath;
-  }
-  throw new Error(`WASM file not found: ${localFileName} (tried ${localPath})`);
+  // The build copies the grammars there: one missing is a broken install.
+  /* v8 ignore next -- @preserve */
+  if (!existsSync(localPath)) throw new Error(`WASM file not found: ${localFileName} (tried ${localPath})`);
+  return localPath;
 }
 
 const { Parser, Language } = await import('web-tree-sitter');
@@ -61,6 +61,8 @@ _javascriptParser.setLanguage(_javascriptLanguage);
  */
 export function parseEjs(text: string): Tree {
   const tree = _parser.parse(text);
+  // tree-sitter returns no tree only when parsing is cancelled, which nothing here asks for.
+  /* v8 ignore next -- @preserve */
   if (!tree) throw new Error('tree-sitter failed to parse EJS template');
   return tree;
 }
@@ -70,6 +72,8 @@ export function parseEjs(text: string): Tree {
  */
 export function parseJavaScript(text: string): Tree {
   const tree = _javascriptParser.parse(text);
+  // tree-sitter returns no tree only when parsing is cancelled, which nothing here asks for.
+  /* v8 ignore next -- @preserve */
   if (!tree) throw new Error('tree-sitter failed to parse JavaScript source');
   return tree;
 }

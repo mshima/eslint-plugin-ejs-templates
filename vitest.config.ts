@@ -14,8 +14,9 @@ export default defineConfig({
       provider: 'v8',
       include: ['packages/*/src/**/*.ts'],
       reporter: ['text', 'html', 'lcov'],
-      // Just under what the tests cover: `npm run coverage` fails when a change lowers it.
-      thresholds: { statements: 97, branches: 94, functions: 99, lines: 97 },
+      // Everything: `npm run coverage` fails when a change leaves code no test reaches. What no input can reach (a
+      // guard of a state the code never gets in) is ignored where it is, with its reason (`v8 ignore`).
+      thresholds: { 100: true },
     },
   },
 });

@@ -28,7 +28,7 @@ export const hasAbsorbedSlurpClose = (node: SyntaxNode): boolean =>
   node.type === 'output_directive' &&
   node.text.endsWith('_%>') &&
   node.children[node.childCount - 1]?.text === '%>' &&
-  (node.children[1]?.text.endsWith('_') ?? false);
+  node.child(1)?.text.endsWith('_') === true;
 
 /**
  * Code text of a directive tag, with an absorbed `_` close-delimiter marker removed.
@@ -91,6 +91,8 @@ export const parseEjsNodes = (text: string): { tree: Tree; nodes: EjsSyntaxNode[
   const tree = parseEjs(text);
   if (tree.rootNode.hasError) {
     const errorNode = findErrorNode(tree.rootNode);
+    // A tree with an error has an ERROR or a MISSING node.
+    /* v8 ignore next -- @preserve */
     if (!errorNode) {
       tree.delete();
       throw new Error('Unexpectedly did not find error node in tree with hasError=true');

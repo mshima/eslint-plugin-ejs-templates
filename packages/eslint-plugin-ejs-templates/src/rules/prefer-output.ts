@@ -53,6 +53,8 @@ export const preferOutput: Rule.RuleModule = {
         }
 
         const { nonDirectiveSegments } = fileBlocks;
+        // A block of a tag has a marker.
+        /* v8 ignore next -- @preserve */
         if (nonDirectiveSegments.length !== tagTypeComments.length) {
           throw new Error(
             `Unexpected mismatch between tag type comments (${String(tagTypeComments.length)}) and file blocks (${String(nonDirectiveSegments.length)}) for file ${context.filename}`,
@@ -78,7 +80,9 @@ export const preferOutput: Rule.RuleModule = {
           if (nextBlock?.tagType !== 'code') continue;
           if (nextBlock.originalLine !== firstBlock.originalLine || !/^\s*\}/u.test(nextBlock.codeContent)) continue;
           const nextPartialNode = nextBlock.javascriptPartialNode;
-          if (!nextPartialNode || nextPartialNode.multilineOriginal) continue;
+          // The block of a code tag has its JavaScript.
+          /* v8 ignore next -- @preserve */
+          if (!nextPartialNode) continue;
 
           // `}`, or `} else {` and the `}` closing it on the line too.
           const nextTokens = tokensOf(nextPartialNode);

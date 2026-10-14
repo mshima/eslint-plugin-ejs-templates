@@ -230,6 +230,10 @@ describe('autofix: core no-negated-condition', () => {
     ['an if opening spanning lines', '<% if (!a\n) { %>A<% } else { %>B<% } %>'],
     ['an else if link spanning lines', '<% if (a) { %>A<% } else if (!b\n) { %>B<% } else { %>C<% } %>'],
     ['a closing tag with code of its own', '<% if (!a) { %>A<% } else { %>B<% } c(); %>'],
+    [
+      'an else if link closing its block before the else',
+      '<% if (a) { %>A<% } else if (!b) { x(); } else { %>B<% } %>',
+    ],
   ])('leaves %s untouched', (_label, template) => {
     expect(lint(template, rules).map((msg) => msg.ruleId)).toEqual(['no-negated-condition']);
     expect(applyFix(template, rules)).toBe(template);

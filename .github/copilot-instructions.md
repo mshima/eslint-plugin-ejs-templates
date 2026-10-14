@@ -58,11 +58,22 @@ the same version again.
 ```sh
 npm run build      # each package, in order: tsc -p tsconfig.build.json -> dist/
 npm test           # vitest run   (pretest: prettier --check && eslint .; posttest: typecheck)
-npm run coverage   # vitest run --coverage (v8): text summary, coverage/ (html, lcov), thresholds
+npm run coverage   # vitest run --coverage (v8): text summary, coverage/ (html, lcov), 100% thresholds
 npm run typecheck  # tsc --noEmit  (whole repo: every package's src and test, config files)
 npm run lint       # eslint .
 npm run fix        # prettier --write && eslint --fix
 ```
+
+### Coverage
+
+`npm run coverage` requires 100% of the statements, branches, functions and lines of the sources
+of both packages (`thresholds: { 100: true }` in `vitest.config.ts`). Code a change adds is tested,
+or removed when no input reaches it. A guard of a state the code never gets in (tree-sitter giving
+no tree, a node missing from code that parses, an invariant of the processor) is left in place and
+ignored where it is, with a comment telling why: `/* v8 ignore next -- @preserve */`, or
+`start`/`stop` around several statements. The `@preserve` keeps the hint through the TypeScript
+transform, which drops other comments. Prefer a form without the branch over an ignore: a
+`lastIndexOf` rather than `split().pop() ?? ''`, a lookup table rather than nested conditionals.
 
 ### TypeScript projects
 

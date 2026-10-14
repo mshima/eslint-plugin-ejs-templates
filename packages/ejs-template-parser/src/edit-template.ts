@@ -52,6 +52,8 @@ const TEXT_TOKENS = /<%%|%%>|%>|-%>|_%>/g;
 const LINE_BREAK = /^(?:\r\n|\r|\n)/;
 
 /** A text written as it is, its delimiters escaped: what is written where escapeText cannot write. */
+// No edit found reaches it: the close delimiter of a literal an edit is next to is written again, %%>, before the text.
+/* v8 ignore next -- @preserve */
 const escapeDelimiters = (text: string) => text.replaceAll('<%', '<%%').replaceAll('%>', '%%>');
 
 /**
@@ -278,8 +280,10 @@ export function editTemplate(template: string | EjsTemplate, edits: EjsEdit[]): 
       try {
         text = escapeText(current, slot.at, slot.text);
       } catch (error) {
+        /* v8 ignore start -- @preserve */
         if (!(error instanceof RangeError)) throw error;
         text = escapeDelimiters(slot.text);
+        /* v8 ignore stop -- @preserve */
       }
       current = current.slice(0, slot.at) + text + current.slice(slot.at);
       written.set(slot, text.length);
@@ -300,6 +304,8 @@ export function editTemplate(template: string | EjsTemplate, edits: EjsEdit[]): 
   let delta = 0;
   for (let offset = 0; offset <= source.length; offset++) {
     while (region < regions.length && regions[region].end < offset) {
+      // The end of a region is one of its bounds, which have a mark.
+      /* v8 ignore next -- @preserve */
       delta = (moved.get(regions[region].end) ?? 0) - regions[region].end;
       region++;
     }
@@ -307,7 +313,10 @@ export function editTemplate(template: string | EjsTemplate, edits: EjsEdit[]): 
     if (current && offset >= current.start) {
       const bound = Math.max(...[...moved.keys()].filter((key) => key >= current.start && key <= offset));
       const nextBound = Math.min(...[...moved.keys()].filter((key) => key > offset && key <= current.end));
+      // The bounds are keys of `moved`.
+      /* v8 ignore next -- @preserve */
       const at = (moved.get(bound) ?? 0) + (offset - bound);
+      /* v8 ignore next -- @preserve */
       offsets.push(Number.isFinite(nextBound) ? Math.min(at, moved.get(nextBound) ?? at) : at);
     } else {
       offsets.push(offset + delta);

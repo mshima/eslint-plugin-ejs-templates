@@ -241,8 +241,10 @@ export function diagnoseTemplate(text: string): EjsDiagnostic[] {
   try {
     template = buildTemplate(text);
   } catch (error) {
-    if (error instanceof EjsSyntaxError) return [error.diagnostic];
-    throw error;
+    // buildTemplate throws an EjsSyntaxError alone, but for a bug.
+    /* v8 ignore next -- @preserve */
+    if (!(error instanceof EjsSyntaxError)) throw error;
+    return [error.diagnostic];
   }
   try {
     return validateTemplate(template);

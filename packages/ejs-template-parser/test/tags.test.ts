@@ -50,6 +50,7 @@ describe('getEjsNodes', () => {
   test.each([
     ['<% a %>', ' a '],
     ['<%- identifier _%>', ' identifier '],
+    ['a text', ''],
   ])('the code of the node of %s', (text, code) => {
     const nodes = getEjsNodes(text);
     try {
@@ -374,6 +375,7 @@ describe('the code of a tag', () => {
         ['arguments', 13],
       ],
     ],
+    ['blank', '<% %>', []],
     [
       'parsing alone',
       '<% const x = 1; %>',

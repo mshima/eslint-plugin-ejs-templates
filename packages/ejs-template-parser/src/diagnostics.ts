@@ -202,7 +202,13 @@ export function diagnose(
   if (!program) return diagnostics;
   const { ranges } = program;
   /** The range of the tag a place of the compiled JavaScript is in, or of the one before it; the first one before it. */
-  const rangeAt = (index: number) => ranges.findLast(({ start }) => start <= index) ?? ranges[0];
+  const rangeAt = (index: number) =>
+    ranges[
+      Math.max(
+        0,
+        ranges.findLastIndex(({ start }) => start <= index),
+      )
+    ];
   const root = program.root;
   {
     const reported = new Set<EjsTag>();

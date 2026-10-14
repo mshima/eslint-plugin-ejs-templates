@@ -63,6 +63,8 @@ export const outputSemi: Rule.RuleModule = {
 
           const commentLine = comment.loc.start.line;
           const block = nonDirectiveSegments.find((segment) => segment.startLine === commentLine)?.block;
+          // A marker is the first line of its block.
+          /* v8 ignore next -- @preserve */
           if (!block) continue;
 
           // Read the tag's own content rather than the virtual line. The previous check looked
