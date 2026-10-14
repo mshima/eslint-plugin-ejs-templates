@@ -137,7 +137,10 @@ function isSyntheticSuffixMessage(msg: Linter.LintMessage, segment: VirtualBlock
   // the marker comment plus however many lines that content spans.
   const codeLines = block.lintCodeContent.split('\n');
   const suffixLine = segment.startLine + codeLines.length;
-  const suffixColumn = block.lintCodeContent.length - block.lintCodeContent.lastIndexOf('\n');
+  const suffixColumn =
+    block.lintCodeContent.length -
+    block.lintCodeContent.lastIndexOf('\n') +
+    (codeLines.length === 1 ? block.virtualIndent : 0);
 
   return msg.line === suffixLine && msg.column >= suffixColumn;
 }
@@ -168,9 +171,14 @@ function mapPosition(
   // or synthetic suffix) starts on a new line.
   const codeLineCount = block.codeContent.split('\n').length - (block.codeContent.endsWith('\n') ? 1 : 0);
   if (codeLineIndex >= 0 && codeLineIndex < codeLineCount) {
+    // Every line of the code at its column in the template, the first one indented as much in the virtual code: a
+    // position in those blanks at the start of the code.
     return {
       line: block.originalLine + codeLineIndex,
-      column: codeLineIndex === 0 ? position.column + block.originalColumn : position.column,
+      column:
+        codeLineIndex === 0
+          ? Math.max(position.column - block.virtualIndent, 1) + block.originalColumn
+          : position.column,
     };
   }
   const tag = tagRangeOf(block, sourceText);
@@ -849,11 +857,12 @@ function translateFix(
   //   <codeContent><virtualBodyInlineSuffix><virtualBodyExtraLine>
   //
   // codeContent starts at byte offset:
-  //   codeContentStart = markerLen
+  //   codeContentStart = markerLen + virtualIndent
   //
-  // where markerLen = '//@ejs-tag:'.length + tagType.length + 1  (+1 for '\n')
+  // where markerLen = '//@ejs-tag:'.length + tagType.length + 1  (+1 for '\n'), and virtualIndent the blanks the first
+  // line of the code is indented with, which a fix starting there does not fix in the template.
   const markerLen = '//'.length + EJS_MARKER_PREFIX.length + block.tagType.length + 1;
-  const codeContentStart = markerLen;
+  const codeContentStart = markerLen + block.virtualIndent;
   const codeContentEnd = codeContentStart + block.lintCodeContent.length;
 
   // Guard: only translate fixes that target the actual codeContent region.
