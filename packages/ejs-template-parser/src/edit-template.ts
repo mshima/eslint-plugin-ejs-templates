@@ -93,8 +93,10 @@ const tokenRanges = (texts: Text[]): Range[] => {
  * - an escaped delimiter (`<%%`, `%%>`) goes with the character it renders, its extra `%` included, and the close
  *   delimiter whose literal mode it ends is written `%%>`, as is a delimiter the deletion would make in a text;
  * - the blanks and the line break a deleted tag slurped (before a `<%_`, after a `_%>` or a `-%>`) are deleted with
- *   it; the blanks next to what is written again, which a delimiter could slurp once joined, are written again with
- *   what EJS rendered of them, and the blanks a delimiter kept slurps stay slurped.
+ *   it, but where the text of the edit starts with a tag opening `<%_`, or ends with a tag closing as the deleted one
+ *   did, which slurps and drops them again: they stay; the blanks next to what is written again, which a delimiter
+ *   could slurp once joined, are written again with what EJS rendered of them, and the blanks a delimiter kept slurps
+ *   stay slurped.
  *
  * Where escapeText cannot write a text (a tag needed in the literal mode, see escapeText), its delimiters are escaped
  * alone: the errors tell what EJS would not render.
@@ -160,6 +162,24 @@ export function editTemplate(template: string | EjsTemplate, edits: EjsEdit[]): 
   }
   const tokens = tokenRanges(texts);
 
+  // A tag an edit deletes, the text of the edit starting with a tag opening as it does, or ending with a tag closing as
+  // it does: that tag slurps the blanks before it, or drops what follows it, as the deleted one did, which are left
+  // where they are rather than deleted with it.
+  const keptBefore = new Set<number>();
+  const keptAfter = new Set<number>();
+  for (const { offset, length, text = [] } of sorted) {
+    const [first] = text;
+    const last = text.at(-1);
+    const opening = tags.find((tag) => tag.offset === offset && tag.offset + tag.length <= offset + length);
+    if (opening?.openDelim === '<%_' && typeof first === 'object' && first.tag.startsWith('<%_')) {
+      keptBefore.add(opening.offset);
+    }
+    const closing = tags.find((tag) => tag.offset + tag.length === offset + length && tag.offset >= offset);
+    if (closing && closing.closeDelim !== '%>' && typeof last === 'object' && last.tag.endsWith(closing.closeDelim)) {
+      keptAfter.add(closing.offset);
+    }
+  }
+
   /** The range written again for an edit: its own, grown until what is around it renders as before. */
   const regionOf = ({ start, end }: Range): Range => {
     for (;;) {
@@ -167,13 +187,14 @@ export function editTemplate(template: string | EjsTemplate, edits: EjsEdit[]): 
       for (const tag of tags) {
         const tagEnd = tag.offset + tag.length;
         if (tag.offset < start || tagEnd > end) continue;
-        // A tag deleted, with the blanks it slurped and the line break it dropped.
-        if (tag.openDelim === '<%_') {
+        // A tag deleted, with the blanks it slurped and the line break it dropped, but the ones a tag of the edit
+        // slurps and drops again.
+        if (tag.openDelim === '<%_' && !keptBefore.has(tag.offset)) {
           let blanks = tag.offset;
           while (blanks > 0 && inText[blanks - 1] && isBlank(source[blanks - 1])) blanks--;
           start = Math.min(start, blanks);
         }
-        if (tag.closeDelim !== '%>') {
+        if (tag.closeDelim !== '%>' && !keptAfter.has(tag.offset)) {
           let after = tagEnd;
           if (tag.closeDelim === '_%>') while (inText[after] && isBlank(source[after])) after++;
           const lineBreak = inText[after] ? LINE_BREAK.exec(source.slice(after)) : null;
