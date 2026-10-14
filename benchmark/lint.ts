@@ -7,10 +7,10 @@
 //     http://www.apache.org/licenses/LICENSE-2.0
 
 // The time eslint-plugin-ejs-templates takes to lint a directory of templates, without and with fixes, for builds of
-// the repository: `pre` and `post`, the base and the head of a pull request. The time of `post` must stay under
-// `--max-ratio` times the one of `pre`.
+// the repository: `base` and `head`, the base and the head of a pull request. The time of `head` must stay under
+// `--max-ratio` times the one of `base`.
 //
-//   node benchmark/lint.ts --templates <dir> [--rounds 3] [--max-ratio 1.2] pre=<checkout> post=<checkout>
+//   node benchmark/lint.ts --templates <dir> [--rounds 3] [--max-ratio 1.2] base=<checkout> head=<checkout>
 //
 // Each checkout is built (`npm run build`): its plugin is loaded from its `dist`, with the parser it resolves there.
 // The builds are linted in turn, round after round, and the fastest round of each is kept, which the noise of a

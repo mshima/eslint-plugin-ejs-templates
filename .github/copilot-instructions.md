@@ -70,10 +70,10 @@ npm run fix        # prettier --write && eslint --fix
 builds of several checkouts, and fails when one takes more than `--max-ratio` times the first:
 
 ```sh
-node benchmark/lint.ts --templates <dir> --rounds 3 --max-ratio 1.2 pre=<checkout> post=.
+node benchmark/lint.ts --templates <dir> --rounds 3 --max-ratio 1.2 base=<checkout> head=.
 ```
 
-Each pull request runs it in a job of the matrix of `test.yml`, `pre` its base and `post` its head,
+Each pull request runs it in a job of the matrix of `test.yml`, `base` its base and `head` its head,
 on the templates of generator-jhipster v8.11.0: a change making the lint more than 1.2 times slower
 fails `check-tests`. The templates whose fixes ESLint finds circular (`ESLintCircularFixesWarning`,
 rules fixing what others fixed until it gives up after 10 passes) are listed once in its summary,

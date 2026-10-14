@@ -61,11 +61,11 @@ jobs:
         uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.base.sha }}
-          path: .benchmark/pre
+          path: .benchmark/base
 
       - name: Build the base
         if: matrix.job == 'benchmark' && github.event_name == 'pull_request'
-        working-directory: .benchmark/pre
+        working-directory: .benchmark/base
         run: |
           npm ci --ignore-scripts
           npm run build
@@ -79,7 +79,7 @@ jobs:
 
       - name: Benchmark
         if: matrix.job == 'benchmark' && github.event_name == 'pull_request'
-        run: node benchmark/lint.ts --templates .benchmark/generator-jhipster/generators --rounds 3 --max-ratio 1.2 pre=.benchmark/pre post=.
+        run: node benchmark/lint.ts --templates .benchmark/generator-jhipster/generators --rounds 3 --max-ratio 1.2 base=.benchmark/base head=.
 
   check-tests:
     permissions:
