@@ -75,7 +75,9 @@ node benchmark/lint.ts --templates <dir> --rounds 3 --max-ratio 1.2 pre=<checkou
 
 Each pull request runs it in a job of the matrix of `test.yml`, `pre` its base and `post` its head,
 on the templates of generator-jhipster v8.11.0: a change making the lint more than 1.2 times slower
-fails `check-tests`. The tests guard the scaling of the parser (see "Performance invariant"); this
+fails `check-tests`. The templates whose fixes ESLint finds circular (`ESLintCircularFixesWarning`,
+rules fixing what others fixed until it gives up after 10 passes) are listed once in its summary,
+by build, rather than warned at each lint. The tests guard the scaling of the parser (see "Performance invariant"); this
 guards the time of a lint as a whole, which a fix built for each message of a template can make
 grow without changing a result: the fixes of `prefer-output` and `no-multiline-output` written
 through `editTemplate()`, which prepares the whole template on each call, made it 1.9 times slower

@@ -17,7 +17,7 @@
 // machine only slows down.
 
 import { appendFileSync, globSync, readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { relative, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { pathToFileURL } from 'node:url';
 import js from '@eslint/js';
@@ -88,6 +88,21 @@ const configOf = (plugin: Plugin): Linter.Config[] =>
     },
   );
 
+/**
+ * The templates whose fixes ESLint finds circular, rules fixing what others fixed until it gives up, by build: told
+ * once in the summary rather than by a warning at each lint. ESLint takes `process.emitWarning` when it is created.
+ */
+const circular = new Map(builds.map(({ name }) => [name, new Set<string>()]));
+let linting: { build: string; file: string } | undefined;
+const emitWarning: unknown = Reflect.get(process, 'emitWarning');
+Reflect.set(process, 'emitWarning', (warning: string | Error, ...rest: unknown[]) => {
+  if (rest[0] === 'ESLintCircularFixesWarning' && linting) {
+    circular.get(linting.build)?.add(linting.file);
+  } else if (typeof emitWarning === 'function') {
+    Reflect.apply(emitWarning, process, [warning, ...rest]);
+  }
+});
+
 const linters = await Promise.all(
   builds.map(async ({ name, checkout }) => {
     const entry = pathToFileURL(resolve(checkout, 'packages/eslint-plugin-ejs-templates/dist/index.js')).href;
@@ -100,10 +115,14 @@ const linters = await Promise.all(
   }),
 );
 
-/** The milliseconds an ESLint takes to lint every template. */
-const timeOf = async (eslint: ESLint): Promise<number> => {
+/** The milliseconds an ESLint of a build takes to lint every template. */
+const timeOf = async (build: string, eslint: ESLint): Promise<number> => {
   const started = performance.now();
-  for (const { filePath, text } of files) await eslint.lintText(text, { filePath });
+  for (const { filePath, text } of files) {
+    linting = { build, file: relative(templates, filePath) };
+    await eslint.lintText(text, { filePath });
+  }
+  linting = undefined;
   return performance.now() - started;
 };
 
@@ -114,8 +133,8 @@ for (let round = 0; round < rounds; round++) {
   for (const { name, lint, fix } of order) {
     const times = fastest.get(name);
     if (!times) continue;
-    times.lint = Math.min(times.lint, await timeOf(lint));
-    times.fix = Math.min(times.fix, await timeOf(fix));
+    times.lint = Math.min(times.lint, await timeOf(name, lint));
+    times.fix = Math.min(times.fix, await timeOf(name, fix));
   }
 }
 
@@ -139,6 +158,15 @@ for (const [name, times] of fastest) {
   lines.push(`| ${name} | ${ms(times.lint)}${ratio('lint')} | ${ms(times.fix)}${ratio('fix')} |`);
 }
 lines.push('', `The builds after \`${base.name}\` must stay under ×${String(maxRatio)} its time.`);
+for (const [name, files] of circular) {
+  if (files.size === 0) continue;
+  lines.push(
+    '',
+    `Circular fixes with \`${name}\`, rules fixing what others fixed until ESLint gives up, in ${String(files.size)} template${files.size === 1 ? '' : 's'}:`,
+    '',
+    ...[...files].sort().map((file) => `- \`${file}\``),
+  );
+}
 const summary = lines.join('\n');
 console.log(summary);
 if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${summary}\n`);
