@@ -63,9 +63,9 @@ export const format: Rule.RuleModule = {
           if (!firstBlock) continue;
 
           const firstPartialNode = firstBlock.javascriptPartialNode;
-          if (!firstPartialNode) {
-            continue;
-          }
+          // The block of a code tag has its JavaScript.
+          /* v8 ignore next -- @preserve */
+          if (!firstPartialNode) continue;
 
           const state = tagFormatState?.[i];
           const needsFormat =

@@ -156,6 +156,8 @@ const droppedLineBreak = (template: string, from: number, mode: Mode): number | 
     mode = modeOpened[delimiter.value];
     index = delimiter.end;
   }
+  // The last pass of the loop, without a delimiter, returns.
+  /* v8 ignore next -- @preserve */
   return undefined;
 };
 

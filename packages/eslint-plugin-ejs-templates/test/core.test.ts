@@ -553,6 +553,14 @@ describe('processor position mapping', () => {
     ]);
   });
 
+  test("reportUnusedDisableDirectives='error': autofix leaves an eslint-enable of other rules", () => {
+    const input = '<%# eslint-disable no-var, eqeqeq %>\n<% var x = 1; %>\n<%# eslint-enable no-var %>\n';
+    const rules = { 'no-var': 'error', eqeqeq: 'error' } as const;
+    expect(applyFixWithUnusedDisableDirectivesError(input, rules)).toBe(
+      '<%# eslint-disable no-var %>\n<% var x = 1; %>\n<%# eslint-enable no-var %>\n',
+    );
+  });
+
   test("reportUnusedDisableDirectives='error': autofix keeps an eslint-enable without rule list", () => {
     const input = '<%# eslint-disable no-var, eqeqeq %>\n<% var x = 1; %>\n<%# eslint-enable %>\n';
     const rules = { 'no-var': 'error', eqeqeq: 'error' } as const;
@@ -690,6 +698,7 @@ describe('processor: a fix that does not fit its tag is dropped', () => {
     ],
     ['output-semi add on a code tag', '<% a(); %>', SENTINEL_OUTPUT_SEMI_ADD],
     ['output-semi remove on an output tag without semicolon', '<%= a %>', SENTINEL_OUTPUT_SEMI_REMOVE],
+    ['output-semi remove on a code tag', '<% a(); %>', SENTINEL_OUTPUT_SEMI_REMOVE],
     ['prefer-output on an output tag', '<%= a %>', SENTINEL_PREFER_OUTPUT],
     ['prefer-output on a tag without condition', '<% a(); %>x<% b(); %>', SENTINEL_PREFER_OUTPUT],
     ['prefer-output on a branch spanning lines', '<% if (a) { %>x\ny<% } %>', SENTINEL_PREFER_OUTPUT],

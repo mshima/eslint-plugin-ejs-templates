@@ -177,6 +177,19 @@ describe('escapeText', () => {
     });
   });
 
+  // A text before the blanks and the line break a `_%>` slurps and drops, which a tag after it drops again; a text
+  // after a `-%>`, making a delimiter with the `%` of the template before it.
+  test.each([
+    ['a<% _%> \n', 7, 'x', 'x<%# _%>', 'a', 'ax'],
+    ['<% -%>%\n', 7, '>', '%>\n', '%\n', '%>\n'],
+  ])('escapes the text at %j, %i: %j', (template, offset, text, escaped, before, after) => {
+    expect(escapeText(template, offset, text)).toBe(escaped);
+    expect([ejs.render(template), ejs.render(template.slice(0, offset) + escaped + template.slice(offset))]).toEqual([
+      before,
+      after,
+    ]);
+  });
+
   describe('against EJS', () => {
     // Texts made of what EJS reads: the characters of its delimiters, blanks, line breaks, escaped delimiters.
     const units = ['<', '%', '>', '-', '_', ' ', '\n', 'a', '<%%', '%%>'];

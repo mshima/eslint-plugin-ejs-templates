@@ -144,7 +144,7 @@ function isSyntheticSuffixMessage(msg: Linter.LintMessage, segment: VirtualBlock
   // the marker comment plus however many lines that content spans.
   const codeLines = block.lintCodeContent.split('\n');
   const suffixLine = segment.startLine + codeLines.length;
-  const suffixColumn = (codeLines.at(-1)?.length ?? 0) + 1;
+  const suffixColumn = block.lintCodeContent.length - block.lintCodeContent.lastIndexOf('\n');
 
   return msg.line === suffixLine && msg.column >= suffixColumn;
 }
@@ -202,8 +202,8 @@ function mapMessage(
     return msg.endLine === undefined ? { ...msg, line: tag.line, column: tag.column } : { ...msg, ...tag };
   }
   const mapped: Linter.LintMessage = { ...msg, ...mapPosition(block, sourceText, msg, 'start') };
-  if (msg.endLine !== undefined) {
-    const end = mapPosition(endBlock, sourceText, { line: msg.endLine, column: msg.endColumn ?? 1 }, 'end');
+  if (msg.endLine !== undefined && msg.endColumn !== undefined) {
+    const end = mapPosition(endBlock, sourceText, { line: msg.endLine, column: msg.endColumn }, 'end');
     mapped.endLine = end.line;
     mapped.endColumn = end.column;
   }
@@ -405,17 +405,15 @@ function decodeStringLiteral(node: SyntaxNode): string | null {
   }
   let decoded = '';
   for (const child of node.children) {
+    if (child.type === "'" || child.type === '"') continue;
     if (child.type === 'string_fragment') {
       decoded += child.text;
-    } else if (child.type === 'escape_sequence') {
-      const value = STRING_ESCAPES.get(child.text);
-      if (value === undefined) {
-        return null;
-      }
-      decoded += value;
-    } else if (child.type !== "'" && child.type !== '"') {
-      return null;
+      continue;
     }
+    // An escape sequence: one it does not know, as any other child, is not decoded.
+    const value = STRING_ESCAPES.get(child.text);
+    if (value === undefined) return null;
+    decoded += value;
   }
   return decoded;
 }
@@ -439,10 +437,10 @@ export function getMultilineOutputConditionalParts(block: TagBlock): MultilineOu
     return null;
   }
 
+  // An output tag on one line, its block has its JavaScript.
   const partialNode = block.javascriptPartialNode;
-  if (!partialNode || partialNode.multilineOriginal) {
-    return null;
-  }
+  /* v8 ignore next -- @preserve */
+  if (!partialNode) return null;
 
   // A ternary whose strings render a line break has a `?` and an escaped `\n`: the tree of any other code is not read,
   // which ejs-template-parser parses only when it is.
@@ -460,9 +458,9 @@ export function getMultilineOutputConditionalParts(block: TagBlock): MultilineOu
   const conditionNode = conditionalNode.childForFieldName('condition');
   const consequentNode = conditionalNode.childForFieldName('consequence');
   const alternateNode = conditionalNode.childForFieldName('alternative');
-  if (!conditionNode || !consequentNode || !alternateNode) {
-    return null;
-  }
+  // A ternary of code that parses has its three parts.
+  /* v8 ignore next -- @preserve */
+  if (!conditionNode || !consequentNode || !alternateNode) return null;
 
   const consequent = decodeStringLiteral(consequentNode);
   const alternate = decodeStringLiteral(alternateNode);
@@ -480,11 +478,19 @@ export function getMultilineOutputConditionalParts(block: TagBlock): MultilineOu
   return { condition, consequent, alternate };
 }
 
+/** The positive form of the negated operators of a binary test. */
+const POSITIVE_OPERATORS = new Map([
+  ['!==', '==='],
+  ['!=', '=='],
+]);
+
 /** Unwrap one layer of parentheses, so `(a && b)` yields `a && b`. */
 function unwrapParentheses(node: SyntaxNode): SyntaxNode {
   if (node.type !== 'parenthesized_expression') {
     return node;
   }
+  // A parenthesized expression has the one of the field, a sequence expression its first named child.
+  /* v8 ignore next -- @preserve */
   return node.childForFieldName('expression') ?? node.namedChildren.at(0) ?? node;
 }
 
@@ -499,27 +505,23 @@ function invertNegatedTest(conditionNode: SyntaxNode): string | null {
   const test = unwrapParentheses(conditionNode);
 
   if (test.type === 'unary_expression' && test.text.trimStart().startsWith('!')) {
-    const argument = test.childForFieldName('argument') ?? test.namedChildren.at(0) ?? null;
-    if (!argument) {
-      return null;
-    }
+    const argument = test.childForFieldName('argument');
+    // A unary expression of code that parses has its argument.
+    /* v8 ignore next -- @preserve */
+    if (!argument) return null;
     // `!(a && b)` becomes `a && b` rather than `(a && b)`: the `if (…)` already
     // supplies the parentheses, so keeping them would double them up.
-    const positive = unwrapParentheses(argument).text.trim();
-    return positive.length > 0 ? positive : null;
+    return unwrapParentheses(argument).text.trim();
   }
 
   if (test.type === 'binary_expression') {
     const left = test.child(0);
     const operator = test.child(1);
     const right = test.child(2);
-    if (!left || !operator || !right) {
-      return null;
-    }
-    const positiveOperator = operator.type === '!==' ? '===' : operator.type === '!=' ? '==' : null;
-    if (!positiveOperator) {
-      return null;
-    }
+    const positiveOperator = operator && POSITIVE_OPERATORS.get(operator.type);
+    // Core reports the binary tests `!==` and `!=` alone, of code that parses.
+    /* v8 ignore next -- @preserve */
+    if (!left || !right || !positiveOperator) return null;
     return `${left.text.trim()} ${positiveOperator} ${right.text.trim()}`;
   }
 
@@ -595,9 +597,13 @@ export function findNegatedConditionBranches(
   block: TagBlock,
 ): { elseTag: EjsCodeTag; closeTag: EjsCodeTag } | null {
   const found = findBranch(template.children, block.tagOffset);
+  // A tag opening a block is in the tree; core reports an `if` whose `else` is no `if`, a branch the last one, in
+  // code that parses, which closes its blocks.
+  /* v8 ignore next -- @preserve */
   if (!found) return null;
   const { branches, close } = found.block;
   const elseBranch = branches.at(found.index + 1);
+  /* v8 ignore next -- @preserve */
   if (!elseBranch || found.index + 2 !== branches.length || !close) return null;
   if (!isElseOpening(elseBranch.open.javascript) || !isBlockClosing(close.javascript)) return null;
   return { elseTag: elseBranch.open, closeTag: close };
@@ -641,15 +647,7 @@ const CORE_NO_NEGATED_CONDITION = 'no-negated-condition';
 
 /** Source offset of a 1-based line and 1-based column. */
 function offsetOfPosition(sourceText: string, line: number, column: number): number {
-  let offset = 0;
-  for (let currentLine = 1; currentLine < line; currentLine++) {
-    const lineBreak = sourceText.indexOf('\n', offset);
-    if (lineBreak === -1) {
-      return sourceText.length;
-    }
-    offset = lineBreak + 1;
-  }
-  return offset + column - 1;
+  return sourceText.split('\n', line - 1).reduce((offset, text) => offset + text.length + 1, 0) + column - 1;
 }
 
 /**
@@ -668,12 +666,12 @@ function buildNegatedTernaryFix(
   targetOffset: number | undefined,
 ): { range: [number, number]; text: string } | null {
   const partialNode = block.javascriptPartialNode;
-  if (!partialNode) {
-    return null;
-  }
+  // The block of a code tag has its JavaScript.
+  /* v8 ignore next -- @preserve */
+  if (!partialNode) return null;
 
   const contentStart = block.tagOffset + block.openDelim.length;
-  let best: { range: [number, number]; text: string; size: number } | null = null;
+  let best: { range: [number, number]; text: string } | null = null;
 
   for (const node of partialNode.nodes) {
     if (node.type !== 'ternary_expression') {
@@ -683,9 +681,9 @@ function buildNegatedTernaryFix(
     const conditionNode = node.childForFieldName('condition');
     const consequentNode = node.childForFieldName('consequence');
     const alternateNode = node.childForFieldName('alternative');
-    if (!conditionNode || !consequentNode || !alternateNode) {
-      continue;
-    }
+    // A ternary of code that parses has its three parts.
+    /* v8 ignore next -- @preserve */
+    if (!conditionNode || !consequentNode || !alternateNode) continue;
 
     const positiveCondition = invertNegatedTest(conditionNode);
     if (!positiveCondition) {
@@ -698,20 +696,15 @@ function buildNegatedTernaryFix(
       continue;
     }
 
-    // Ternaries nest, so prefer the smallest one covering the reported position — that is the
-    // expression the rule actually reported on.
-    const size = end - start;
-    if (best && best.size <= size) {
-      continue;
-    }
+    // Ternaries nest, the nodes in pre-order: the last one covering the reported position is the innermost, the
+    // expression the rule reported on.
     best = {
       range: [start, end],
       text: `${positiveCondition} ? ${alternateNode.text.trim()} : ${consequentNode.text.trim()}`,
-      size,
     };
   }
 
-  return best ? { range: best.range, text: best.text } : null;
+  return best;
 }
 
 /**
@@ -951,9 +944,9 @@ function translateFix(
     }
 
     const condition = block.javascriptPartialNode?.nodes.find((n) => n.type === 'parenthesized_expression')?.text;
-    if (!condition) {
-      return null;
-    }
+    // The rule reports an `if (…) {`, whose condition is in parentheses.
+    /* v8 ignore next -- @preserve */
+    if (!condition) return null;
 
     const [truthyContent, falsyContent = ''] = branches.map((branch) => renderedOf(branch.children));
 
@@ -1212,6 +1205,8 @@ export function getDiagnosticBlocks(
   const diagnostics = getVirtualCodeMetadata(context.sourceCode.text)?.diagnostics ?? [];
   const offsets = new Set(diagnostics.filter((diagnostic) => diagnostic.code === code).map(({ offset }) => offset));
   if (offsets.size === 0) return [];
+  // A virtual code with the metadata of a template has its blocks.
+  /* v8 ignore next -- @preserve */
   return (getFileBlocks(context.filename)?.segments ?? [])
     .filter(({ block }) => block.tagType !== 'directive-comment' && offsets.has(block.tagOffset))
     .map(({ block, startLine, startOffset }) => {
@@ -1278,16 +1273,11 @@ function droppedEnd(sourceText: string, texts: EjsText[], offset: number): numbe
 /**
  * The fix of edits of the template, the rest of it rendering as before (`editTemplate()` of the parser, on the template
  * built already): one replacement, of the edits and of what is written again around them, without what is left as it
- * was. Null when they cannot be applied (`editTemplate()` throws a RangeError).
+ * was. The edits delete whole tags, or a part of a text: none is out of the template, overlaps another, or cuts a
+ * tag, which `editTemplate()` refuses.
  */
-function editFix(template: EjsTemplate, edits: EjsEdit[]): Rule.Fix | null {
-  let edited: string;
-  try {
-    edited = editTemplate(template, edits).template;
-  } catch (error) {
-    if (error instanceof RangeError) return null;
-    throw error;
-  }
+function editFix(template: EjsTemplate, edits: EjsEdit[]): Rule.Fix {
+  const edited = editTemplate(template, edits).template;
   const source = template.text;
   // The edits, with what is written again around them but not what is left as it was. Never short of an edit: a
   // deletion followed by the characters it starts with would otherwise move onto them.
@@ -1311,7 +1301,7 @@ function editFix(template: EjsTemplate, edits: EjsEdit[]): Rule.Fix | null {
 }
 
 /** The fix removing a tag, with what EJS drops after it, the rest of the template rendering as before. */
-function removeTag(block: TagBlock, template: EjsTemplate): Rule.Fix | null {
+function removeTag(block: TagBlock, template: EjsTemplate): Rule.Fix {
   return editFix(template, [{ offset: block.tagOffset, length: block.tagLength }]);
 }
 
@@ -1323,14 +1313,15 @@ function strayCloseDelimiterSuggestions(diagnostic: EjsDiagnostic, template: Ejs
   const { offset, length } = diagnostic;
   const texts = template.nodes.filter((node) => node.kind === 'text');
   const deletedEnd = droppedEnd(template.text, texts, offset + length);
-  const suggestions: Linter.LintSuggestion[] = [];
-  const literal = editFix(template, [
-    { offset, length: deletedEnd - offset, text: [template.text.slice(offset, deletedEnd)] },
-  ]);
-  if (literal) suggestions.push({ desc: 'Write it literally, the output then has it', fix: literal });
-  const deleted = editFix(template, [{ offset, length: deletedEnd - offset }]);
-  if (deleted) suggestions.push({ desc: 'Delete it, the output unchanged', fix: deleted });
-  return suggestions;
+  return [
+    {
+      desc: 'Write it literally, the output then has it',
+      fix: editFix(template, [
+        { offset, length: deletedEnd - offset, text: [template.text.slice(offset, deletedEnd)] },
+      ]),
+    },
+    { desc: 'Delete it, the output unchanged', fix: editFix(template, [{ offset, length: deletedEnd - offset }]) },
+  ];
 }
 
 /**
@@ -1354,12 +1345,12 @@ function rangeOf(
 }
 
 function answerDiagnosticRequests(
-  requests: (Linter.LintMessage | Linter.SuppressedLintMessage)[],
+  messages: (Linter.LintMessage | Linter.SuppressedLintMessage)[],
   diagnostics: EjsDiagnostic[],
   template: EjsTemplate,
 ): Linter.LintMessage[] {
   const sourceText = template.text;
-  return requests.flatMap((request) => {
+  return messages.flatMap((request) => {
     const { ruleId, severity } = request;
     if (!isDiagnosticRuleId(ruleId)) return [];
     const code = DIAGNOSTIC_RULES[ruleId];
@@ -1395,7 +1386,8 @@ function extractUnusedDirectiveRuleIds(message: string): string[] {
 
 /**
  * Find the matching `eslint-enable` directive for an `eslint-disable` directive listing rules: the next
- * `eslint-enable` without a rule list, which re-enables them all, or with the same rules, in any order.
+ * `eslint-enable` without a rule list, which re-enables them all, or with the same rules, in any order. Its rules
+ * with it, none for one without a list.
  *
  * Used for translating fixes that remove or update unused `eslint-disable` directives,
  * so the corresponding `eslint-enable` can be updated or removed together.
@@ -1404,7 +1396,7 @@ function findMatchingEnableDirective(
   blocks: TagBlock[],
   currentBlockIndex: number,
   disableRuleIds: string[],
-): { block: TagBlock; index: number } | null {
+): { block: TagBlock; index: number; ruleIds: string[] } | null {
   // An `eslint-disable-next-line` ends with its synthesized `eslint-enable`, which is no tag of the template.
   if (blocks[currentBlockIndex].nextLineDirective) {
     return null;
@@ -1416,17 +1408,12 @@ function findMatchingEnableDirective(
     const enableMatch = /^eslint-enable(?:\s+(.*))?$/u.exec(block.codeContent);
     if (!enableMatch) continue;
     const [, enableRuleListRaw = ''] = enableMatch;
-    const enableRuleIds = new Set(
-      enableRuleListRaw
-        .split(',')
-        .map((r) => r.trim())
-        .filter((r) => r.length > 0),
-    );
-    if (
-      enableRuleIds.size === 0 ||
-      (enableRuleIds.size === disabled.size && [...disabled].every((r) => enableRuleIds.has(r)))
-    ) {
-      return { block, index: i };
+    const ruleIds = enableRuleListRaw
+      .split(',')
+      .map((r) => r.trim())
+      .filter((r) => r.length > 0);
+    if (ruleIds.length === 0 || (ruleIds.length === disabled.size && ruleIds.every((r) => disabled.has(r)))) {
+      return { block, index: i, ruleIds };
     }
   }
   return null;
@@ -1438,108 +1425,67 @@ function findMatchingEnableDirective(
  * When ESLint reports `Unused eslint-disable directive (no problems from 'rule-a')`,
  * this determines:
  * 1. Whether to remove the disable directive entirely or update it to keep only used rules
- * 2. Whether to remove/update a matching enable directive
- *
- * Returns a fix object with:
- * - **disableFix**: removes entire directive or updates rule list; absent when a removal cannot keep what the
- *   template renders (see `removeTag()`), which drops the matching enable fix too
- * - **enableBlock/enableFix**: Optionally returned if a matching enable directive is found
+ * 2. Whether to remove/update a matching enable directive listing the rules, at `enableIndex` among the blocks
  *
  * A directive removed goes with what EJS drops after its tag, the line break after a `-%>`: left behind, it would
  * render.
- *
- * If no matching enable is found or blocks/blockIndex not provided, returns only disableFix.
  */
 function translateUnusedDirectiveFix(
   msg: Linter.LintMessage,
-  block: TagBlock,
+  blocks: TagBlock[],
+  blockIndex: number,
   template: EjsTemplate,
-  blocks?: TagBlock[],
-  blockIndex?: number,
-): {
-  disableFix?: { range: [number, number]; text: string };
-  enableBlock?: TagBlock;
-  enableFix?: { range: [number, number]; text: string };
-} | null {
-  if (!block.isDirectiveComment || msg.ruleId !== null || !msg.message.startsWith('Unused eslint-disable directive')) {
-    return null;
-  }
-
+): { disableFix: Rule.Fix; enableIndex?: number; enableFix?: Rule.Fix } | null {
+  const block = blocks[blockIndex];
   const directiveMatch = /^eslint-disable(?:-next-line)?(?:\s+(.*))?$/u.exec(block.codeContent);
-  if (!directiveMatch) {
+  if (
+    !block.isDirectiveComment ||
+    msg.ruleId !== null ||
+    !msg.message.startsWith('Unused eslint-disable directive') ||
+    !directiveMatch
+  ) {
     return null;
   }
 
   const [, ruleListRaw = ''] = directiveMatch;
-  const ruleListText = ruleListRaw.trim();
-  if (ruleListText.length === 0) {
-    // `eslint-disable` with no explicit rule list: drop the whole directive tag.
-    return { disableFix: removeTag(block, template) ?? undefined };
-  }
-
-  const currentRuleIds = ruleListText
+  const currentRuleIds = ruleListRaw
     .split(',')
     .map((r) => r.trim())
     .filter((r) => r.length > 0);
+  if (currentRuleIds.length === 0) {
+    // `eslint-disable` with no explicit rule list: drop the whole directive tag.
+    return { disableFix: removeTag(block, template) };
+  }
+
+  // ESLint names the unused rules as the directive lists them.
   const unusedRuleIds = new Set(extractUnusedDirectiveRuleIds(msg.message));
-  if (unusedRuleIds.size === 0) {
-    return null;
-  }
-
   const remainingRuleIds = currentRuleIds.filter((ruleId) => !unusedRuleIds.has(ruleId));
-  if (remainingRuleIds.length === currentRuleIds.length) {
-    return null;
-  }
+  /* v8 ignore next -- @preserve */
+  if (remainingRuleIds.length === currentRuleIds.length) return null;
 
-  let disableFix: { range: [number, number]; text: string } | undefined;
+  const disableFix =
+    remainingRuleIds.length === 0
+      ? removeTag(block, template)
+      : {
+          range: [block.tagOffset, block.tagOffset + block.tagLength] satisfies [number, number],
+          text: `<%# ${block.nextLineDirective ? 'eslint-disable-next-line' : 'eslint-disable'} ${remainingRuleIds.join(', ')} ${block.closeDelim}`,
+        };
 
-  if (remainingRuleIds.length === 0) {
-    disableFix = removeTag(block, template) ?? undefined;
-  } else {
-    disableFix = {
-      range: [block.tagOffset, block.tagOffset + block.tagLength],
-      text: `<%# ${block.nextLineDirective ? 'eslint-disable-next-line' : 'eslint-disable'} ${remainingRuleIds.join(', ')} ${block.closeDelim}`,
-    };
-  }
-
-  // Look for matching eslint-enable directive if we have segments info
-  const result: {
-    disableFix?: { range: [number, number]; text: string };
-    enableBlock?: TagBlock;
-    enableFix?: { range: [number, number]; text: string };
-  } = {
+  // An `eslint-enable` without a rule list needs no update.
+  const enable = findMatchingEnableDirective(blocks, blockIndex, currentRuleIds);
+  if (!enable || enable.ruleIds.length === 0) return { disableFix };
+  return {
     disableFix,
+    enableIndex: enable.index,
+    // Both removed: an `eslint-enable` left alone would enable rules nothing disables.
+    enableFix:
+      remainingRuleIds.length === 0
+        ? removeTag(enable.block, template)
+        : {
+            range: [enable.block.tagOffset, enable.block.tagOffset + enable.block.tagLength],
+            text: `<%# eslint-enable ${remainingRuleIds.join(', ')} ${enable.block.closeDelim}`,
+          },
   };
-
-  if (disableFix && blocks && blockIndex !== undefined) {
-    const matchingEnable = findMatchingEnableDirective(blocks, blockIndex, currentRuleIds);
-    if (matchingEnable) {
-      const enableRuleListMatch = /^eslint-enable(?:\s+(.*))?$/u.exec(matchingEnable.block.codeContent);
-      if (enableRuleListMatch) {
-        const [, enableRuleListRaw = ''] = enableRuleListMatch;
-        const enableRuleListText = enableRuleListRaw.trim();
-        if (enableRuleListText.length === 0) {
-          // enable has no rule list, no need to update
-        } else {
-          // Update enable directive to match the remaining rules
-          result.enableBlock = matchingEnable.block;
-          if (remainingRuleIds.length === 0) {
-            const enableFix = removeTag(matchingEnable.block, template);
-            // Both removed, or neither: an `eslint-enable` left alone would enable rules nothing disables.
-            if (!enableFix) return { enableBlock: undefined };
-            result.enableFix = enableFix;
-          } else {
-            result.enableFix = {
-              range: [matchingEnable.block.tagOffset, matchingEnable.block.tagOffset + matchingEnable.block.tagLength],
-              text: `<%# eslint-enable ${remainingRuleIds.join(', ')} ${matchingEnable.block.closeDelim}`,
-            };
-          }
-        }
-      }
-    }
-  }
-
-  return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -1600,9 +1546,12 @@ export const processor: Linter.Processor = {
         diagnostics,
       });
     } catch (error) {
+      // A template built validates, and gives its blocks: the trees freed all the same, on a bug.
+      /* v8 ignore start -- @preserve */
       processedFilesMap.delete(filename);
       cleanupTemplate(template);
       throw error;
+      /* v8 ignore stop -- @preserve */
     }
 
     if (blocks.length === 0) {
@@ -1662,7 +1611,7 @@ export const processor: Linter.Processor = {
         // (last codeContent segment is all whitespace). If the close is on the
         // same line as the last content line, normalizing it would conflict with
         // `format: same-line`, causing a circular fix.
-        const lastSegment = block.codeContent.split('\n').pop() ?? '';
+        const lastSegment = block.codeContent.slice(block.codeContent.lastIndexOf('\n') + 1);
         if (lastSegment.trim() !== '') return false;
         const normalizedText = buildIndentedTag(block, { normalizeContent: true });
         const currentText = block.lineIndent + block.openDelim + block.codeContent + block.closeDelim;
@@ -1691,18 +1640,21 @@ export const processor: Linter.Processor = {
    */
   postprocess(messages: Linter.LintMessage[][], filename: string): Linter.LintMessage[] {
     const processedFile = processedFilesMap.get(filename);
-    if (!processedFile) {
+    const fileBlocks = fileBlocksMap.get(filename);
+    if (!processedFile || !fileBlocks) {
       throw new Error(`Unexpectedly did not find processed file data for ${filename}`);
     }
     try {
       const sourceText = processedFile.sourceText;
-      const { segments = [] } = fileBlocksMap.get(filename) ?? {};
+      const { segments } = fileBlocks;
       fileBlocksMap.delete(filename);
       const currentVirtualCode = `${GLOBAL_VIRTUAL_OPEN}${segments.map((s) => s.block.virtualCode).join('\n')}${GLOBAL_VIRTUAL_CLOSE}`;
       virtualCodeMetadataMap.delete(currentVirtualCode);
 
+      // The messages of the one virtual code, none without one.
+      const virtualMessages = messages[0] ?? [];
       const answeredMessages = answerDiagnosticRequests(
-        (messages[0] ?? []).filter((msg) => isDiagnosticRuleId(msg.ruleId)),
+        virtualMessages,
         processedFile.diagnostics,
         processedFile.template,
       );
@@ -1716,7 +1668,6 @@ export const processor: Linter.Processor = {
       // false positives for rules that require cross-tag flow/scope.
       const suppressedRuleIds = new Set(['no-undef']);
 
-      const virtualMessages = messages[0] ?? [];
       logVirtualCodeOnFatal(filename, virtualMessages, segments);
       const hasIndentMessages = virtualMessages.some((msg) => msg.ruleId === 'ejs-templates/indent');
 
@@ -1784,44 +1735,23 @@ export const processor: Linter.Processor = {
           const mapped = mapMessage(localMsg, segment.block, sourceText, endSegment.block);
 
           if (mapped.fix) {
-            const blocks = segments.map((s) => s.block);
-            const unusedDirectiveFixResult = translateUnusedDirectiveFix(
+            const unusedDirective = translateUnusedDirectiveFix(
               mapped,
-              segment.block,
-              processedFile.template,
-              blocks,
+              segments.map((s) => s.block),
               segmentIndex,
+              processedFile.template,
             );
-            if (unusedDirectiveFixResult) {
-              const result: Linter.LintMessage[] = [];
-              const { disableFix } = unusedDirectiveFixResult;
-              if (disableFix) {
-                result.push({ ...mapped, fix: disableFix });
-              } else {
-                // No removal keeps what the template renders: the directive is reported, not fixed.
-                const unfixed = { ...mapped };
-                delete unfixed.fix;
-                result.push(unfixed);
-              }
-              // Handle enable directive fix in a separate message(s)
-              if (unusedDirectiveFixResult.enableBlock && unusedDirectiveFixResult.enableFix) {
-                // Find the virtual block range for the enable directive to calculate correct position
-                const enableBlockIndex = blocks.indexOf(unusedDirectiveFixResult.enableBlock);
-                if (enableBlockIndex !== -1) {
-                  const enableSegment = segments[enableBlockIndex];
-                  const enableMappedMsg = mapMessage(
-                    {
-                      ruleId: null,
-                      message: 'Unused eslint-disable directive',
-                      severity: 2,
-                      line: enableSegment.startLine + 1,
-                      column: 1,
-                    },
-                    unusedDirectiveFixResult.enableBlock,
-                    sourceText,
-                  );
-                  result.push({ ...enableMappedMsg, fix: unusedDirectiveFixResult.enableFix });
-                }
+            if (unusedDirective) {
+              const result: Linter.LintMessage[] = [{ ...mapped, fix: unusedDirective.disableFix }];
+              const { enableIndex, enableFix } = unusedDirective;
+              // The enable directive fixed in a message of its own, at its tag.
+              if (enableIndex !== undefined && enableFix) {
+                const enableMappedMsg = mapMessage(
+                  { ruleId: null, message: 'Unused eslint-disable directive', severity: 2, line: 1, column: 1 },
+                  segments[enableIndex].block,
+                  sourceText,
+                );
+                result.push({ ...enableMappedMsg, fix: enableFix });
               }
               return result;
             }
@@ -1899,6 +1829,8 @@ export const processor: Linter.Processor = {
                 line: msg.line - segment.startLine + 1,
                 column: msg.column,
               };
+              // A parsing error of ESLint has no end.
+              /* v8 ignore next -- @preserve */
               if (msg.endLine !== undefined) {
                 localMsg.endLine = msg.endLine - segment.startLine + 1;
                 localMsg.endColumn = msg.endColumn;

@@ -187,7 +187,10 @@ function writtenTagOf(node: EjsSyntaxNode): WrittenTag {
   // Extract opening/closing delimiters and code content from tree-sitter nodes.
   const openDelimText = node.children[0]?.text;
   const closeDelimText = node.children[node.childCount - 1]?.text;
+  // tree-sitter opens and closes a tag with a delimiter of these.
+  /* v8 ignore next -- @preserve */
   const openDelim = EJS_OPENING_DELIMS.find((delim) => delim === openDelimText) ?? '<%';
+  /* v8 ignore next -- @preserve */
   const parsedCloseDelim = EJS_CLOSING_DELIMS.find((delim) => delim === closeDelimText) ?? '%>';
   const codeNode = node.namedChildren.find((c) => c.type === 'code');
   const parsedCodeContent: string = codeNode?.text ?? '';
@@ -380,6 +383,8 @@ export function getEjsTags(nodes: readonly EjsSyntaxNode[]): EjsTag[] {
   let unbalancedNodes: Map<number, SyntaxNode[]> | undefined;
   const inProgram = (start: number) => (): CodeInTree => ({
     start,
+    // A tag reading its nodes in the program has its range in `unbalanced`, which the walk gives nodes to.
+    /* v8 ignore next -- @preserve */
     nodes: () => (unbalancedNodes ??= collectNodesInRanges(root(), unbalanced)).get(start) ?? [],
   });
 
@@ -391,6 +396,8 @@ export function getEjsTags(nodes: readonly EjsSyntaxNode[]): EjsTag[] {
       tags.push({ ...tag, depthBefore: braceDepth, depthAfter: braceDepth });
       continue;
     }
+    // A template with a code tag has a program.
+    /* v8 ignore next -- @preserve */
     if (!parsed) throw new Error('Unexpectedly did not find the program of a code tag');
     const { start, end, codeStart } = parsed.codes[codeIndex];
     const javascript = readTagCode(tag.parsedCode, parsed.read[codeIndex++], inProgram(codeStart), release);
