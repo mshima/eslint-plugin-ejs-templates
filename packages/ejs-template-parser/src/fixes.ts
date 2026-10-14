@@ -134,6 +134,10 @@ const splitTags = (tag: EjsCodeTag, indentSplitTags: boolean): string => {
  *
  * The fixes of the slurp tags and of the comment tags change the blanks and the line breaks the template renders:
  * what the conventions are about. The fixes of `indent` and `prefer-single-line-tags` keep what it renders.
+ *
+ * The text of a fix is not stable: the range it replaces and how it writes the tags may change from one version to
+ * another, in a minor or a patch release too. What it does is kept: it resolves the diagnostic, keeping what the
+ * template renders where it does.
  */
 export function fixOf(
   template: EjsTemplate,

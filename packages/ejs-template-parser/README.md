@@ -227,6 +227,12 @@ The fixes of the slurp tags and of the comment tags change the blanks and the li
 template renders, what these conventions are about; the fixes of `indent` and
 `prefer-single-line-tags` keep what it renders.
 
+The text of a fix is not stable: the range it replaces and how it writes the tags may change from
+one version to another, in a minor or a patch release too. What a fix does is kept: it resolves
+the diagnostic, and the fixes of `indent` and `prefer-single-line-tags` keep what the template
+renders. Compare fixed templates by what they render rather than by their text, and do not store a
+fix to apply it with another version.
+
 ```ts
 const template = buildTemplate(text);
 try {
