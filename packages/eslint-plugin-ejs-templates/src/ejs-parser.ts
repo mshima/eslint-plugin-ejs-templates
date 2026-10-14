@@ -40,6 +40,13 @@ type BlockBase = {
   originalLine: number;
   /** 0-based column in the original EJS file where the JS code content starts. */
   originalColumn: number;
+  /**
+   * The blanks the first line of the code starts with in the virtual code: as many as its column in the template
+   * (`originalColumn`), so that every line of the code is at its column there, and a rule measuring the indentation of
+   * a line from the one of another (`@stylistic/indent-binary-ops`) measures it as in the template. 0 for a comment,
+   * and for a first line without code.
+   */
+  virtualIndent: number;
   /** Character offset of the tag start (`<`) in the original source. */
   tagOffset: number;
   /** Total length of the original tag (opening delimiter + content + closing delimiter). */
@@ -156,6 +163,7 @@ function createDirectiveCommentBlock(params: {
     tagColumn,
     originalLine: tagLine,
     originalColumn: tagColumn,
+    virtualIndent: 0,
     tagOffset,
     tagLength,
     tagType: 'directive-comment',
@@ -238,6 +246,7 @@ export function extractTagBlocks(tags: EjsTag[], diagnostics: readonly EjsDiagno
             tagLength,
             originalLine: tagLine,
             originalColumn: tagColumn,
+            virtualIndent: 0,
             tagType: 'comment-empty-line',
             codeContent: '',
             lintCodeContent: '',
@@ -352,8 +361,12 @@ export function extractTagBlocks(tags: EjsTag[], diagnostics: readonly EjsDiagno
     // `[`/`]`, so it would BREAK cross-tag constructs like
     // `forEach(x => { ... })`.  Global brace balancing is applied in
     // `preprocess` instead.
+    // A first line without code, the code starting on the next one, is not indented: it would be blanks alone.
+    const firstLine = lintCodeContent.slice(0, lintCodeContent.indexOf('\n') + 1 || undefined);
+    const virtualIndent = firstLine.trim() === '' ? 0 : originalColumn;
     const virtualCode =
-      `//${EJS_MARKER_PREFIX}${tagType}\n` + `${lintCodeContent}${virtualBodyInlineSuffix}${virtualBodyExtraLine}`;
+      `//${EJS_MARKER_PREFIX}${tagType}\n${' '.repeat(virtualIndent)}` +
+      `${lintCodeContent}${virtualBodyInlineSuffix}${virtualBodyExtraLine}`;
 
     blocks.push({
       ejsNode: node,
@@ -362,6 +375,7 @@ export function extractTagBlocks(tags: EjsTag[], diagnostics: readonly EjsDiagno
       tagColumn,
       originalLine,
       originalColumn,
+      virtualIndent,
       tagOffset,
       tagLength,
       tagType,

@@ -213,6 +213,13 @@ to its start, or to its end for the end of a message. The end of a message is ma
 ends in, a later one for a node across tags, and a message on a marker alone, as the rules of the
 conventions report, covers its tag. The columns are 1-based, as ESLint's (`mapMessage()`).
 
+Every line of the code of a tag is at its column in the template: the lines after the first one are
+copied as they are, and the first one is indented with as many blanks as the column where the code
+starts (`virtualIndent`), unless it has no code. A rule measuring the indentation of a line from the
+one of another (`@stylistic/indent-binary-ops`) measures it as in the template; it measured the
+first line from column 0, and asked for indentations the template did not have. A position in those
+blanks maps to the start of the code, and a fix starting there is dropped.
+
 ESLint lints the virtual file once: `preprocess()` returns it alone. Parsing it and running every
 rule on it is most of the time of a lint, so a second virtual file nearly doubles it, which the
 plugin did until it returned three (the same file unwrapped, and the wrapped one again) for the
@@ -556,6 +563,7 @@ a directive or a `comment-empty-line`, which has none: test `isDirectiveComment`
   closeDelim: string; // '%>' | '-%>' | '_%>'
   originalLine: number; // 1-based line of the JS content in the EJS source
   originalColumn: number; // 0-based column of the JS content
+  virtualIndent: number; // blanks before the first line of the code in the virtual code: its column
   codeContent: string; // raw JS between the delimiters
   lintCodeContent: string; // content as sent to rules (trailing blank line removed)
   lineIndent: string; // whitespace before the tag, when standalone

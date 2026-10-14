@@ -214,16 +214,35 @@ describe('processor virtual code', () => {
     expect(line1).toBe('//@ejs-tag:escaped-output');
   });
 
+  // The first line of the code at its column in the template, as the lines after it are.
   test('virtual code line 2 is the tag code (no per-tag function wrapper)', () => {
     const blocks = extractTagBlocks(buildTemplate('<% const x = 1; %>').tags);
     const lines = blocks[0].virtualCode.split('\n');
-    expect(lines[1]).toBe(' const x = 1;');
+    expect(lines[1]).toBe('   const x = 1;');
+  });
+
+  // `@stylistic/indent-binary-ops` indents the line of a right operand from the line of its left one: the first line of
+  // the code, at its column (5, then `if` at 6), rather than at column 0, from which it asked for 3 spaces.
+  test('a rule measuring indentation from the first line measures it as in the template', () => {
+    const template = '  <%_ if (a\n  && b) { _%>\n  <%_ } _%>\n';
+    expect(lintWithStylistic(template, { '@stylistic/indent-binary-ops': 'error' })).toMatchObject([
+      { ruleId: '@stylistic/indent-binary-ops', message: 'Expected indentation of 8 spaces', line: 2, column: 1 },
+    ]);
+    expect(applyFixWithStylistic(template, { '@stylistic/indent-binary-ops': 'error' })).toBe(
+      '  <%_ if (a\n        && b) { _%>\n  <%_ } _%>\n',
+    );
+  });
+
+  test('the first line of the code at its column in the template', () => {
+    const blocks = extractTagBlocks(buildTemplate('  <%_ if (a ||\n      b) { _%>\n  <%_ } _%>\n').tags);
+    expect(blocks[0].virtualCode.split('\n').slice(1)).toEqual(['      if (a ||', '      b) {']);
+    expect(blocks[0].virtualIndent).toBe(5);
   });
 
   test('virtual code contains tag JS content directly after marker', () => {
     const blocks = extractTagBlocks(buildTemplate('<% const x = 1; %>').tags);
     const lines = blocks[0].virtualCode.split('\n');
-    expect(lines[1]).toBe(' const x = 1;');
+    expect(lines[1]).toBe('   const x = 1;');
     expect(lines).not.toContain('})()');
   });
 
@@ -237,7 +256,7 @@ describe('processor virtual code', () => {
     const blocks = extractTagBlocks(buildTemplate('<%_ const x = 1;\nconst y = 2; _%>').tags);
     const lines = blocks[0].virtualCode.split('\n');
     expect(lines[0]).toBe('//@ejs-tag:slurp-multiline');
-    expect(lines[1]).toBe(' const x = 1;');
+    expect(lines[1]).toBe('    const x = 1;');
     expect(lines[lines.length - 1]).toBe('const y = 2;');
   });
 
