@@ -985,13 +985,14 @@ Tags that open or close brace depth are left unchanged:
 
 ### `ejs-templates/slurp-newline`
 
-Ensures `<%_ … _%>` whitespace-slurping tags are on their own line. An inline
-slurp tag will not eat the preceding whitespace as intended. Apply this rule
-**after** `prefer-slurping-*` and **before** `indent-tag`.
+Ensures `<%_ … _%>` whitespace-slurping tags are on their own line. `<%_` slurps the blanks before
+it on its line, `_%>` the blanks after it and the line break that follows: on a line of its own, the
+tag slurps its indentation and its line, which renders nothing; inline, it slurps the blanks of the
+text around it, joining the text before and after it (`some text <%_ x _%> more` renders
+`some textmore`). Apply this rule **after** `prefer-slurping-*` and **before** `indent-tag`.
 
-Because slurp tags remove the newline/whitespace before them, placing each tag
-on its own line (then indenting it) makes the template easier to read and reason
-about.
+Placing each slurp tag on its own line (then indenting it) makes what it slurps the indentation
+and the line of the tag alone, and the template easier to read and reason about.
 
 |             |                                                       |
 | ----------- | ----------------------------------------------------- |

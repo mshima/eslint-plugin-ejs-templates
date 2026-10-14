@@ -12,17 +12,15 @@ import { reportConventions } from '../processor.js';
 /**
  * ESLint rule: ensure `<%_ … _%>` tags are on their own line.
  *
- * A whitespace-slurping `<%_ … _%>` tag that appears inline after other
- * content on the same line will not behave as intended — the leading
- * whitespace/newline of that line will not be eaten.  This rule detects
- * such tags and offers an autofix that inserts a newline immediately
- * before the tag.
+ * A whitespace-slurping `<%_ … _%>` tag inline after other content on its line slurps the blanks of the text
+ * around it, `<%_` the ones before it and `_%>` the ones after it with the line break that follows, joining the
+ * text before and after it (`some text <%_ x _%> more` renders `some textmore`); on a line of its own, it slurps
+ * its indentation and its line alone. This rule detects such tags and offers an autofix that inserts a newline
+ * immediately before the tag.
  *
- * The tags are the ones ejs-template-parser reports with its `slurp-newline`
- * diagnostic (`validateTemplate()`); the processor marks them with the
- * `slurp-not-standalone` type, which picks the fix.
- * Apply this rule **after** `prefer-slurping-codeonly` / `prefer-slurp-multiline`
- * and **before** `indent` in your ESLint config.
+ * The tags are the ones ejs-template-parser reports with its `slurp-newline` diagnostic (`validateTemplate()`),
+ * whose fix `fixOf()` of the parser gives. Apply this rule **after** `prefer-slurping-codeonly` /
+ * `prefer-slurp-multiline` and **before** `indent-tag` in your ESLint config.
  *
  * ```ejs
  * <!-- ✗ violation: slurp tag is inline after other content -->
