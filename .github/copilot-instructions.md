@@ -484,6 +484,12 @@ spanning lines whose content needs re-indenting, which the parser does not diagn
 indents the tags it splits (`indentSplitTags`, when `indent` reports too). Compare the messages and
 fixes of the plugin on the templates of generator-jhipster, before and after, for any change there.
 
+The fix of `indent` with `normalizeContent` leaves as written the line where the right operand of
+a binary expression starts, apart from its left one: `@stylistic/indent-binary-ops` indents that
+line, from the line of the left operand, and the two fixed each other until ESLint gave up
+(`ESLintCircularFixesWarning`). A rule of `@stylistic` the plugin's configurations keep and a fix
+of the plugin indenting the same lines must not both decide them.
+
 ### The parsed code of a tag
 
 `getEjsTags()` parses `parsedCode`: the code without the line break (and the indentation after

@@ -38,6 +38,38 @@ export type EjsFixOptions = {
 /** The indentation of a block level. */
 const INDENT_UNIT = '  ';
 
+/** An operator at the end of a line, or at the start of the next one: a binary expression may span the two. */
+const OPERATOR_AT_LINE_BREAK = /[&|?+\-*/%<>=^!]\s*\n|\n\s*(?:[&|?+\-*/%<>=^!]|in\s|instanceof\s)/;
+
+/**
+ * The lines of the code of a tag, from the first one of its code trimmed (0), where the right operand of a binary
+ * expression starts, apart from its left one: the lines `@stylistic/indent-binary-ops` indents, from the line of the
+ * left operand, which normalizeContent leaves as they are rather than fixing them in turn. The tree of the code is
+ * read only when an operator is at a line break.
+ */
+const binaryOperandLines = (tag: EjsCodeTag): Set<number> => {
+  const lines = new Set<number>();
+  if (!OPERATOR_AT_LINE_BREAK.test(tag.code)) return lines;
+  const { nodes, start } = tag.javascript;
+  const trimmed = tag.code.length - tag.code.trimStart().length;
+  const lineOf = (index: number) => {
+    let line = 0;
+    for (let at = trimmed; at < index; at++) if (tag.code[at] === '\n') line++;
+    return line;
+  };
+  for (const node of nodes) {
+    if (node.type !== 'binary_expression') continue;
+    const left = node.childForFieldName('left');
+    const right = node.childForFieldName('right');
+    // A binary expression has its two operands.
+    /* v8 ignore next -- @preserve */
+    if (!left || !right) continue;
+    const rightLine = lineOf(right.startIndex - start);
+    if (rightLine !== lineOf(left.endIndex - start)) lines.add(rightLine);
+  }
+  return lines;
+};
+
 /** The text of a tag written at the indentation of its depth, `expectedIndent`, from the start of its line. */
 const indentedTag = (tag: EjsCodeTag, normalizeContent: boolean): string => {
   const tagText = `${tag.openDelim}${tag.code}${tag.closeDelim}`;
@@ -54,9 +86,10 @@ const indentedTag = (tag: EjsCodeTag, normalizeContent: boolean): string => {
     line.endsWith('{') || line.endsWith('(') || line.endsWith('[') || line.endsWith('=>');
   const isCloseBlock = (line: string) => line.startsWith('}') || line.startsWith(')') || line.startsWith(']');
   const isContinueStatement = (line: string) => /^[=?:|&><]/.test(line) || /^\.[^.]/.test(line);
+  const operandLines = normalizeContent ? binaryOperandLines(tag) : new Set<number>();
   let relativeBlockIndent = isOpenBlock(firstLine) ? 1 : 0;
   const relativeStatementIndentStack: number[] = [];
-  for (const line of contentLines.slice(1)) {
+  for (const [index, line] of contentLines.slice(1).entries()) {
     if (!normalizeContent) {
       lines.push(line);
       continue;
@@ -65,7 +98,12 @@ const indentedTag = (tag: EjsCodeTag, normalizeContent: boolean): string => {
     const relativeStatementIndent = isContinueStatement(trimmedLine) ? 1 : 0;
     if (isCloseBlock(trimmedLine)) relativeBlockIndent = Math.max(0, relativeBlockIndent - 1);
     const depth = relativeBlockIndent + relativeStatementIndent + (relativeStatementIndentStack.at(-1) ?? 0);
-    lines.push(`${contentIndent}${INDENT_UNIT.repeat(depth)}${trimmedLine}`.trimEnd());
+    // The line of a right operand, its indentation the one `@stylistic/indent-binary-ops` gives it.
+    lines.push(
+      operandLines.has(index + 1)
+        ? line.trimEnd()
+        : `${contentIndent}${INDENT_UNIT.repeat(depth)}${trimmedLine}`.trimEnd(),
+    );
     if (isCloseBlock(trimmedLine)) relativeStatementIndentStack.pop();
     if (isOpenBlock(trimmedLine)) {
       relativeStatementIndentStack.push(relativeStatementIndent);

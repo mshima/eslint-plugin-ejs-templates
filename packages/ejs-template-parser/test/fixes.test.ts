@@ -104,6 +104,21 @@ describe('fixOf', () => {
       { normalizeContent: true },
       '<%_ if (a) { _%>\n  <%_ b();\n      c();\n  _%>\n<%_ } _%>\n',
     ],
+    // The line where the right operand of a binary expression starts, apart from the left one, as written: the line
+    // `@stylistic/indent-binary-ops` indents.
+    [
+      'indent',
+      '<%_ if (a) { _%>\n<%_ const x = a\n        && b;\nconst y = c ||\n b;\n_%>\n<%_ } _%>\n',
+      { normalizeContent: true },
+      '<%_ if (a) { _%>\n  <%_ const x = a\n        && b;\n      const y = c ||\n b;\n  _%>\n<%_ } _%>\n',
+    ],
+    // An operator at a line break, of no binary expression spanning lines.
+    [
+      'indent',
+      '<%_ if (a) { _%>\n<%_ const x = a + 1;\n!a && b();\n_%>\n<%_ } _%>\n',
+      { normalizeContent: true },
+      '<%_ if (a) { _%>\n  <%_ const x = a + 1;\n      !a && b();\n  _%>\n<%_ } _%>\n',
+    ],
   ] as const)('%s %j', (code, text, options, expected) => {
     const result = fixed(text, code, options);
     expect(result).toBe(expected);
