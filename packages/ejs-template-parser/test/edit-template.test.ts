@@ -61,7 +61,7 @@ describe('editTemplate', () => {
     });
 
     test('the close delimiter whose literal mode a deletion ends is written %%>', () => {
-      // The template of jhipster-workbench: `a <%% b %> c\n` renders `a <% b %> c\n`, the file edited to `a b %> c\n`.
+      // A deletion ending a literal mode: `a <%% b %> c\n` renders `a <% b %> c\n`, the file edited to `a b %> c\n`.
       expect(editTemplate('a <%% b %> c\n', [{ offset: 2, length: 4 }])).toEqual({
         template: 'a b %%> c\n',
         offsets: [0, 1, 2, 2, 2, 2, 2, 3, 4, 5, 6, 8, 9, 10],
