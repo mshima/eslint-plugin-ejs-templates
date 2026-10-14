@@ -856,6 +856,26 @@ describe('plugin shape', () => {
     expect(config.rules?.['@stylistic/eol-last']).toBe('off');
   });
 
+  // `@stylistic/indent-binary-ops` asks for some lines of right operands as much indentation as the line the expression
+  // starts on, which `indent` accepts then (`binaryOperands`).
+  test.each<[string, Config[], unknown]>([
+    [
+      'on',
+      [{ rules: { '@stylistic/indent-binary-ops': ['error', 2] } }],
+      ['error', { binaryOperands: 'greaterOrEqual' }],
+    ],
+    [
+      'turned off after',
+      [{ rules: { '@stylistic/indent-binary-ops': 'error' } }, { rules: { '@stylistic/indent-binary-ops': 0 } }],
+      'error',
+    ],
+    ['not set', [{ rules: { '@stylistic/semi': 'error' } }], 'error'],
+  ])('customize sets indent by @stylistic/indent-binary-ops %s', (_label, stylisticConfigs, expected) => {
+    const configs = plugin.configs.customize({}, ...stylisticConfigs);
+    const indentConfig = configs.find((config) => config.rules?.['ejs-templates/indent'] !== undefined);
+    expect(indentConfig?.rules?.['ejs-templates/indent']).toEqual(expected);
+  });
+
   test('customize turns off prettier/prettier with prettierBlocklist', () => {
     const [config] = plugin.configs.customize({ prettierBlocklist: true });
     expect(config.rules?.['prettier/prettier']).toBe('off');

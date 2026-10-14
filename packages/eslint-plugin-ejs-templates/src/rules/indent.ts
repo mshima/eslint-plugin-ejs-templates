@@ -9,6 +9,7 @@
 import type { Rule } from 'eslint';
 import {
   SENTINEL_INDENT_NORMALIZE,
+  SENTINEL_INDENT_NORMALIZE_GREATER_OR_EQUAL,
   conventionSentinel,
   getDiagnosticBlocks,
   getTagBlocks,
@@ -26,7 +27,10 @@ import { isRecord, type VirtualMarkerComment } from '../utils.js';
  * match the expected `brace-depth × 2-space` indentation with its `indent`
  * diagnostic (`validateTemplate()`), whose fix `fixOf()` of the parser gives.  With `normalizeContent`
  * (the default), the rule also reports the `<%_ _%>` tags spanning lines whose
- * content needs re-indenting, which the parser does not report.
+ * content needs re-indenting, which the parser does not report. The line where the right operand of a binary
+ * expression starts, apart from its left one, is accepted indented more than the line the expression starts on, by any
+ * amount (`binaryOperands: 'greater'`, the default), or as much (`'greaterOrEqual'`), as `@stylistic/indent-binary-ops`
+ * asks for some lines: `customize()` sets it when the configurations it is given enable that rule.
  *
  * Example:
  * ```ejs
@@ -58,6 +62,7 @@ export const indent: Rule.RuleModule = {
         type: 'object',
         properties: {
           normalizeContent: { type: 'boolean' },
+          binaryOperands: { enum: ['greater', 'greaterOrEqual'] },
         },
         additionalProperties: false,
       },
@@ -75,6 +80,8 @@ export const indent: Rule.RuleModule = {
     };
     const option: unknown = context.options[0];
     const normalizeContent = !isRecord(option) || option.normalizeContent !== false;
+    const binaryOperands =
+      isRecord(option) && option.binaryOperands === 'greaterOrEqual' ? 'greaterOrEqual' : 'greater';
 
     return {
       Program() {
@@ -89,7 +96,7 @@ export const indent: Rule.RuleModule = {
         }
         if (normalizeContent) {
           // Indexed as the blocks of the tags.
-          const needsNormalizeByTag = getVirtualCodeMetadata(sourceCode.text)?.needsNormalize;
+          const needsNormalizeByTag = getVirtualCodeMetadata(sourceCode.text)?.needsNormalize[binaryOperands];
           for (const [tagIndex, { comment }] of getTagBlocks(context).entries()) {
             if (needsNormalizeByTag?.[tagIndex] === true) reports.push({ comment });
           }
@@ -105,7 +112,11 @@ export const indent: Rule.RuleModule = {
               // to replacing the line-prefix whitespace before the tag.
               return fixer.replaceTextRange(
                 [range[0], range[1]],
-                normalizeContent ? SENTINEL_INDENT_NORMALIZE : conventionSentinel('indent'),
+                normalizeContent
+                  ? binaryOperands === 'greater'
+                    ? SENTINEL_INDENT_NORMALIZE
+                    : SENTINEL_INDENT_NORMALIZE_GREATER_OR_EQUAL
+                  : conventionSentinel('indent'),
               );
             },
           });

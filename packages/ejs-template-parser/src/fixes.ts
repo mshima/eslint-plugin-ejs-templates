@@ -28,6 +28,13 @@ export type EjsFixOptions = {
    */
   normalizeContent?: boolean | undefined;
   /**
+   * `indent` with `normalizeContent`: the line where the right operand of a binary expression starts, apart from its left
+   * one, is left as written when indented more than the line the expression starts on (`greater`, the default), by any
+   * amount, or as much (`greaterOrEqual`, which `@stylistic/indent-binary-ops` asks for some lines); one level more than
+   * that line otherwise.
+   */
+  binaryOperands?: 'greater' | 'greaterOrEqual' | undefined;
+  /**
    * `prefer-single-line-tags`: the tags a tag on a line of its own is split into indented at the depth of the tag and
    * of their blocks, as `indent` expects them; otherwise the first one stays where it is, the others at its
    * indentation.
@@ -54,12 +61,13 @@ const operatorAtLineBreak = (code: string): boolean => {
 
 /**
  * The lines of the code of a tag, from the first one of its code trimmed (0), where the right operand of a binary
- * expression starts, apart from its left one: the lines `@stylistic/indent-binary-ops` indents, from the line of the
- * left operand, which normalizeContent leaves as they are rather than fixing them in turn. The tree of the code is
- * read only when an operator is at a line break.
+ * expression starts, apart from its left one, each with the line the expression starts on: the lines
+ * `@stylistic/indent-binary-ops` indents, from the line of the left operand, which normalizeContent accepts indented
+ * more than that line (`binaryOperands`) rather than fixing them in turn. The tree of the code is read only when an
+ * operator is at a line break.
  */
-const binaryOperandLines = (tag: EjsCodeTag): Set<number> => {
-  const lines = new Set<number>();
+const binaryOperandLines = (tag: EjsCodeTag): Map<number, number> => {
+  const lines = new Map<number, number>();
   if (!operatorAtLineBreak(tag.code)) return lines;
   const { nodes, start } = tag.javascript;
   const trimmed = tag.code.length - tag.code.trimStart().length;
@@ -84,13 +92,19 @@ const binaryOperandLines = (tag: EjsCodeTag): Set<number> => {
     /* v8 ignore next -- @preserve */
     if (!left || !right) continue;
     const rightLine = lineOf(right.startIndex - start);
-    if (rightLine !== lineOf(left.endIndex - start)) lines.add(rightLine);
+    if (rightLine === lineOf(left.endIndex - start)) continue;
+    const expressionLine = lineOf(node.startIndex - start);
+    lines.set(rightLine, Math.min(lines.get(rightLine) ?? expressionLine, expressionLine));
   }
   return lines;
 };
 
 /** The text of a tag written at the indentation of its depth, `expectedIndent`, from the start of its line. */
-const indentedTag = (tag: EjsCodeTag, normalizeContent: boolean): string => {
+const indentedTag = (
+  tag: EjsCodeTag,
+  normalizeContent: boolean,
+  binaryOperands: 'greater' | 'greaterOrEqual',
+): string => {
   const tagText = `${tag.openDelim}${tag.code}${tag.closeDelim}`;
   if (!tagText.includes('\n')) return `${tag.expectedIndent}${tagText}`;
 
@@ -105,7 +119,9 @@ const indentedTag = (tag: EjsCodeTag, normalizeContent: boolean): string => {
     line.endsWith('{') || line.endsWith('(') || line.endsWith('[') || line.endsWith('=>');
   const isCloseBlock = (line: string) => line.startsWith('}') || line.startsWith(')') || line.startsWith(']');
   const isContinueStatement = (line: string) => /^[=?:|&><]/.test(line) || /^\.[^.]/.test(line);
-  const operandLines = normalizeContent ? binaryOperandLines(tag) : new Set<number>();
+  const operandLines = normalizeContent ? binaryOperandLines(tag) : new Map<number, number>();
+  /** The indentation of each line written, the first one at the column of the code. */
+  const written: number[] = [contentIndent.length];
   let relativeBlockIndent = isOpenBlock(firstLine) ? 1 : 0;
   const relativeStatementIndentStack: number[] = [];
   for (const [index, line] of contentLines.slice(1).entries()) {
@@ -117,12 +133,23 @@ const indentedTag = (tag: EjsCodeTag, normalizeContent: boolean): string => {
     const relativeStatementIndent = isContinueStatement(trimmedLine) ? 1 : 0;
     if (isCloseBlock(trimmedLine)) relativeBlockIndent = Math.max(0, relativeBlockIndent - 1);
     const depth = relativeBlockIndent + relativeStatementIndent + (relativeStatementIndentStack.at(-1) ?? 0);
-    // The line of a right operand, its indentation the one `@stylistic/indent-binary-ops` gives it.
-    lines.push(
-      operandLines.has(index + 1)
-        ? line.trimEnd()
-        : `${contentIndent}${INDENT_UNIT.repeat(depth)}${trimmedLine}`.trimEnd(),
-    );
+    // The line of a right operand, apart from its left one: as written when indented more than the line the expression
+    // starts on, by any amount, or as much (`binaryOperands`); one level more otherwise.
+    const expressionLine = operandLines.get(index + 1);
+    const lineIndent = line.length - trimmedLine.length;
+    let indented: string;
+    if (expressionLine === undefined) {
+      indented = `${contentIndent}${INDENT_UNIT.repeat(depth)}${trimmedLine}`;
+    } else if (
+      lineIndent > written[expressionLine] ||
+      (binaryOperands === 'greaterOrEqual' && lineIndent === written[expressionLine])
+    ) {
+      indented = line;
+    } else {
+      indented = `${' '.repeat(written[expressionLine])}${INDENT_UNIT}${trimmedLine}`;
+    }
+    lines.push(indented.trimEnd());
+    written.push(indented.length - indented.trimStart().length);
     if (isCloseBlock(trimmedLine)) relativeStatementIndentStack.pop();
     if (isOpenBlock(trimmedLine)) {
       relativeStatementIndentStack.push(relativeStatementIndent);
@@ -217,7 +244,7 @@ export function fixOf(
     case 'prefer-slurping-codeonly':
       return { offset: tag.offset, length: tag.length, text: `<%_ ${tag.code.trim()} _%>` };
     case 'indent': {
-      const text = indentedTag(tag, options.normalizeContent ?? false);
+      const text = indentedTag(tag, options.normalizeContent ?? false, options.binaryOperands ?? 'greater');
       return text === tag.linePrefix + source
         ? undefined
         : { offset: lineStart, length: tag.column + tag.length, text };

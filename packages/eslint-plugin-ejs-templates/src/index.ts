@@ -106,16 +106,31 @@ const collectEjsRules = (configs: Config[]): string[] =>
     .map((c) => c.rules ?? {})
     .flatMap((rules) => Object.keys(rules).filter((rule) => rule.startsWith(`${pluginName}/`)));
 
+/** Whether the last of the configurations setting a rule turns it on. */
+const ruleEnabled = (configs: Config[], rule: string): boolean => {
+  let enabled = false;
+  for (const { rules } of configs) {
+    const entry: unknown = rules?.[rule];
+    if (entry === undefined) continue;
+    const severity: unknown = Array.isArray(entry) ? entry[0] : entry;
+    enabled = severity !== 'off' && severity !== 0;
+  }
+  return enabled;
+};
+
 const defaultRules = ({
   allowedGlobals,
   experimental,
   ignoredRules,
   preferEncoded,
+  indentBinaryOps,
 }: {
   allowedGlobals?: string[] | undefined;
   experimental?: boolean | undefined;
   ignoredRules?: string[] | undefined;
   preferEncoded?: 'always' | 'never' | undefined;
+  /** Whether `@stylistic/indent-binary-ops` is on, which asks for some lines of right operands as much indentation. */
+  indentBinaryOps?: boolean | undefined;
 }) =>
   Object.fromEntries(
     Object.entries({
@@ -133,7 +148,7 @@ const defaultRules = ({
       [`${pluginName}/slurp-newline`]: 'error',
       [`${pluginName}/prefer-slurping-codeonly`]: 'error',
       [`${pluginName}/experimental-prefer-slurp-multiline`]: experimental ? 'error' : 'off',
-      [`${pluginName}/indent`]: 'error',
+      [`${pluginName}/indent`]: indentBinaryOps ? ['error', { binaryOperands: 'greaterOrEqual' }] : 'error',
       [`${pluginName}/format`]: 'error',
       ...(preferEncoded ? { [`${pluginName}/prefer-encoded`]: ['error', preferEncoded] } : {}),
     }).filter(([rule]) => !ignoredRules?.includes(rule)),
@@ -173,6 +188,7 @@ const customize = (
           experimental,
           preferEncoded: html === 'extension' ? undefined : html,
           ignoredRules: collectEjsRules(otherConfigs),
+          indentBinaryOps: ruleEnabled(otherConfigs, '@stylistic/indent-binary-ops'),
         }),
         ...(stylisticBlocklist ? stylisticIgnoredRules : {}),
         ...(prettierBlocklist ? ({ 'prettier/prettier': 'off' } as const) : {}),
