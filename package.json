@@ -27,7 +27,7 @@
     "@commitlint/cli": "^21.2.2",
     "@commitlint/config-conventional": "^21.2.2",
     "@eslint/js": "^10.0.1",
-    "@stylistic/eslint-plugin": "^5.10.0",
+    "@stylistic/eslint-plugin": "^6.0.1",
     "@types/debug": "^4.1.13",
     "@types/emscripten": "^1.41.5",
     "@types/node": "^26.4.0",
